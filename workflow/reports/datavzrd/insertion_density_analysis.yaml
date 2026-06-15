@@ -1,0 +1,20 @@
+__use_yte__: true
+
+name: "Insertion Density Statistics"
+
+default-view: insertion_density_stats
+
+max-in-memory-rows: 20000
+
+datasets:
+  insertion_density_stats:
+    path: ?input.table
+    separator: "\t"
+    offer-excel: true
+
+
+views:
+  insertion_density_stats:
+    dataset: insertion_density_stats
+    desc: Overview of insertion density statistics for all samples.
+    page-size: 50

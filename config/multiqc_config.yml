@@ -1,0 +1,17 @@
+use_filename_as_sample_name:
+  - fastp
+  - cutadapt
+  - fastqc
+  - samtools
+  - picard
+
+table_sample_merge:
+  "R1": "_1"
+  "R2": "_2"
+
+module_order:
+  - fastp
+  - cutadapt
+  - fastqc
+  - samtools
+  - picard

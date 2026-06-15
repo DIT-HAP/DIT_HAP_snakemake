@@ -1,0 +1,24 @@
+__use_yte__: true
+
+name: "Mapping Filtering Statistics"
+
+default-view: mapping_filtering_stats
+
+max-in-memory-rows: 20000
+
+datasets:
+  mapping_filtering_stats:
+    path: ?input.table
+    separator: "\t"
+    offer-excel: true
+
+
+views:
+  mapping_filtering_stats:
+    dataset: mapping_filtering_stats
+    desc: |
+      Overview of mapping filtering statistics for all samples.
+      Shows original, filtered, and removed read pairs for both PBL and PBR fragments,
+      along with retention rates.
+    
+    page-size: 50
