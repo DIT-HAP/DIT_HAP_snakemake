@@ -7,52 +7,41 @@ supporting reproducible scientific analysis with comprehensive logging and valid
 
 import sys
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 from loguru import logger
-from typing import List, Optional, Dict, Tuple
-from pydantic import BaseModel, Field, field_validator
+from typing import Optional, Tuple
 import pandas as pd
 
 
 # =============================== Configuration & Models ===============================
 
-class InputOutputConfig(BaseModel):
-    """Pydantic model for validating and managing input/output paths and filtering parameters."""
-    input_file: Path = Field(..., description="Path to the input TSV file with insertion reads")
-    output_file: Path = Field(..., description="Path to the output TSV file for filtered reads")
-    initial_timepoint: str = Field(..., description="Initial timepoint column name for filtering")
-    cutoff_threshold: int = Field(..., ge=0, description="Minimum read count threshold")
+@dataclass
+class InputOutputConfig:
+    """Configuration for hard filtering parameters and paths."""
+    input_file: Path
+    output_file: Path
+    initial_timepoint: str
+    cutoff_threshold: int
 
-    @field_validator('input_file')
-    def validate_input_file(cls, v: Path) -> Path:
-        if not v.exists():
-            raise ValueError(f"Input file does not exist: {v}")
-        if not v.suffix.lower() in ['.tsv', '.txt']:
-            logger.warning(f"Input file may not be TSV format: {v.suffix}")
-        return v
-    
-    @field_validator('output_file')
-    def validate_output_path(cls, v: Path) -> Path:
-        v.parent.mkdir(parents=True, exist_ok=True)
-        return v
-    
-    @field_validator('initial_timepoint')
-    def validate_timepoint(cls, v: str) -> str:
-        if not v or not v.strip():
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if not self.input_file.exists():
+            raise ValueError(f"Input file does not exist: {self.input_file}")
+        if not self.initial_timepoint.strip():
             raise ValueError("Initial timepoint cannot be empty")
-        return v.strip()
-
-    class Config:
-        frozen = True
+        self.initial_timepoint = self.initial_timepoint.strip()
+        self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-class AnalysisResult(BaseModel):
-    """Pydantic model to hold and validate the results of the filtering analysis."""
-    total_insertions: int = Field(..., ge=0, description="Total insertions before filtering")
-    retained_insertions: int = Field(..., ge=0, description="Insertions retained after filtering")
-    removed_insertions: int = Field(..., ge=0, description="Insertions removed by filtering")
-    retention_rate: float = Field(..., ge=0, le=100, description="Percentage of insertions retained")
-    samples_processed: int = Field(..., ge=0, description="Number of samples processed")
+@dataclass
+class AnalysisResult:
+    """Results of the filtering analysis."""
+    total_insertions: int
+    retained_insertions: int
+    removed_insertions: int
+    retention_rate: float
+    samples_processed: int
 
 
 # =============================== Setup Logging ===============================
@@ -238,42 +227,30 @@ def main():
     log_level = "DEBUG" if args.verbose else "INFO"
     setup_logging(log_level)
 
-    try:
-        # Validate input and output paths using the Pydantic model
-        config = InputOutputConfig(
-            input_file=args.input,
-            output_file=args.output,
-            initial_timepoint=args.init_timepoint,
-            cutoff_threshold=args.cutoff
-        )
+    config = InputOutputConfig(
+        input_file=args.input,
+        output_file=args.output,
+        initial_timepoint=args.init_timepoint,
+        cutoff_threshold=args.cutoff
+    )
 
-        logger.info(f"Starting processing of {config.input_file}")
-        
-        # Load data
-        df = load_insertion_data(config.input_file)
-        
-        # Apply filtering
-        filtered_df, results = apply_hard_filtering(df, config)
-        
-        # Save results
-        logger.info("Saving filtered results...")
-        filtered_df.to_csv(config.output_file, sep="\t", header=True, index=True)
-        
-        # Display summary
-        logger.info("=" * 70)
-        logger.info("FILTERING SUMMARY")
-        logger.info("=" * 70)
-        logger.info(f"Total insertions: {results.total_insertions:,}")
-        logger.info(f"Retained insertions: {results.retained_insertions:,}")
-        logger.info(f"Removed insertions: {results.removed_insertions:,}")
-        logger.success(f"Retention rate: {results.retention_rate:.2f}%")
-        logger.info(f"Samples processed: {results.samples_processed}")
-        
-        logger.success(f"Analysis complete. Results saved to {config.output_file}")
+    logger.info(f"Starting processing of {config.input_file}")
 
-    except ValueError as e:
-        logger.error(f"Error: {e}")
-        sys.exit(1)
+    df = load_insertion_data(config.input_file)
+    filtered_df, results = apply_hard_filtering(df, config)
+
+    logger.info("Saving filtered results...")
+    filtered_df.to_csv(config.output_file, sep="\t", header=True, index=True)
+
+    logger.info("=" * 70)
+    logger.info("FILTERING SUMMARY")
+    logger.info("=" * 70)
+    logger.info(f"Total insertions: {results.total_insertions:,}")
+    logger.info(f"Retained insertions: {results.retained_insertions:,}")
+    logger.info(f"Removed insertions: {results.removed_insertions:,}")
+    logger.success(f"Retention rate: {results.retention_rate:.2f}%")
+    logger.info(f"Samples processed: {results.samples_processed}")
+    logger.success(f"Analysis complete. Results saved to {config.output_file}")
 
 
 if __name__ == "__main__":
