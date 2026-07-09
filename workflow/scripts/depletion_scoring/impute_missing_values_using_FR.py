@@ -1,80 +1,118 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
+# Remove or adjust if managing dependencies via a traditional virtual environment.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "loguru",
+#     "pandas",
+# ]
+# ///
+
 """
-The Python script for imputing missing values using Forward-Reverse (FR) complementation.
+Impute Missing Values Using Forward-Reverse (FR) Complementation
+================================================================
 
-This script performs imputation of missing values by leveraging complementary strand
-data from genomic insertions, improving data completeness for downstream analysis.
+Fills missing insertion count values by borrowing data from the complementary
+strand. Transposon insertions occur on both the forward (+) and reverse (-)
+strands at the same genomic locus; when one strand's replicate counts are all
+missing while the opposite-strand insertion has complete data, the missing
+values are imputed from that opposite-strand insertion.
 
-Typical Usage:
-    python impute_missing_values_using_FR.py --input counts_data.tsv --annotation insertion_annotations.tsv --output imputed_counts.tsv
+Only in-gene insertions are imputed. Complete intergenic insertions are carried
+through unchanged and concatenated with the imputed in-gene set to form the
+final complete-data table used by downstream depletion analysis.
 
-Input: Counts data file with insertion information
-Output: Imputed counts data with missing values filled using FR complementation
+Input
+-----
+- Counts TSV with a 4-level row MultiIndex (Chr, Coordinate, Strand, Target) and
+  a 2-level column MultiIndex (sample, timepoint); read with header=[0, 1].
+- Insertion annotation TSV with the same 4-level row MultiIndex, providing the
+  genomic feature Type and distance columns used to separate in-gene from
+  intergenic insertions.
+
+Output
+------
+- Imputed counts TSV (same index/column structure as the input) written to the
+  --output path.
+- imputation_statistics.tsv written alongside the output, recording the number
+  of imputed replicate values per retained insertion.
+
+Usage
+-----
+    python impute_missing_values_using_FR.py -i counts.tsv -a annotations.tsv -o imputed_counts.tsv
+    python impute_missing_values_using_FR.py -i counts.tsv -a annotations.tsv -o imputed_counts.tsv --verbose
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-07-09
+Version:  1.0.0
 """
 
-# =============================== Imports ===============================
-import sys
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 import argparse
+import sys
+from dataclasses import dataclass
 from pathlib import Path
-from loguru import logger
-from typing import List, Tuple, Dict
-from pydantic import BaseModel, Field, field_validator
-import numpy as np
+
+# 2. Data Processing Imports
 import pandas as pd
 
+# 3. Third-party Imports
+from loguru import logger
 
-# =============================== Constants ===============================
+# =============================================================================
+# GLOBAL CONSTANTS & ENUMS
+# =============================================================================
 # Configuration constants for filtering
 INTERGENIC_DISTANCE_THRESHOLD = 500
 DISTANCE_TO_STOP_CODON_THRESHOLD = 3
 
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
+class ImputationConfig:
+    """Validated input/output paths for the imputation run."""
+    input_file: Path
+    annotation_file: Path
+    output_file: Path
 
-# =============================== Configuration & Models ===============================
-class ImputationConfig(BaseModel):
-    """Pydantic model for validating and managing input/output paths."""
-    input_file: Path = Field(..., description="Path to the input counts data file")
-    annotation_file: Path = Field(..., description="Path to the insertion annotation file")
-    output_file: Path = Field(..., description="Path to the output imputed counts file")
-
-    @field_validator('input_file')
-    def validate_input_file(cls, v):
-        if not v.exists():
-            raise ValueError(f"Input file does not exist: {v}")
-        if not v.suffix == '.tsv':
-            raise ValueError(f"Input file must be a TSV file: {v}")
-        return v
-    
-    @field_validator('annotation_file')
-    def validate_annotation_file(cls, v):
-        if not v.exists():
-            raise ValueError(f"Annotation file does not exist: {v}")
-        if not v.suffix == '.tsv':
-            raise ValueError(f"Annotation file must be a TSV file: {v}")
-        return v
-    
-    @field_validator('output_file')
-    def validate_output_file(cls, v):
-        v.parent.mkdir(parents=True, exist_ok=True)
-        return v
-    
-    class Config:
-        frozen = True
+    def __post_init__(self) -> None:
+        """Validate that inputs exist as TSVs and ensure the output directory exists."""
+        if not self.input_file.exists():
+            raise ValueError(f"Input file does not exist: {self.input_file}")
+        if self.input_file.suffix != ".tsv":
+            raise ValueError(f"Input file must be a TSV file: {self.input_file}")
+        if not self.annotation_file.exists():
+            raise ValueError(f"Annotation file does not exist: {self.annotation_file}")
+        if self.annotation_file.suffix != ".tsv":
+            raise ValueError(f"Annotation file must be a TSV file: {self.annotation_file}")
+        self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-class ImputationResult(BaseModel):
-    """Pydantic model to hold and validate the results of the imputation analysis."""
-    total_insertions: int = Field(..., ge=0, description="Total number of insertions processed")
-    in_gene_insertions: int = Field(..., ge=0, description="Number of insertions in coding genes")
-    intergenic_insertions: int = Field(..., ge=0, description="Number of insertions in intergenic regions")
-    complete_insertions_before: int = Field(..., ge=0, description="Number of insertions with all replicates available before imputation")
-    complete_in_gene_before: int = Field(..., ge=0, description="Number of complete insertions in coding genes before imputation")
-    complete_intergenic: int = Field(..., ge=0, description="Number of complete insertions in intergenic regions")
-    complete_in_gene_after: int = Field(..., ge=0, description="Number of complete insertions in coding genes after imputation")
-    imputed_insertions: int = Field(..., ge=0, description="Number of insertions imputed using FR complementation")
-    complementarity_used: int = Field(..., ge=0, description="Number of complementary indices used for imputation")
+@dataclass(kw_only=True, slots=True, frozen=True)
+class ImputationResult:
+    """Summary statistics describing the FR imputation outcome."""
+    total_insertions: int
+    in_gene_insertions: int
+    intergenic_insertions: int
+    complete_insertions_before: int
+    complete_in_gene_before: int
+    complete_intergenic: int
+    complete_in_gene_after: int
+    imputed_insertions: int
+    complementarity_used: int
 
 
-# =============================== Setup Logging ===============================
-def setup_logging(log_level: str = "INFO") -> None:
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+def setup_logger(log_level: str = "INFO") -> None:
     """Configure loguru for the application."""
     logger.remove()
     logger.add(
@@ -85,21 +123,15 @@ def setup_logging(log_level: str = "INFO") -> None:
     )
 
 
-# =============================== Core Functions ===============================
+# =============================================================================
+# CORE LOGIC (FUNCTIONS / CLASSES)
+# =============================================================================
 @logger.catch
-def filter_insertions(insertion_annotations: pd.DataFrame) -> Tuple[pd.Index, pd.Index]:
-    """
-    Filter insertions into intergenic and in-gene categories based on genomic annotations.
-    
-    Args:
-        insertion_annotations: DataFrame containing insertion annotations with genomic features
-        
-    Returns:
-        Tuple of (intergenic_insertions_filtered, in_gene_insertions) indices
-    """
+def filter_insertions(insertion_annotations: pd.DataFrame) -> tuple[pd.Index, pd.Index]:
+    """Split insertions into intergenic and in-gene index sets based on annotations."""
     intergenic_insertions_filtered = insertion_annotations[
-        (insertion_annotations["Type"] == "Intergenic region") & 
-        (insertion_annotations["Distance_to_region_start"] > INTERGENIC_DISTANCE_THRESHOLD) & 
+        (insertion_annotations["Type"] == "Intergenic region") &
+        (insertion_annotations["Distance_to_region_start"] > INTERGENIC_DISTANCE_THRESHOLD) &
         (insertion_annotations["Distance_to_region_end"] > INTERGENIC_DISTANCE_THRESHOLD)
     ].index
 
@@ -112,38 +144,22 @@ def filter_insertions(insertion_annotations: pd.DataFrame) -> Tuple[pd.Index, pd
 
 @logger.catch
 def transfer_FR_index(idxs: tuple) -> tuple:
-    """
-    Transfer Forward-Reverse index by flipping the strand orientation.
-    
-    Args:
-        idxs: Tuple representing the insertion index (chromosome, position, strand, ...)
-        
-    Returns:
-        Tuple with the strand orientation flipped
-    """
+    """Return the insertion index with its strand orientation flipped (+ <-> -)."""
     idxs = list(idxs)
     idxs[2] = "+" if idxs[2] == "-" else "-"
     return tuple(idxs)
 
 
 @logger.catch
-def impute_missing_values(in_gene_counts_df: pd.DataFrame) -> Tuple[pd.DataFrame, List[tuple]]:
-    """
-    Impute missing values using Forward-Reverse complementation.
-    
-    Args:
-        in_gene_counts_df: DataFrame containing insertion counts for coding genes
-        
-    Returns:
-        Tuple of (imputed_dataframe, complementary_indices_used)
-    """
+def impute_missing_values(in_gene_counts_df: pd.DataFrame) -> tuple[pd.DataFrame, list[tuple]]:
+    """Impute all-missing insertion rows from their complementary-strand counterpart."""
     stacked_df = in_gene_counts_df.stack(level=0, dropna=False)
     stacked_dropna_df = in_gene_counts_df.stack(level=0, dropna=True)
-    
+
     # Find indices with missing values
     in_gene_isna_idx = stacked_df[stacked_df.isna().all(axis=1)].index
     in_gene_complementary_idx = [transfer_FR_index(idx) for idx in in_gene_isna_idx]
-    
+
     # Find indices that have complementary data available
     in_gene_index_for_imputation = list(set(in_gene_complementary_idx) & set(stacked_dropna_df.index))
     in_gene_has_complementary_idxs = [transfer_FR_index(idx) for idx in in_gene_index_for_imputation]
@@ -153,29 +169,16 @@ def impute_missing_values(in_gene_counts_df: pd.DataFrame) -> Tuple[pd.DataFrame
 
     # Return unstacked dataframe with proper level ordering
     imputed_df = stacked_df.unstack().reorder_levels([1, 0], axis=1)
-    
+
     return imputed_df, in_gene_has_complementary_idxs
 
 
 @logger.catch
-def calculate_imputation_statistics(counts_df: pd.DataFrame, in_gene_insertions: pd.Index, 
-                                   intergenic_counts_df: pd.DataFrame, in_gene_counts_df: pd.DataFrame,
-                                   imputed_in_gene_counts_df_noNA: pd.DataFrame,
-                                   in_gene_has_complementary_idxs: List[tuple]) -> ImputationResult:
-    """
-    Calculate comprehensive statistics for the imputation process.
-    
-    Args:
-        counts_df: Original counts dataframe
-        in_gene_insertions: Insertions in coding genes
-        intergenic_counts_df: Complete intergenic counts dataframe
-        in_gene_counts_df: In-gene counts dataframe
-        imputed_in_gene_counts_df_noNA: Imputed in-gene counts without missing values
-        in_gene_has_complementary_idxs: List of complementary indices used for imputation
-        
-    Returns:
-        ImputationResult object containing all statistics
-    """
+def calculate_imputation_statistics(counts_df: pd.DataFrame, in_gene_insertions: pd.Index,
+                                    intergenic_counts_df: pd.DataFrame, in_gene_counts_df: pd.DataFrame,
+                                    imputed_in_gene_counts_df_noNA: pd.DataFrame,
+                                    in_gene_has_complementary_idxs: list[tuple]) -> ImputationResult:
+    """Compute summary counts describing insertions before and after imputation."""
     insertion_num = counts_df.shape[0]
     ingene_num = in_gene_counts_df.shape[0]
     intergenic_num = counts_df[~counts_df.index.isin(in_gene_insertions)].shape[0]
@@ -202,14 +205,9 @@ def calculate_imputation_statistics(counts_df: pd.DataFrame, in_gene_insertions:
 
 @logger.catch
 def print_imputation_statistics(result: ImputationResult) -> None:
-    """
-    Print detailed statistics of the imputation process.
-    
-    Args:
-        result: ImputationResult containing all statistics
-    """
+    """Log detailed statistics of the imputation process."""
     logger.info("### Impute missing values using FR completed ###")
-    
+
     logger.info(f"*** Total insertions: {result.total_insertions}")
     logger.info(f"*** Insertions in coding genes: {result.in_gene_insertions} ({result.in_gene_insertions/result.total_insertions*100:.2f}%)")
     logger.info(f"*** Insertions in intergenic regions: {result.intergenic_insertions} ({result.intergenic_insertions/result.total_insertions*100:.2f}%)")
@@ -224,8 +222,10 @@ def print_imputation_statistics(result: ImputationResult) -> None:
     logger.info(f"*** Complementary indices used for imputation: {result.complementarity_used}")
 
 
-# =============================== Main Function ===============================
-def parse_arguments():
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def parse_args() -> argparse.Namespace:
     """Set and parse command line arguments for the imputation script."""
     parser = argparse.ArgumentParser(description="Impute missing values using Forward-Reverse complementation.")
     parser.add_argument("-i", "--input", type=Path, required=True, help="Path to the input counts data file")
@@ -235,15 +235,13 @@ def parse_arguments():
     return parser.parse_args()
 
 
-@logger.catch
-def main():
+def main() -> int:
     """Main entry point of the script for imputing missing values using FR complementation."""
-
-    args = parse_arguments()
+    args = parse_args()
     log_level = "DEBUG" if args.verbose else "INFO"
-    setup_logging(log_level)
+    setup_logger(log_level)
 
-    # Validate input and output paths using the Pydantic model
+    # Validate input and output paths using the dataclass config
     try:
         config = ImputationConfig(
             input_file=args.input,
@@ -257,16 +255,15 @@ def main():
         counts_df = pd.read_csv(config.input_file, index_col=[0, 1, 2, 3], sep="\t", header=[0, 1])
         insertion_annotations = pd.read_csv(config.annotation_file, index_col=[0, 1, 2, 3], sep="\t")
 
-        samples = counts_df.columns.get_level_values(0).unique()
         timepoints = counts_df.columns.get_level_values(1).unique()
-        
+
         # Filter insertions by genomic location
         _, in_gene_insertions = filter_insertions(insertion_annotations)
 
         # Separate in-gene and intergenic insertions
         in_gene_counts_df = counts_df[counts_df.index.isin(in_gene_insertions)].copy()
         intergenic_counts_df = counts_df[~counts_df.index.isin(in_gene_insertions)].copy().dropna(axis=0, how="any")
-        
+
         logger.info(f"Insertions with all replicates available in intergenic regions: {intergenic_counts_df.shape[0]}")
         logger.info(f"Insertions with at least one replicate available in coding genes: {in_gene_counts_df.shape[0]}")
         logger.info(f"Insertions with all replicates available in coding genes: {in_gene_counts_df.dropna(axis=0, how='any').shape[0]}")
@@ -282,8 +279,8 @@ def main():
         imputed_counts = pd.concat([intergenic_counts_df, imputed_in_gene_counts_df_noNA], axis=0)
 
         imputation_statistics = counts_df.loc[imputed_counts.index].xs(timepoints[0], level=1, axis=1).isna().sum(axis=1).astype(int).rename("num_of_imputed_insertions")
-        imputation_statistics.to_csv(config.output_file.parent/"imputation_statistics.tsv", index=True, sep="\t")
-        logger.success(f"Number of imputed insertions saved to {config.output_file.parent/'imputation_statistics.tsv'}")
+        imputation_statistics.to_csv(config.output_file.parent / "imputation_statistics.tsv", index=True, sep="\t")
+        logger.success(f"Number of imputed insertions saved to {config.output_file.parent / 'imputation_statistics.tsv'}")
 
         logger.info(f"Total insertions with all replicates available after imputation: {imputed_counts.value_counts()}")
 
@@ -301,10 +298,13 @@ def main():
             imputed_in_gene_counts_df_noNA, in_gene_has_complementary_idxs
         )
         print_imputation_statistics(stats)
-    
+
     except ValueError as e:
         logger.error(f"Error: {e}")
-        sys.exit(1)
+        return 1
+
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
