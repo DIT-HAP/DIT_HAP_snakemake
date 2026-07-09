@@ -1,6 +1,6 @@
 snakemake_wrapper_version: v7.7.0
 
-workdir: /data/c/yangyusheng_optimized/DIT_HAP_pipeline
+workdir: /data/c/yangyusheng_optimized/DIT_HAP
 
 project_name: LD_haploid
 
