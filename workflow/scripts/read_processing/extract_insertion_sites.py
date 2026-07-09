@@ -1,64 +1,115 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
+# Remove or adjust if managing dependencies via a traditional virtual environment.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "pandas",
+#     "loguru",
+# ]
+# ///
+
 """
-Extract transposon insertion sites from aligned read TSV files.
+Extract Transposon Insertion Sites
+===================================
 
-Processes TSV output from BAM parsing to identify and count transposon insertion
-sites based on read alignment coordinates and strand orientation.
+Identify and count transposon insertion sites from the tab-separated read
+alignment table produced by BAM parsing. Each aligned read carries a genomic
+chromosome, reference start/end coordinates, and a strand orientation; the
+insertion coordinate is derived from the strand-specific position of the TTAA
+target motif.
 
-Typical Usage:
-    python extract_insertion_sites.py --input_tsv input.tsv --output_tsv output.tsv
+The core algorithm streams the input in row chunks (bounded memory), keeps rows
+with a valid ``+``/``-`` strand and complete coordinates, and computes the
+insertion coordinate per row: for the ``+`` strand the site is ``R1_Ref_Start + 4``
+(the position immediately after ``TTAA``), and for the ``-`` strand it is
+``R1_Ref_End``. Rows are then grouped by ``(chromosome, coordinate, strand)`` and
+counted, aggregating per-strand tallies across all chunks into a single table.
 
-Input: TSV file with aligned read information
-Output: TSV file with insertion site counts
+Input
+-----
+- A tab-separated TSV of aligned reads with columns ``R1_Strand``, ``R1_Chrom``,
+  ``R1_Ref_Start``, and ``R1_Ref_End`` (``N/A``, ``NA``, and empty are treated as
+  missing values).
+
+Output
+------
+- A tab-separated TSV of insertion sites with columns ``Chr``, ``Coordinate``,
+  ``+``, ``-`` (per-strand insertion counts), sorted by ``Chr`` then
+  ``Coordinate`` (``sep="\\t"``, ``index=False``).
+
+Usage
+-----
+    python extract_insertion_sites.py -i aligned.tsv -o insertions.tsv -c 500000
+    python extract_insertion_sites.py --input aligned.tsv --output insertions.tsv --verbose
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-07-09
+Version:  1.0.0
 """
 
-# =============================== Imports ===============================
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 import argparse
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 
+# 2. Data Processing Imports
 import pandas as pd
+
+# 3. Third-party Imports
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+
+# =============================================================================
+# GLOBAL CONSTANTS & ENUMS
+# =============================================================================
+type InsertionCounts = dict[tuple[str, int], dict[str, int]]
+
+MIN_CHUNK_SIZE = 10000
+MAX_CHUNK_SIZE = 5000000
+
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
+class InputOutputConfig:
+    """Configuration for input/output paths and chunked-processing parameters."""
+    input_file: Path
+    output_file: Path
+    chunk_size: int = 500000
+
+    def __post_init__(self) -> None:
+        """Validate input path and chunk size, then ensure the output directory exists."""
+        if not self.input_file.exists():
+            raise ValueError(f"Input file does not exist: {self.input_file}")
+        if not (MIN_CHUNK_SIZE <= self.chunk_size <= MAX_CHUNK_SIZE):
+            raise ValueError(
+                f"Chunk size must be between {MIN_CHUNK_SIZE:,} and {MAX_CHUNK_SIZE:,}: {self.chunk_size}"
+            )
+        self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-# =============================== Configuration & Models ===============================
-class InputOutputConfig(BaseModel):
-    """Pydantic model for validating and managing input/output paths."""
-    input_file: Path = Field(..., description="Path to the input TSV file")
-    output_file: Path = Field(..., description="Path to the output TSV file")
-    chunk_size: int = Field(500000, ge=10000, le=5000000, description="Rows per chunk")
-
-    @field_validator('input_file')
-    def validate_input_file(cls, v):
-        if not v.exists():
-            raise ValueError(f"Input file does not exist: {v}")
-        return v
-    
-    @field_validator('output_file')
-    def validate_output_file(cls, v):
-        v.parent.mkdir(parents=True, exist_ok=True)
-        return v
-    
-    class Config:
-        frozen = True
-
-
-class ExtractionStats(BaseModel):
-    """Pydantic model to hold and validate the results of the analysis."""
-    total_rows: int = Field(..., ge=0, description="Total number of rows processed")
-    valid_rows: int = Field(..., ge=0, description="Number of valid rows processed")
-    invalid_rows: int = Field(..., ge=0, description="Number of invalid/skipped rows")
-    unique_sites: int = Field(..., ge=0, description="Number of unique insertion sites")
-    total_plus_insertions: int = Field(..., ge=0, description="Total + strand insertions")
-    total_minus_insertions: int = Field(..., ge=0, description="Total - strand insertions")
+@dataclass(kw_only=True, slots=True, frozen=True)
+class ExtractionStats:
+    """Results of the insertion-site extraction."""
+    total_rows: int
+    valid_rows: int
+    invalid_rows: int
+    unique_sites: int
+    total_plus_insertions: int
+    total_minus_insertions: int
 
     @property
     def total_insertions(self) -> int:
-        """Total number of insertions."""
+        """Total number of insertions across both strands."""
         return self.total_plus_insertions + self.total_minus_insertions
-    
+
     @property
     def validity_rate(self) -> float:
         """Percentage of valid rows."""
@@ -66,26 +117,30 @@ class ExtractionStats(BaseModel):
             return 0.0
         return (self.valid_rows / self.total_rows) * 100
 
-
-# =============================== Setup Logging ===============================
-def setup_logging(log_level: str = "INFO") -> None:
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+def setup_logger(log_level: str = "INFO") -> None:
     """Configure loguru for the application."""
     logger.remove()
     logger.add(
         sys.stdout,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
         level=log_level,
-        colorize=False
+        colorize=False,
     )
 
+setup_logger()
 
-# =============================== Core Functions ===============================
+# =============================================================================
+# CORE LOGIC (FUNCTIONS / CLASSES)
+# =============================================================================
 @logger.catch
-def calculate_insertion_coordinate(row: pd.Series) -> Optional[int]:
+def calculate_insertion_coordinate(row: pd.Series) -> int | None:
     """Calculate insertion coordinate based on strand orientation."""
     try:
         strand = row['R1_Strand']
-        
+
         if strand == '+':
             # For + strand: TTAA[Genome] - use position after TTAA (ref_start + 4)
             return int(row['R1_Ref_Start']) + 4
@@ -94,7 +149,7 @@ def calculate_insertion_coordinate(row: pd.Series) -> Optional[int]:
             return int(row['R1_Ref_End'])
         else:
             return None
-            
+
     except (ValueError, TypeError, KeyError):
         return None
 
@@ -103,123 +158,118 @@ def calculate_insertion_coordinate(row: pd.Series) -> Optional[int]:
 def create_validation_mask(df: pd.DataFrame) -> pd.Series:
     """Create a validation mask for filtering valid rows."""
     return (
-        df['R1_Strand'].notna() & 
-        df['R1_Chrom'].notna() & 
-        df['R1_Ref_Start'].notna() & 
+        df['R1_Strand'].notna() &
+        df['R1_Chrom'].notna() &
+        df['R1_Ref_Start'].notna() &
         df['R1_Ref_End'].notna() &
         df['R1_Strand'].isin(['+', '-'])
     )
 
 
 @logger.catch
-def count_insertions_vectorized(valid_df: pd.DataFrame) -> Dict[Tuple[str, int], Dict[str, int]]:
+def count_insertions_vectorized(valid_df: pd.DataFrame) -> InsertionCounts:
     """Count insertions using vectorized operations."""
     # Calculate coordinates for all valid rows at once
     coordinates = valid_df.apply(calculate_insertion_coordinate, axis=1)
     valid_coords_df = valid_df[coordinates.notna()].copy()
     valid_coords_df['Insertion_Coordinate'] = coordinates.dropna()
-    
+
     # Group and count using pandas operations
     grouped = valid_coords_df.groupby(['R1_Chrom', 'Insertion_Coordinate', 'R1_Strand']).size()
-    
+
     # Convert to our dictionary format
     insertion_counts = defaultdict(lambda: {'+': 0, '-': 0})
     for (chrom, coord, strand), count in grouped.items():
         insertion_counts[(chrom, int(coord))][strand] = count
-    
+
     return dict(insertion_counts)
 
 
 @logger.catch
-def extract_insertion_sites(chunk: pd.DataFrame, chunk_num: int) -> Tuple[Dict[Tuple[str, int], Dict[str, int]], int, int]:
+def extract_insertion_sites(chunk: pd.DataFrame, chunk_num: int) -> tuple[InsertionCounts, int, int]:
     """Process a single chunk of data to extract insertion sites."""
     chunk_rows = len(chunk)
-    
+
     # Filter valid rows
     valid_mask = create_validation_mask(chunk)
     valid_chunk = chunk[valid_mask].copy()
     valid_rows = len(valid_chunk)
     invalid_rows = chunk_rows - valid_rows
-    
+
     if chunk_num == 1 or chunk_num % 10 == 0:
         retention_rate = (valid_rows / chunk_rows * 100) if chunk_rows > 0 else 0
         logger.info(f"Chunk {chunk_num}: {valid_rows:,}/{chunk_rows:,} valid rows ({retention_rate:.1f}%)")
-    
+
     # Count insertions using vectorized operations
     insertion_counts = count_insertions_vectorized(valid_chunk) if valid_rows > 0 else {}
-    
+
     return insertion_counts, valid_rows, invalid_rows
 
 
 @logger.catch
-def create_output_dataframe(insertion_counts: Dict[Tuple[str, int], Dict[str, int]]) -> Tuple[pd.DataFrame, int, int]:
+def create_output_dataframe(insertion_counts: InsertionCounts) -> tuple[pd.DataFrame, int, int]:
     """Create output DataFrame from insertion counts."""
     output_data = []
     total_plus = 0
     total_minus = 0
-    
+
     for (chrom, coord), strand_counts in insertion_counts.items():
         plus_count = strand_counts['+']
         minus_count = strand_counts['-']
-        
+
         output_data.append({
             'Chr': chrom,
             'Coordinate': coord,
             '+': plus_count,
             '-': minus_count
         })
-        
+
         total_plus += plus_count
         total_minus += minus_count
-    
+
     output_df = pd.DataFrame(output_data)
     output_df = output_df.sort_values(['Chr', 'Coordinate'])
-    
+
     return output_df, total_plus, total_minus
 
 
 @logger.catch
-def process_chunks(config: InputOutputConfig) -> Tuple[Dict[Tuple[str, int], Dict[str, int]], int, int, int, int]:
+def process_chunks(config: InputOutputConfig) -> tuple[InsertionCounts, int, int, int, int]:
     """Process all chunks and aggregate results."""
     insertion_counts = defaultdict(lambda: {'+': 0, '-': 0})
     total_rows = 0
     total_valid_rows = 0
     total_invalid_rows = 0
     chunk_count = 0
-    
+
     logger.info("Starting chunked processing...")
-    
-    try:
-        chunk_iterator = pd.read_csv(
-            config.input_file,
-            sep='\t',
-            chunksize=config.chunk_size,
-            na_values=['N/A', 'NA', '']
-        )
-        
-        for chunk_df in chunk_iterator:
-            chunk_count += 1
-            total_rows += len(chunk_df)
-            
-            if chunk_count % 10 == 0:
-                logger.info(f"Processing chunk {chunk_count}, total rows: {total_rows:,}")
-            
-            chunk_counts, valid_rows, invalid_rows = extract_insertion_sites(chunk_df, chunk_count)
-            
-            # Aggregate counts
-            for key, strand_counts in chunk_counts.items():
-                insertion_counts[key]['+'] += strand_counts['+']
-                insertion_counts[key]['-'] += strand_counts['-']
-            
-            total_valid_rows += valid_rows
-            total_invalid_rows += invalid_rows
-        
-        logger.success(f"Completed processing {chunk_count} chunks")
-        
-    except Exception as e:
-        logger.error(f"Error during chunked processing: {e}")
-        raise
-    
+
+    chunk_iterator = pd.read_csv(
+        config.input_file,
+        sep='\t',
+        chunksize=config.chunk_size,
+        na_values=['N/A', 'NA', '']
+    )
+
+    for chunk_df in chunk_iterator:
+        chunk_count += 1
+        total_rows += len(chunk_df)
+
+        if chunk_count % 10 == 0:
+            logger.info(f"Processing chunk {chunk_count}, total rows: {total_rows:,}")
+
+        chunk_counts, valid_rows, invalid_rows = extract_insertion_sites(chunk_df, chunk_count)
+
+        # Aggregate counts
+        for key, strand_counts in chunk_counts.items():
+            insertion_counts[key]['+'] += strand_counts['+']
+            insertion_counts[key]['-'] += strand_counts['-']
+
+        total_valid_rows += valid_rows
+        total_invalid_rows += invalid_rows
+
+    logger.success(f"Completed processing {chunk_count} chunks")
+
     return dict(insertion_counts), total_rows, total_valid_rows, total_invalid_rows, chunk_count
 
 
@@ -229,7 +279,7 @@ def write_empty_output(config: InputOutputConfig, total_rows: int, total_valid_r
     logger.warning("No insertion sites found!")
     empty_df = pd.DataFrame(columns=['Chr', 'Coordinate', '+', '-'])
     empty_df.to_csv(config.output_file, sep='\t', index=False)
-    
+
     return ExtractionStats(
         total_rows=total_rows,
         valid_rows=total_valid_rows,
@@ -245,23 +295,23 @@ def count_insertion_sites(config: InputOutputConfig) -> ExtractionStats:
     """Main function to extract insertion sites from aligned reads."""
     logger.info(f"Processing TSV file: {config.input_file}")
     logger.info(f"Chunk size: {config.chunk_size:,} rows")
-    
+
     # Process all chunks
     insertion_counts, total_rows, total_valid_rows, total_invalid_rows, chunk_count = process_chunks(config)
-    
+
     # Convert to output format
     logger.info("Preparing output table...")
-    
+
     if not insertion_counts:
         return write_empty_output(config, total_rows, total_valid_rows, total_invalid_rows)
-    
+
     # Create output DataFrame
     output_df, total_plus, total_minus = create_output_dataframe(insertion_counts)
-    
+
     # Write output
     logger.info(f"Writing {len(output_df):,} insertion sites to {config.output_file}")
     output_df.to_csv(config.output_file, sep='\t', index=False)
-    
+
     stats = ExtractionStats(
         total_rows=total_rows,
         valid_rows=total_valid_rows,
@@ -270,7 +320,7 @@ def count_insertion_sites(config: InputOutputConfig) -> ExtractionStats:
         total_plus_insertions=total_plus,
         total_minus_insertions=total_minus
     )
-    
+
     # Display simplified summary
     logger.success(f"Processing complete: {stats.unique_sites:,} unique sites, {stats.total_insertions:,} total insertions")
     # Log detailed statistics
@@ -282,13 +332,14 @@ def count_insertion_sites(config: InputOutputConfig) -> ExtractionStats:
     logger.info(f"  Plus strand insertions: {stats.total_plus_insertions:,}")
     logger.info(f"  Minus strand insertions: {stats.total_minus_insertions:,}")
     logger.info(f"  Total insertions: {stats.total_insertions:,}")
-    
+
     return stats
 
-
-# =============================== Main Function ===============================
-def parse_arguments():
-    """Set and parse command line arguments. Modify flags and help text as needed."""
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(
         description="Extract insertion sites from aligned read TSV files",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -300,34 +351,32 @@ def parse_arguments():
     return parser.parse_args()
 
 
-@logger.catch
-def main():
-    """Main entry point of the script."""
-    args = parse_arguments()
-    log_level = "DEBUG" if args.verbose else "INFO"
-    setup_logging(log_level)
+def main() -> int:
+    """Main orchestrator: validate config, extract insertion sites, and write output."""
+    args = parse_args()
+    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
 
     logger.info(f"Pandas version: {pd.__version__}")
 
-    # Validate input and output paths using the Pydantic model
     try:
         config = InputOutputConfig(
             input_file=args.input,
             output_file=args.output,
-            chunk_size=args.chunk_size
+            chunk_size=args.chunk_size,
         )
 
         logger.info(f"Starting processing of {config.input_file}")
 
         # Run the core analysis/logic
         count_insertion_sites(config)
-        
+
         logger.success("Processing completed successfully!")
-        return 0
-    
+
     except ValueError as e:
         logger.error(f"Error: {e}")
-        sys.exit(1)
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
