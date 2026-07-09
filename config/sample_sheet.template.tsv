@@ -1,0 +1,3 @@
+Sample	Timepoint	Condition	read1	read2
+EXAMPLE_LIB	YES0	YES	/abs/path/EXAMPLE_YES0_1.fq.gz	/abs/path/EXAMPLE_YES0_2.fq.gz
+EXAMPLE_LIB	YES1	YES	/abs/path/EXAMPLE_YES1_1.fq.gz	/abs/path/EXAMPLE_YES1_2.fq.gz

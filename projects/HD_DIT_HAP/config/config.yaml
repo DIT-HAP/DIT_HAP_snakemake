@@ -2,7 +2,7 @@ snakemake_wrapper_version: v7.7.0
 
 workdir: /data/c/yangyusheng_optimized/DIT_HAP
 
-project_name: Spikein
+project_name: HD_DIT_HAP
 
 # MultiQC configuration
 # -----------------------------------------------------
@@ -10,12 +10,11 @@ multiqc_config: config/multiqc_config.yml
 
 # Preparation configuration
 # -----------------------------------------------------
-Pombase_release_version: "2025-10-01"
+Pombase_release_version: "2025-08-01"
 
 # Preprocessing configuration
 # -----------------------------------------------------
-sample_sheet: config/sample_sheet_spikein.tsv
-use_DEseq2_for_biological_replicates: False
+sample_sheet: projects/HD_DIT_HAP/config/sample_sheet.tsv
 
 # Adapter sequences and PBL/PBR sequences for adapter trimming and demultiplexing
 # -----------------------------------------------------
@@ -49,27 +48,24 @@ chunk_size: 3000000
 
 # Merge similar time points configuration
 # -----------------------------------------------------
-merge_similar_timepoints: FALSE
-# similar_timepoints:
-#   - "0h"
-#   - "YES0"
-# merged_timepoint: "YES0"
-# drop_columns:
-#   - "0h"
+merge_similar_timepoints: TRUE
+similar_timepoints:
+  - "0h"
+  - "YES0"
+merged_timepoint: "YES0"
+drop_columns:
+  - "0h"
 
 # Hard filtering configuration and DEseq2 configuration
 # -----------------------------------------------------
 hard_filtering_cutoff: 8
-initial_time_point: "Spikein0"
+initial_time_point: "YES0"
 
 # Depletion analysis configuration
 # -----------------------------------------------------
-# time_points:
-#   - 0.000
-#   - 0.553
-#   - 2.097
-#   - 5.629
-#   - 8.831
-#   - 12.203
-#   - 15.818
-#   - 19.081
+time_points:
+  - 0
+  - 2.352
+  - 5.588
+  - 9.104
+  - 12.480

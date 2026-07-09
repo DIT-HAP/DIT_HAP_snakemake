@@ -1,0 +1,67 @@
+# =============================================================================
+# DIT-HAP project config template
+# -----------------------------------------------------------------------------
+# Copy this file to projects/<project_name>/config/config.yaml and fill in the
+# values. <project_name> (the folder name) MUST equal the project_name below —
+# the Snakefile asserts this. Validated against workflow/schemas/config.schema.yaml
+# at load time; see that schema for exact types/ranges.
+# =============================================================================
+
+# --- Project / environment ---------------------------------------------------
+project_name: MY_PROJECT               # == the projects/<project_name>/ folder name
+workdir: /data/c/yangyusheng_optimized/DIT_HAP   # repository root
+snakemake_wrapper_version: v7.7.0      # Snakemake wrappers tag used by wrapper rules
+sample_sheet: projects/MY_PROJECT/config/sample_sheet.tsv
+multiqc_config: config/multiqc_config.yml   # shared, at repo root
+
+# --- Reference data ----------------------------------------------------------
+Pombase_release_version: "2025-10-01"  # QUOTE it (YYYY-MM-DD); unquoted YAML parses it as a date
+
+# --- Adapter / junction sequences (ACGTN only) -------------------------------
+adapter_sequence: CTGTCTCTTATACACATCT
+adapter_sequence_r2: AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
+PBL_adapter: CATGCGTCAATTTTACGCAGACTATCTTTCTAGGG
+PBL_reverseComplement_adapter: CCCTAGAAAGATAGTCTGCGTAAAATTGACGCATG
+PBR_adapter: ACGCATGATTATCTTTAACGTACGTCACAATATGATTATCTTTCTAGGG
+PBR_reverseComplement_adapter: CCCTAGAAAGATAATCATATTGTGACGTACGTTAAAGATAATCATGCGT
+
+# --- Aligned-read filtering thresholds ---------------------------------------
+aligned_read_filtering:
+  read_1_filtering:
+    mapq_threshold: 20      # 0-60
+    ncigar_value: 1         # max CIGAR ops
+    nm_threshold: 3         # max edit distance (NM)
+    no_sa: True             # require no supplementary alignments
+    no_xa: True             # require no secondary alignments
+  read_2_filtering:
+    mapq_threshold: 40
+    ncigar_value: 10
+    nm_threshold: 15
+    no_sa: True
+    no_xa: True
+  require_proper_pair: True
+
+# --- Performance -------------------------------------------------------------
+chunk_size: 3000000         # rows per chunk when streaming large TSVs
+
+# --- Timepoint merging (optional stage) --------------------------------------
+merge_similar_timepoints: True   # if True, the three keys below are required
+similar_timepoints:              # timepoint columns to sum together
+  - "0h"
+  - "YES0"
+merged_timepoint: "YES0"         # name of the merged column
+drop_columns:                    # columns to drop after merging
+  - "0h"
+
+# --- Hard filtering ----------------------------------------------------------
+hard_filtering_cutoff: 8    # min read count at initial_time_point to keep an insertion
+initial_time_point: "YES0"  # reference timepoint column name
+
+# --- Depletion analysis ------------------------------------------------------
+use_DEseq2_for_biological_replicates: True   # optional (default false); True = DESeq2 branch
+time_points:                # generation/doubling value per timepoint column, in order
+  - 0                       # optional: omit for experiments without curve fitting (e.g. spike-in)
+  - 2.352
+  - 5.588
+  - 9.104
+  - 12.480

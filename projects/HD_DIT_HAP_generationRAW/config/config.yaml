@@ -2,7 +2,7 @@ snakemake_wrapper_version: v7.7.0
 
 workdir: /data/c/yangyusheng_optimized/DIT_HAP
 
-project_name: Spore2YES6_1328
+project_name: HD_DIT_HAP_generationRAW
 
 # MultiQC configuration
 # -----------------------------------------------------
@@ -14,8 +14,8 @@ Pombase_release_version: "2025-10-01"
 
 # Preprocessing configuration
 # -----------------------------------------------------
-sample_sheet: config/sample_sheet_LD1328_spore2YES6.tsv
-use_DEseq2_for_biological_replicates: False
+sample_sheet: projects/HD_DIT_HAP_generationRAW/config/sample_sheet.tsv
+use_DEseq2_for_biological_replicates: True
 
 # Adapter sequences and PBL/PBR sequences for adapter trimming and demultiplexing
 # -----------------------------------------------------
@@ -47,7 +47,7 @@ aligned_read_filtering:
 # -----------------------------------------------------
 chunk_size: 3000000
 
-# Merge the reads from similar time points
+# Merge similar time points configuration
 # -----------------------------------------------------
 merge_similar_timepoints: TRUE
 similar_timepoints:
@@ -66,9 +66,7 @@ initial_time_point: "YES0"
 # -----------------------------------------------------
 time_points:
   - 0
-  - 2.723
-  - 5.969
-  - 9.334
-  - 12.554
-  - 16.098
-  - 29.059
+  - 2.352
+  - 5.588
+  - 9.104
+  - 12.480

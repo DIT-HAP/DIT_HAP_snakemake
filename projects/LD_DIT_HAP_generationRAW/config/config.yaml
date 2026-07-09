@@ -1,8 +1,13 @@
+# Configuration file for snakemake
+
+# Snakemake wrapper version
+# -----------------------------------------------------
 snakemake_wrapper_version: v7.7.0
 
+# Working directory and project name
+# -----------------------------------------------------
 workdir: /data/c/yangyusheng_optimized/DIT_HAP
-
-project_name: HD_DIT_HAP_generationRAW
+project_name: LD_DIT_HAP_generationRAW
 
 # MultiQC configuration
 # -----------------------------------------------------
@@ -14,7 +19,7 @@ Pombase_release_version: "2025-10-01"
 
 # Preprocessing configuration
 # -----------------------------------------------------
-sample_sheet: config/sample_sheet_HD.tsv
+sample_sheet: projects/LD_DIT_HAP_generationRAW/config/sample_sheet.tsv
 use_DEseq2_for_biological_replicates: True
 
 # Adapter sequences and PBL/PBR sequences for adapter trimming and demultiplexing
@@ -67,6 +72,6 @@ initial_time_point: "YES0"
 time_points:
   - 0
   - 2.352
-  - 5.588
+  - 3.588
   - 9.104
   - 12.480
