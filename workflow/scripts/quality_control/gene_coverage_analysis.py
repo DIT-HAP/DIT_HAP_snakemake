@@ -1,487 +1,300 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "pandas",
+#     "matplotlib",
+#     "loguru",
+# ]
+# ///
+
 """
-Gene Coverage Analysis Script
+Gene Coverage Analysis by Viability
+====================================
 
-This script analyzes transposon insertion data to determine gene coverage across
-protein coding genes in Schizosaccharomyces pombe. It generates donut charts
-showing coverage statistics for different gene categories.
+Assess how thoroughly the transposon insertion library covers protein-coding
+genes, broken down by gene viability (essentiality). A gene is "covered" when
+at least one insertion maps to it in the insertion-level results.
 
-The script processes two input files:
-1. Gene_level_statistics_fitted.tsv - Contains genes with transposon insertions
-2. gene_IDs_names_products.tsv - Contains all genes in the genome with metadata
+The biological expectation is that inviable (essential) genes are covered at a
+lower rate than viable genes: insertions that disrupt essential genes are lost
+during outgrowth, so surviving insertions are depleted from those loci. A clear
+gap between the viability groups is therefore a sanity check on both library
+quality and the depletion signal.
 
-Key features:
-- Focuses on protein coding genes only
-- Categorizes genes by product type (dubious, retrotransposable elements, etc.)
-- Generates donut charts for overall coverage and filtered coverage
-- Outputs PNG files with transparent backgrounds
-- Provides comprehensive statistics
+Covered genes are derived by joining the insertion-level LFC table (which
+insertions survived) to the per-insertion annotation table (which gene each
+insertion sits in) on the (Chr, Coordinate, Strand, Target) key. Each gene is
+labelled with its PomBase viability category, and coverage is tallied per
+category.
 
-Usage:
-    python gene_coverage_analysis.py -c gene_level_statistics_fitted.tsv -a gene_IDs_names_products.tsv -o output_dir
+Input
+-----
+- ``-i`` insertion-level LFC TSV, row MultiIndex (Chr, Coordinate, Strand, Target).
+- ``-a`` per-insertion annotation TSV with a ``Systematic ID`` column and the
+  same 4-column insertion key.
+- ``-v`` PomBase gene viability TSV, two columns, no header:
+  ``systematic_id`` and ``viability`` (viable / inviable / condition-dependent / unknown).
+
+Output
+------
+- ``-o`` a multi-page PDF: page 1 is a grouped bar chart of coverage percentage
+  per viability category; each following page is a donut chart of covered vs
+  not-covered genes for one category.
+
+Usage
+-----
+    python gene_coverage_analysis.py -i LFC.tsv -a annotations.tsv -v gene_viability.tsv -o gene_coverage_analysis.pdf
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-07-09
+Version:  1.0.0
 """
 
-# =============================== Imports ===============================
-import sys
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 import argparse
+import sys
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Dict, List, Tuple, Set, Optional
-from collections import defaultdict
-import time
+
+# 2. Data Processing Imports
+import pandas as pd
+
+# 3. Third-party Imports
+import matplotlib.pyplot as plt
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from matplotlib.backends.backend_pdf import PdfPages
 
-try:
-    import pandas as pd
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from tabulate import tabulate
-except ImportError as e:
-    logger.error(f"Error importing required packages: {e}")
-    logger.error("Please install required packages: pip install pandas numpy matplotlib tabulate")
-    sys.exit(1)
+# =============================================================================
+# GLOBAL CONSTANTS & ENUMS
+# =============================================================================
+SCRIPT_DIR = Path(__file__).parent.resolve()
+STYLE_PATH = SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle"
 
-# =============================== Constants ===============================
-# Color palette for plotting (following cursor rules)
-COLORS = {
-    'covered': '#962955',      # Deep pink-purple
-    'not_covered': '#7fb775',  # Medium green
-    'dubious': '#6479cc',      # Medium blue
-    'transposon': '#ad933c',   # Golden brown
-    'sp_specific': '#26b1fd',  # Bright blue
-    'other': '#8c397b'         # Medium purple
-}
+INSERTION_KEY = ["Chr", "Coordinate", "Strand", "Target"]
 
-# =============================== Configuration & Models ===============================
-class InputOutputConfig(BaseModel):
-    """Pydantic model for validating and managing input/output paths."""
-    covered_genes_file: Path = Field(..., description="Path to gene level statistics file (TSV format)")
-    all_genes_file: Path = Field(..., description="Path to all genes metadata file (TSV format)")
-    output_dir: Path = Field(..., description="Output directory for plots and statistics")
-    verbose: bool = Field(False, description="Enable verbose logging")
+# Fixed display order for viability categories; any unlisted label is appended.
+VIABILITY_ORDER = ["viable", "inviable", "condition-dependent", "unknown"]
 
-    @field_validator('covered_genes_file')
-    def validate_covered_genes_file(cls, v):
-        if not v.exists():
-            raise ValueError(f"Covered genes file does not exist: {v}")
-        return v
-    
-    @field_validator('all_genes_file')
-    def validate_all_genes_file(cls, v):
-        if not v.exists():
-            raise ValueError(f"All genes file does not exist: {v}")
-        return v
-    
-    @field_validator('output_dir')
-    def validate_output_dir(cls, v):
-        v.mkdir(parents=True, exist_ok=True)
-        return v
-    
-    class Config:
-        frozen = True
+COVERED_COLOR = "#962955"      # deep pink-purple
+NOT_COVERED_COLOR = "#7fb775"  # medium green
 
-class CoverageStats(BaseModel):
-    """Pydantic model to hold and validate coverage statistics."""
-    total: int = Field(..., ge=0, description="Total number of genes")
-    covered: int = Field(..., ge=0, description="Number of covered genes")
-    not_covered: int = Field(..., ge=0, description="Number of not covered genes")
-    coverage_pct: float = Field(..., ge=0.0, le=100.0, description="Coverage percentage")
 
-class AnalysisResult(BaseModel):
-    """Pydantic model to hold and validate the results of the analysis."""
-    overall_stats: CoverageStats = Field(..., description="Overall coverage statistics")
-    filtered_stats: CoverageStats = Field(..., description="Filtered coverage statistics")
-    category_stats: Dict[str, CoverageStats] = Field(..., description="Category-specific coverage statistics")
-    total_processing_time: float = Field(..., ge=0.0, description="Total processing time in seconds")
+class ViabilityCol(StrEnum):
+    """Column names assigned to the headerless gene-viability TSV."""
+    GENE_ID = "systematic_id"
+    VIABILITY = "viability"
 
-# =============================== Setup Logging ===============================
-def setup_logging(log_level: str = "INFO") -> None:
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
+class InputOutputConfig:
+    """Input/output paths for the gene coverage analysis."""
+    lfc_file: Path
+    annotation_file: Path
+    viability_file: Path
+    output_file: Path
+
+    def __post_init__(self) -> None:
+        """Validate inputs exist and ensure the output directory is present."""
+        for path in (self.lfc_file, self.annotation_file, self.viability_file):
+            if not path.exists():
+                raise ValueError(f"Input file does not exist: {path}")
+        self.output_file.parent.mkdir(parents=True, exist_ok=True)
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class CoverageStat:
+    """Coverage tally for one viability category."""
+    category: str
+    total: int
+    covered: int
+
+    @property
+    def not_covered(self) -> int:
+        """Number of genes in this category with no insertion."""
+        return self.total - self.covered
+
+    @property
+    def coverage_pct(self) -> float:
+        """Percentage of genes in this category that are covered."""
+        return self.covered / self.total * 100 if self.total > 0 else 0.0
+
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+def setup_logger(log_level: str = "INFO") -> None:
     """Configure loguru for the application."""
     logger.remove()
     logger.add(
         sys.stdout,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
         level=log_level,
-        colorize=False
+        colorize=False,
     )
 
-# =============================== Core Functions ===============================
+# =============================================================================
+# CORE LOGIC (FUNCTIONS / CLASSES)
+# =============================================================================
 @logger.catch
-def load_covered_genes(file_path: Path) -> Set[str]:
-    """
-    Load genes with transposon insertions from statistics file.
-    
-    Args:
-        file_path: Path to gene level statistics file
-        
-    Returns:
-        Set of systematic gene IDs that have coverage
-    """
-    logger.info(f"Loading covered genes from {file_path}")
-    
-    try:
-        df = pd.read_csv(file_path, sep='\t')
-        covered_genes = set(df['Systematic ID'].astype(str))
-        logger.info(f"Loaded {len(covered_genes)} covered genes")
-        return covered_genes
-    except Exception as e:
-        logger.error(f"Error loading covered genes: {e}")
-        raise
+def load_covered_genes(lfc_file: Path, annotation_file: Path) -> set[str]:
+    """Return the set of gene IDs with at least one surviving insertion."""
+    lfc = pd.read_csv(lfc_file, sep="\t", usecols=INSERTION_KEY)
+    logger.info(f"Loaded {len(lfc):,} insertions from LFC table")
+
+    annotation = pd.read_csv(annotation_file, sep="\t", usecols=[*INSERTION_KEY, "Systematic ID"])
+    logger.info(f"Loaded {len(annotation):,} annotation rows")
+
+    merged = lfc.merge(annotation, on=INSERTION_KEY, how="inner")
+    covered_genes = set(merged["Systematic ID"].dropna().astype(str))
+    logger.success(f"Found {len(covered_genes):,} covered genes")
+
+    return covered_genes
+
 
 @logger.catch
-def load_all_genes(file_path: Path) -> pd.DataFrame:
-    """
-    Load all genes metadata from gene information file.
-    
-    Args:
-        file_path: Path to all genes metadata file
-        
-    Returns:
-        DataFrame with all gene information
-    """
-    logger.info(f"Loading all genes metadata from {file_path}")
-    
-    try:
-        df = pd.read_csv(file_path, sep='\t')
-        logger.info(f"Loaded {len(df)} total genes")
-        return df
-    except Exception as e:
-        logger.error(f"Error loading all genes: {e}")
-        raise
-
-@logger.catch
-def filter_protein_coding_genes(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Filter genes to include only protein coding genes.
-    
-    Args:
-        df: DataFrame with all genes
-        
-    Returns:
-        DataFrame with only protein coding genes
-    """
-    logger.info("Filtering for protein coding genes")
-    
-    protein_coding = df[df['gene_type'] == 'protein coding gene'].copy()
-    logger.info(f"Found {len(protein_coding)} protein coding genes")
-    
-    return protein_coding
-
-@logger.catch
-def categorize_genes(df: pd.DataFrame) -> Dict[str, Set[str]]:
-    """
-    Categorize genes by their product types.
-    
-    Args:
-        df: DataFrame with protein coding genes
-        
-    Returns:
-        Dictionary mapping category names to sets of gene IDs
-    """
-    logger.info("Categorizing genes by product type")
-    
-    categories = {
-        'dubious': set(),
-        'retrotransposable_element': set(),
-        'sp_pombe_specific': set(),
-        'sp_specific': set(),
-        'other': set()
-    }
-    
-    for _, row in df.iterrows():
-        gene_id = str(row['gene_systematic_id'])
-        product = str(row['gene_product']).lower()
-        
-        if 'dubious' in product:
-            categories['dubious'].add(gene_id)
-        elif 'retrotransposable element' in product or 'transposon tf2-type' in product:
-            categories['retrotransposable_element'].add(gene_id)
-        elif 'schizosaccharomyces pombe specific' in product or 's. pombe specific' in product:
-            categories['sp_pombe_specific'].add(gene_id)
-        elif 'schizosaccharomyces specific' in product:
-            categories['sp_specific'].add(gene_id)
-        else:
-            categories['other'].add(gene_id)
-    
-    for cat, genes in categories.items():
-        logger.info(f"Category '{cat}': {len(genes)} genes")
-    
-    return categories
-
-@logger.catch
-def calculate_coverage_stats(
-    protein_coding_genes: Set[str],
-    covered_genes: Set[str],
-    categories: Dict[str, Set[str]]
-) -> Dict[str, CoverageStats]:
-    """
-    Calculate coverage statistics for different gene categories.
-    
-    Args:
-        protein_coding_genes: Set of all protein coding gene IDs
-        covered_genes: Set of genes with transposon insertions
-        categories: Dictionary of gene categories
-        
-    Returns:
-        Dictionary with coverage statistics for each category
-    """
-    logger.info("Calculating coverage statistics")
-    
-    stats = {}
-    
-    # Overall protein coding gene coverage
-    total_protein_coding = len(protein_coding_genes)
-    covered_protein_coding = len(protein_coding_genes & covered_genes)
-    
-    stats['overall'] = CoverageStats(
-        total=total_protein_coding,
-        covered=covered_protein_coding,
-        not_covered=total_protein_coding - covered_protein_coding,
-        coverage_pct=(covered_protein_coding / total_protein_coding) * 100
+def load_gene_viability(viability_file: Path) -> pd.DataFrame:
+    """Load the headerless gene-viability TSV into a labelled DataFrame."""
+    viability = pd.read_csv(
+        viability_file,
+        sep="\t",
+        header=None,
+        names=[ViabilityCol.GENE_ID, ViabilityCol.VIABILITY],
     )
-    
-    # Coverage excluding special categories
-    excluded_categories = {'dubious', 'retrotransposable_element', 'sp_pombe_specific', 'sp_specific'}
-    excluded_genes = set()
-    for cat in excluded_categories:
-        excluded_genes.update(categories[cat])
-    
-    filtered_protein_coding = protein_coding_genes - excluded_genes
-    filtered_covered = filtered_protein_coding & covered_genes
-    
-    stats['filtered'] = CoverageStats(
-        total=len(filtered_protein_coding),
-        covered=len(filtered_covered),
-        not_covered=len(filtered_protein_coding) - len(filtered_covered),
-        coverage_pct=(len(filtered_covered) / len(filtered_protein_coding)) * 100 if filtered_protein_coding else 0
-    )
-    
-    # Individual category coverage
-    for cat_name, cat_genes in categories.items():
-        cat_protein_coding = cat_genes & protein_coding_genes
-        cat_covered = cat_protein_coding & covered_genes
-        
-        if cat_protein_coding:
-            stats[cat_name] = CoverageStats(
-                total=len(cat_protein_coding),
-                covered=len(cat_covered),
-                not_covered=len(cat_protein_coding) - len(cat_covered),
-                coverage_pct=(len(cat_covered) / len(cat_protein_coding)) * 100
-            )
-    
+    viability[ViabilityCol.GENE_ID] = viability[ViabilityCol.GENE_ID].astype(str)
+    logger.info(f"Loaded viability for {len(viability):,} genes")
+
+    return viability
+
+
+@logger.catch
+def compute_coverage_stats(viability: pd.DataFrame, covered_genes: set[str]) -> list[CoverageStat]:
+    """Tally covered vs total genes per viability category in display order."""
+    viability = viability.copy()
+    viability["is_covered"] = viability[ViabilityCol.GENE_ID].isin(covered_genes)
+
+    present = viability[ViabilityCol.VIABILITY].unique().tolist()
+    ordered = [c for c in VIABILITY_ORDER if c in present]
+    ordered += [c for c in present if c not in VIABILITY_ORDER]
+
+    stats: list[CoverageStat] = []
+    for category in ordered:
+        group = viability[viability[ViabilityCol.VIABILITY] == category]
+        stat = CoverageStat(category=category, total=len(group), covered=int(group["is_covered"].sum()))
+        logger.info(f"{category}: {stat.covered:,}/{stat.total:,} covered ({stat.coverage_pct:.1f}%)")
+        stats.append(stat)
+
     return stats
 
+
 @logger.catch
-def create_donut_chart(
-    stats: CoverageStats,
-    title: str,
-    output_path: Path,
-    colors: Optional[List[str]] = None
-) -> None:
-    """
-    Create a donut chart showing coverage statistics.
-    
-    Args:
-        stats: CoverageStats object with coverage data
-        title: Chart title
-        output_path: Path to save the chart
-        colors: List of colors to use for the chart
-    """
-    logger.info(f"Creating donut chart: {title}")
-    
-    if colors is None:
-        colors = [COLORS['covered'], COLORS['not_covered']]
-    
-    # Data for the donut chart
-    labels = ['Covered', 'Not Covered']
-    sizes = [stats.covered, stats.not_covered]
-    
-    # Create figure with transparent background
-    fig, ax = plt.subplots(figsize=(8, 8), facecolor='none')
-    ax.set_facecolor('none')
-    
-    # Create donut chart
-    wedges, texts, autotexts = ax.pie(
-        sizes,
-        labels=labels,
-        colors=colors,
-        autopct='%1.1f%%',
+def plot_coverage_bar(stats: list[CoverageStat], ax: plt.Axes) -> None:
+    """Draw a grouped bar chart of coverage percentage per viability category."""
+    categories = [s.category for s in stats]
+    percentages = [s.coverage_pct for s in stats]
+
+    ax.bar(categories, percentages, color=COVERED_COLOR)
+    ax.set_ylabel("Coverage (%)")
+    ax.set_xlabel("Gene viability")
+    ax.set_title("Gene coverage by viability")
+    ax.set_ylim(0, 100)
+    for idx, stat in enumerate(stats):
+        ax.text(idx, stat.coverage_pct, f"{stat.coverage_pct:.1f}%", ha="center", va="bottom")
+
+
+@logger.catch
+def plot_coverage_donut(stat: CoverageStat, ax: plt.Axes) -> None:
+    """Draw a donut chart of covered vs not-covered genes for one category."""
+    ax.pie(
+        [stat.covered, stat.not_covered],
+        labels=["Covered", "Not covered"],
+        colors=[COVERED_COLOR, NOT_COVERED_COLOR],
+        autopct=lambda pct: f"{pct:.1f}%",
+        wedgeprops={"width": 0.4},
         startangle=90,
-        pctdistance=0.85,
-        textprops={'fontsize': 12, 'weight': 'bold'}
     )
-    
-    # Create donut hole
-    centre_circle = plt.Circle((0, 0), 0.70, fc='white', linewidth=0, alpha=0)
-    ax.add_artist(centre_circle)
-    
-    # Add title
-    ax.set_title(title, fontsize=16, weight='bold', pad=20)
-    
-    # Add coverage percentage in center
-    coverage_pct = stats.coverage_pct
-    ax.text(0, 0, f'{coverage_pct:.1f}%\nCoverage', 
-            horizontalalignment='center', verticalalignment='center',
-            fontsize=20, weight='bold')
-    
-    # Add sample size
-    total = stats.total
-    ax.text(0, -0.3, f'n = {total}', 
-            horizontalalignment='center', verticalalignment='center',
-            fontsize=12, style='italic')
-    
-    # Remove axes
-    ax.axis('equal')
-    
-    # Save with transparent background
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', 
-                facecolor='none', edgecolor='none', transparent=True)
-    plt.close()
-    
-    logger.info(f"Saved donut chart to {output_path}")
+    ax.set_title(f"{stat.category}\n({stat.covered:,}/{stat.total:,} genes)")
+
 
 @logger.catch
-def display_summary_table(stats: Dict[str, CoverageStats]) -> None:
-    """
-    Display summary statistics in a formatted table.
-    
-    Args:
-        stats: Dictionary with coverage statistics for each category
-    """
-    logger.info("Generating summary statistics table")
-    
-    table_data = []
-    for category, data in stats.items():
-        if category in ['overall', 'filtered']:
-            category_display = category.replace('_', ' ').title()
-        else:
-            category_display = category.replace('_', ' ').title()
-        
-        table_data.append([
-            category_display,
-            data.total,
-            data.covered,
-            data.not_covered,
-            f"{data.coverage_pct:.1f}%"
-        ])
-    
-    headers = ['Category', 'Total Genes', 'Covered', 'Not Covered', 'Coverage %']
-    
-    print("\n" + "="*80)
-    print("GENE COVERAGE ANALYSIS SUMMARY")
-    print("="*80)
-    print(tabulate(table_data, headers=headers, tablefmt='grid'))
-    print("="*80)
+def write_report(stats: list[CoverageStat], output_file: Path) -> None:
+    """Write the multi-page coverage PDF: bar-chart overview then per-category donuts."""
+    plt.style.use(STYLE_PATH)
+    ax_width, ax_height = plt.rcParams["figure.figsize"]
 
-@logger.catch
-def save_statistics(stats: Dict[str, CoverageStats], output_path: Path) -> None:
-    """
-    Save detailed statistics to a TSV file.
-    
-    Args:
-        stats: Dictionary with coverage statistics for each category
-        output_path: Path to save the statistics file
-    """
-    logger.info(f"Saving detailed statistics to {output_path}")
-    
-    with open(output_path, 'w') as f:
-        f.write('Category\tTotal_Genes\tCovered_Genes\tNot_Covered\tCoverage_Percentage\n')
-        for category, data in stats.items():
-            f.write(f'{category}\t{data.total}\t{data.covered}\t{data.not_covered}\t{data.coverage_pct:.2f}\n')
-    
-    logger.success(f"Saved detailed statistics to {output_path}")
+    with PdfPages(output_file) as pdf:
+        fig, ax = plt.subplots(figsize=(ax_width, ax_height))
+        plot_coverage_bar(stats, ax)
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
 
-# =============================== Main Function ===============================
-def parse_arguments():
-    """Set and parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Analyze gene coverage from transposon insertion data")
-    parser.add_argument("-c", "--covered-genes", type=Path, required=True, 
-                       help="Path to gene level statistics file (TSV format)")
-    parser.add_argument("-a", "--all-genes", type=Path, required=True,
-                       help="Path to all genes metadata file (TSV format)")
-    parser.add_argument("-o", "--output-dir", type=Path, default=Path('.'),
-                       help="Output directory for plots and statistics (default: current directory)")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                       help="Enable verbose logging")
+        for stat in stats:
+            fig, ax = plt.subplots(figsize=(ax_width, ax_height))
+            plot_coverage_donut(stat, ax)
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
+
+    logger.success(f"Wrote coverage report with {len(stats) + 1} pages to {output_file}")
+
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments and return the populated namespace."""
+    parser = argparse.ArgumentParser(
+        description="Analyze gene coverage by viability from insertion-level results",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python gene_coverage_analysis.py -i LFC.tsv -a annotations.tsv -v gene_viability.tsv -o gene_coverage_analysis.pdf
+        """,
+    )
+    parser.add_argument("-i", "--input", type=Path, required=True,
+                        help="Insertion-level LFC TSV")
+    parser.add_argument("-a", "--annotation", type=Path, required=True,
+                        help="Per-insertion annotation TSV (with Systematic ID column)")
+    parser.add_argument("-v", "--gene-viability", type=Path, required=True,
+                        help="PomBase gene viability TSV (headerless: id, viability)")
+    parser.add_argument("-o", "--output", type=Path, required=True,
+                        help="Output PDF path")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
-@logger.catch
-def main():
-    """Main entry point of the script."""
-    start_time = time.time()
-    
-    args = parse_arguments()
-    log_level = "DEBUG" if args.verbose else "INFO"
-    setup_logging(log_level)
-    
-    # Validate input and output paths using the Pydantic model
+
+def main() -> int:
+    """Main orchestrator: load coverage, tally by viability, write the PDF report."""
+    args = parse_args()
+    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
+
     try:
         config = InputOutputConfig(
-            covered_genes_file=args.covered_genes,
-            all_genes_file=args.all_genes,
-            output_dir=args.output_dir,
-            verbose=args.verbose
+            lfc_file=args.input,
+            annotation_file=args.annotation,
+            viability_file=args.gene_viability,
+            output_file=args.output,
         )
-        
-        logger.info("Starting gene coverage analysis")
-        logger.info(f"Covered genes file: {config.covered_genes_file}")
-        logger.info(f"All genes file: {config.all_genes_file}")
-        logger.info(f"Output directory: {config.output_dir}")
-        
-        # Load data
-        covered_genes = load_covered_genes(config.covered_genes_file)
-        all_genes_df = load_all_genes(config.all_genes_file)
-        
-        # Filter for protein coding genes
-        protein_coding_df = filter_protein_coding_genes(all_genes_df)
-        protein_coding_genes = set(protein_coding_df['gene_systematic_id'].astype(str))
-        
-        # Categorize genes
-        categories = categorize_genes(protein_coding_df)
-        
-        # Calculate coverage statistics
-        stats = calculate_coverage_stats(protein_coding_genes, covered_genes, categories)
-        
-        # Create donut charts
-        # Overall coverage
-        create_donut_chart(
-            stats['overall'],
-            'Overall Protein Coding Gene Coverage',
-            config.output_dir / 'overall_gene_coverage.png'
-        )
-        
-        # Filtered coverage (excluding special categories)
-        create_donut_chart(
-            stats['filtered'],
-            'Protein Coding Gene Coverage\n(Excluding Dubious, Transposons, and Species-Specific)',
-            config.output_dir / 'filtered_gene_coverage.png'
-        )
-        
-        # Save detailed statistics
-        stats_file = config.output_dir / 'coverage_statistics.tsv'
-        save_statistics(stats, stats_file)
-        
-        # Display summary
-        display_summary_table(stats)
-        
-        # Processing time
-        end_time = time.time()
-        processing_time = end_time - start_time
-        logger.success(f"Analysis completed in {processing_time:.2f} seconds")
-        
-        # Create analysis result object
-        result = AnalysisResult(
-            overall_stats=stats['overall'],
-            filtered_stats=stats['filtered'],
-            category_stats={k: v for k, v in stats.items() if k not in ['overall', 'filtered']},
-            total_processing_time=processing_time
-        )
-        
-        logger.success(f"Analysis complete. Results saved to {config.output_dir}")
-        
-    except ValueError as e:
-        logger.error(f"Error: {e}")
-        sys.exit(1)
+
+        covered_genes = load_covered_genes(config.lfc_file, config.annotation_file)
+        viability = load_gene_viability(config.viability_file)
+        stats = compute_coverage_stats(viability, covered_genes)
+        write_report(stats, config.output_file)
+
+    except ValueError as exc:
+        logger.error(f"Analysis failed: {exc}")
+        return 1
+
+    logger.success("Script completed successfully!")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
