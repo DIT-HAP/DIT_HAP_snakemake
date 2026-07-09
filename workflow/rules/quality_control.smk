@@ -231,17 +231,14 @@ rule insertion_density_analysis:
     message:
         "*** Performing insertion density analysis..."
     params:
-        peptide_stats=rules.download_pombase_data.output.peptide_stats.format(
-            release_version=config["Pombase_release_version"]
-        ),
+        initial_time_point=config["initial_time_point"],
     shell:
         """
         python workflow/scripts/quality_control/insertion_density_analysis.py \
             -i {input.insertion_data} \
             -a {input.annotation} \
-            -p {params.peptide_stats} \
-            -o {output.table} \
-            -op {output.plot} &> {log}
+            -t {params.initial_time_point} \
+            -o {output.table} &> {log}
         """
 
 
