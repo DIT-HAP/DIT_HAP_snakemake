@@ -1,22 +1,73 @@
-"""
-Filter insertion reads by hard filtering based on read count thresholds at initial timepoints.
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-Filters insertion reads based on minimum read count thresholds at initial timepoints,
-supporting reproducible scientific analysis with comprehensive logging and validation.
+# (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
+# Remove or adjust if managing dependencies via a traditional virtual environment.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "pandas",
+#     "loguru",
+# ]
+# ///
+
+"""
+Hard Filtering of Insertion Reads
+=================================
+
+Filter insertion reads by a minimum read-count threshold measured at a chosen
+initial timepoint. Each sample is processed independently: an insertion is
+retained for a sample only when its read count at the initial timepoint meets
+or exceeds the cutoff, so a sparsely-covered insertion in one sample does not
+suppress the same locus in a well-covered sample.
+
+The core algorithm groups the wide, multi-indexed count matrix by ``Sample``
+(the first column level), builds a boolean mask from the ``>= cutoff`` test on
+the initial-timepoint column, keeps the masked rows per sample, and concatenates
+the surviving per-sample blocks back into a single matrix. Retention statistics
+(total, retained, removed, retention rate, samples processed) are logged for
+reproducibility.
+
+Input
+-----
+- A tab-separated counts matrix with a 4-level row MultiIndex (columns 0-3) and
+  a 2-level column MultiIndex ``(Sample, Timepoint)`` on header rows 0 and 1.
+
+Output
+------
+- A tab-separated matrix of retained insertions, written with the row index and
+  the 2-level column header preserved (``sep="\\t"``, ``header=True``,
+  ``index=True``). Same structure as the input, filtered by row.
+
+Usage
+-----
+    python reads_hard_filtering.py -i raw_reads.tsv -o filtered_reads.tsv -itp 0h -c 5
+    python reads_hard_filtering.py -i counts.tsv -o filtered.tsv --init-timepoint YES0 --cutoff 10 --verbose
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-07-09
+Version:  1.0.0
 """
 
-import sys
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from loguru import logger
-from typing import Optional, Tuple
+
+# 2. Data Processing Imports
 import pandas as pd
 
+# 3. Third-party Imports
+from loguru import logger
 
-# =============================== Configuration & Models ===============================
-
-@dataclass
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
 class InputOutputConfig:
     """Configuration for hard filtering parameters and paths."""
     input_file: Path
@@ -24,17 +75,16 @@ class InputOutputConfig:
     initial_timepoint: str
     cutoff_threshold: int
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
+    def __post_init__(self) -> None:
+        """Validate paths and timepoint, then ensure the output directory exists."""
         if not self.input_file.exists():
             raise ValueError(f"Input file does not exist: {self.input_file}")
         if not self.initial_timepoint.strip():
             raise ValueError("Initial timepoint cannot be empty")
-        self.initial_timepoint = self.initial_timepoint.strip()
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass
+@dataclass(kw_only=True, slots=True, frozen=True)
 class AnalysisResult:
     """Results of the filtering analysis."""
     total_insertions: int
@@ -43,47 +93,44 @@ class AnalysisResult:
     retention_rate: float
     samples_processed: int
 
-
-# =============================== Setup Logging ===============================
-
-def setup_logging(log_level: str = "INFO") -> None:
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+def setup_logger(log_level: str = "INFO") -> None:
     """Configure loguru for the application."""
     logger.remove()
     logger.add(
         sys.stdout,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
         level=log_level,
-        colorize=False
+        colorize=False,
     )
 
+setup_logger()
 
-# =============================== Core Functions ===============================
-
+# =============================================================================
+# CORE LOGIC (FUNCTIONS / CLASSES)
+# =============================================================================
 @logger.catch
 def load_insertion_data(input_file: Path) -> pd.DataFrame:
-    """Load insertion reads from TSV file with multi-index structure."""
+    """Load insertion reads from a TSV file with multi-index rows and columns."""
     logger.info(f"Loading insertion data from: {input_file}")
-    
-    try:
-        df = pd.read_csv(
-            input_file, 
-            sep="\t", 
-            index_col=[0, 1, 2, 3], 
-            header=[0, 1]
-        )
-        logger.success(f"Loaded {df.shape[0]:,} insertions with {df.shape[1]} columns")
-        
-        if not isinstance(df.columns, pd.MultiIndex):
-            raise ValueError("Expected MultiIndex columns with (Sample, Timepoint) structure")
-        
-        if len(df.columns.levels) != 2:
-            raise ValueError("Expected columns to have 2 levels: Sample and Timepoint")
-            
-        return df
-        
-    except Exception as e:
-        logger.error(f"Failed to load data: {e}")
-        raise
+
+    df = pd.read_csv(
+        input_file,
+        sep="\t",
+        index_col=[0, 1, 2, 3],
+        header=[0, 1],
+    )
+    logger.success(f"Loaded {df.shape[0]:,} insertions with {df.shape[1]} columns")
+
+    if not isinstance(df.columns, pd.MultiIndex):
+        raise ValueError("Expected MultiIndex columns with (Sample, Timepoint) structure")
+
+    if len(df.columns.levels) != 2:
+        raise ValueError("Expected columns to have 2 levels: Sample and Timepoint")
+
+    return df
 
 
 @logger.catch
@@ -94,18 +141,18 @@ def validate_timepoint_exists(df: pd.DataFrame, timepoint: str) -> None:
         logger.error(f"Timepoint '{timepoint}' not found in data")
         logger.error(f"Available timepoints: {list(available_timepoints)}")
         raise ValueError(f"Invalid timepoint: {timepoint}")
-    
+
     logger.debug(f"Validated timepoint '{timepoint}' exists in data")
 
 
 @logger.catch
-def apply_hard_filtering(df: pd.DataFrame, config: InputOutputConfig) -> Tuple[pd.DataFrame, AnalysisResult]:
-    """Apply hard filtering across all samples based on read count threshold."""
+def apply_hard_filtering(df: pd.DataFrame, config: InputOutputConfig) -> tuple[pd.DataFrame, AnalysisResult]:
+    """Apply hard filtering across all samples based on the read-count threshold."""
     logger.info("Starting hard filtering process...")
-    
+
     # Validate timepoint exists
     validate_timepoint_exists(df, config.initial_timepoint)
-    
+
     # Display initial data info
     logger.info("=" * 60)
     logger.info("INITIAL DATA SUMMARY")
@@ -115,68 +162,68 @@ def apply_hard_filtering(df: pd.DataFrame, config: InputOutputConfig) -> Tuple[p
     logger.info(f"Timepoints: {list(df.columns.get_level_values(1).unique())}")
     logger.info(f"Initial timepoint: {config.initial_timepoint}")
     logger.info(f"Cutoff threshold: {config.cutoff_threshold}")
-    
+
     # Process each sample
     filtered_samples = {}
     sample_results = []
     total_insertions = 0
     retained_insertions = 0
-    
+
     for sample_name, sample_data in df.groupby(level="Sample", axis=1):
         logger.debug(f"Processing sample: {sample_name}")
-        
+
         sample_total = len(sample_data)
         mask = sample_data[(sample_name, config.initial_timepoint)] >= config.cutoff_threshold
         sample_retained = mask.sum()
-        
-        retention_rate = (sample_retained / sample_total * 100 
-                         if sample_total > 0 else 0)
-        
+
+        retention_rate = (sample_retained / sample_total * 100
+                          if sample_total > 0 else 0)
+
         total_insertions += sample_total
         retained_insertions += sample_retained
-        
+
         logger.debug(
             f"Sample {sample_name}: {sample_retained:,}/{sample_total:,} "
             f"insertions retained ({retention_rate:.2f}%)"
         )
-        
+
         if sample_retained > 0:
             filtered_samples[sample_name] = sample_data[mask]
-        
+
         sample_results.append({
-            'sample_name': sample_name,
-            'total_insertions': sample_total,
-            'retained_insertions': sample_retained,
-            'retention_rate': retention_rate
+            "sample_name": sample_name,
+            "total_insertions": sample_total,
+            "retained_insertions": sample_retained,
+            "retention_rate": retention_rate,
         })
-    
+
     # Combine filtered samples
     if not filtered_samples:
         logger.warning("No samples retained any insertions after filtering")
         filtered_df = pd.DataFrame(columns=df.columns)
     else:
         filtered_df = pd.concat(filtered_samples.values(), axis=1)
-    
+
     # Calculate overall statistics
     removed_insertions = total_insertions - retained_insertions
-    retention_rate = (retained_insertions / total_insertions * 100 
-                     if total_insertions > 0 else 0)
-    
+    retention_rate = (retained_insertions / total_insertions * 100
+                      if total_insertions > 0 else 0)
+
     result = AnalysisResult(
         total_insertions=total_insertions,
         retained_insertions=retained_insertions,
         removed_insertions=removed_insertions,
         retention_rate=retention_rate,
-        samples_processed=len(sample_results)
+        samples_processed=len(sample_results),
     )
-    
+
     return filtered_df, result
 
-
-# =============================== Main Function ===============================
-
-def parse_arguments():
-    """Set and parse command line arguments."""
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(
         description="Filter insertion reads by hard filtering based on read count thresholds",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -186,72 +233,77 @@ Examples:
   python reads_hard_filtering.py -i counts.tsv -o filtered.tsv --init-timepoint YES0 --cutoff 10
         """
     )
-    
+
     parser.add_argument(
-        "-i", "--input", 
-        type=Path, 
-        required=True, 
+        "-i", "--input",
+        type=Path,
+        required=True,
         help="Input TSV file with insertion reads"
     )
     parser.add_argument(
-        "-o", "--output", 
-        type=Path, 
-        required=True, 
+        "-o", "--output",
+        type=Path,
+        required=True,
         help="Output TSV file for filtered reads"
     )
     parser.add_argument(
-        "-itp", "--init-timepoint", 
-        type=str, 
-        required=True, 
+        "-itp", "--init-timepoint",
+        type=str,
+        required=True,
         help="Initial timepoint column name for filtering"
     )
     parser.add_argument(
-        "-c", "--cutoff", 
-        type=int, 
-        required=True, 
+        "-c", "--cutoff",
+        type=int,
+        required=True,
         help="Minimum read count threshold at initial timepoint"
     )
     parser.add_argument(
-        "-v", "--verbose", 
-        action="store_true", 
+        "-v", "--verbose",
+        action="store_true",
         help="Enable verbose logging"
     )
-    
+
     return parser.parse_args()
 
 
-@logger.catch
-def main():
-    """Main entry point of the script."""
-    args = parse_arguments()
-    log_level = "DEBUG" if args.verbose else "INFO"
-    setup_logging(log_level)
+def main() -> int:
+    """Main orchestrator: load, filter, and write hard-filtered insertion reads."""
+    args = parse_args()
+    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
 
-    config = InputOutputConfig(
-        input_file=args.input,
-        output_file=args.output,
-        initial_timepoint=args.init_timepoint,
-        cutoff_threshold=args.cutoff
-    )
+    try:
+        config = InputOutputConfig(
+            input_file=args.input,
+            output_file=args.output,
+            initial_timepoint=args.init_timepoint.strip(),
+            cutoff_threshold=args.cutoff,
+        )
 
-    logger.info(f"Starting processing of {config.input_file}")
+        logger.info(f"Starting processing of {config.input_file}")
 
-    df = load_insertion_data(config.input_file)
-    filtered_df, results = apply_hard_filtering(df, config)
+        df = load_insertion_data(config.input_file)
+        filtered_df, results = apply_hard_filtering(df, config)
 
-    logger.info("Saving filtered results...")
-    filtered_df.to_csv(config.output_file, sep="\t", header=True, index=True)
+        logger.info("Saving filtered results...")
+        filtered_df.to_csv(config.output_file, sep="\t", header=True, index=True)
 
-    logger.info("=" * 70)
-    logger.info("FILTERING SUMMARY")
-    logger.info("=" * 70)
-    logger.info(f"Total insertions: {results.total_insertions:,}")
-    logger.info(f"Retained insertions: {results.retained_insertions:,}")
-    logger.info(f"Removed insertions: {results.removed_insertions:,}")
-    logger.success(f"Retention rate: {results.retention_rate:.2f}%")
-    logger.info(f"Samples processed: {results.samples_processed}")
-    logger.success(f"Analysis complete. Results saved to {config.output_file}")
+        logger.info("=" * 70)
+        logger.info("FILTERING SUMMARY")
+        logger.info("=" * 70)
+        logger.info(f"Total insertions: {results.total_insertions:,}")
+        logger.info(f"Retained insertions: {results.retained_insertions:,}")
+        logger.info(f"Removed insertions: {results.removed_insertions:,}")
+        logger.success(f"Retention rate: {results.retention_rate:.2f}%")
+        logger.info(f"Samples processed: {results.samples_processed}")
+        logger.success(f"Analysis complete. Results saved to {config.output_file}")
+
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred: {e}")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
