@@ -182,20 +182,11 @@ if not config.get("use_DEseq2_for_biological_replicates", False):
             "../envs/statistics_and_figure_plotting.yml"
         message:
             "*** Computing R-square as weights..."
-        run:
-            import pandas as pd
-
-            fitting_res = pd.read_csv(input[0], sep="\t", index_col=[0, 1, 2, 3])
-            fitting_res["confidence"] = fitting_res["R2"].clip(lower=1e-6, upper=1 - 1e-6)
-
-            timepoint_columns = fitting_res.filter(regex=r".*_fitted$").columns.tolist()
-            timepoint_columns = [col.rstrip("_fitted") for col in timepoint_columns]
-
-            weights = pd.DataFrame(index=fitting_res.index, columns=timepoint_columns)
-            for col in timepoint_columns:
-                weights[col] = 1 - fitting_res["confidence"]
-
-            weights.to_csv(output[0], sep="\t")
+        shell:
+            """
+            python workflow/scripts/depletion_scoring/compute_r2_weights.py \
+                -i {input} -o {output} &> {log}
+            """
 
 
 # Gene-level depletion analysis
