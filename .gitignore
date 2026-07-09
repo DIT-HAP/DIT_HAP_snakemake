@@ -1,0 +1,12 @@
+# Snakemake
+.snakemake/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Pipeline outputs
+/results/
+/reports/
+/logs/
+/resources/pombase_data/
