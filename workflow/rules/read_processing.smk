@@ -423,14 +423,14 @@ if config["merge_similar_timepoints"]:
             "../envs/statistics_and_figure_plotting.yml"
         message:
             "*** Merging similar time points for {wildcards.sample}_{wildcards.condition}..."
-        run:
-            import pandas as pd
-
-            df = pd.read_csv(input[0], sep="\t", index_col=[0, 1, 2, 3])
-            df[params.merged_timepoint] = df[params.similar_timepoints].sum(axis=1)
-            df.drop(columns=params.drop_columns, inplace=True)
-            df.sort_index(axis=1, inplace=True)
-            df.to_csv(output[0], sep="\t", index=True)
+        shell:
+            """
+            python workflow/scripts/read_processing/merge_similar_timepoints.py \
+                -i {input} -o {output} \
+                -s {params.similar_timepoints} \
+                -m {params.merged_timepoint} \
+                -d {params.drop_columns} &> {log}
+            """
 
 
 # Concatenate all sample counts and annotations
@@ -456,29 +456,14 @@ rule concat_counts_and_annotations:
         "../envs/statistics_and_figure_plotting.yml"
     message:
         "*** Concatenating counts and annotations..."
-    run:
-        import pandas as pd
-
-        all_counts = str(input.counts).split(" ")
-        all_annotations = str(input.annotations).split(" ")
-
-        counts_df = {}
-        for f in all_counts:
-            counts_df[Path(f).name.split(".")[0]] = pd.read_csv(f, sep="\t", index_col=[0, 1, 2, 3])
-        counts_df = pd.concat(counts_df, axis=1).rename_axis(["Sample", "Timepoint"], axis=1)
-
-        annotations_df = {}
-        for f in all_annotations:
-            annotations_df[Path(f).name.split(".")[0]] = pd.read_csv(f, index_col=[0, 1, 2, 3], sep="\t")
-        annotations_df = (
-            pd.concat(list(annotations_df.values()), axis=0)
-            .reset_index()
-            .drop_duplicates()
-            .set_index(["Chr", "Coordinate", "Strand", "Target"])
-        )
-
-        counts_df.to_csv(output.counts, sep="\t", index=True)
-        annotations_df.to_csv(output.annotations, sep="\t", index=True)
+    shell:
+        """
+        python workflow/scripts/read_processing/concat_counts_and_annotations.py \
+            -i {input.counts} \
+            -a {input.annotations} \
+            -oc {output.counts} \
+            -oa {output.annotations} &> {log}
+        """
 
 
 # Hard-filter insertions by read count at initial timepoint
