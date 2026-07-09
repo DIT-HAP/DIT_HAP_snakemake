@@ -1,0 +1,77 @@
+# Configuration file for snakemake
+
+# Snakemake wrapper version
+# -----------------------------------------------------
+snakemake_wrapper_version: v7.7.0
+
+# Working directory and project name
+# -----------------------------------------------------
+workdir: /data/c/yangyusheng_optimized/DIT_HAP_pipeline
+project_name: LD_DIT_HAP_generationRAW
+
+# MultiQC configuration
+# -----------------------------------------------------
+multiqc_config: config/multiqc_config.yml
+
+# Preparation configuration
+# -----------------------------------------------------
+Pombase_release_version: 2025-10-01
+
+# Preprocessing configuration
+# -----------------------------------------------------
+sample_sheet: config/sample_sheet_LD.tsv
+use_DEseq2_for_biological_replicates: True
+
+# Adapter sequences and PBL/PBR sequences for adapter trimming and demultiplexing
+# -----------------------------------------------------
+adapter_sequence: CTGTCTCTTATACACATCT
+adapter_sequence_r2: AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
+PBL_adapter: CATGCGTCAATTTTACGCAGACTATCTTTCTAGGG
+PBL_reverseComplement_adapter: CCCTAGAAAGATAGTCTGCGTAAAATTGACGCATG
+PBR_adapter: ACGCATGATTATCTTTAACGTACGTCACAATATGATTATCTTTCTAGGG
+PBR_reverseComplement_adapter: CCCTAGAAAGATAATCATATTGTGACGTACGTTAAAGATAATCATGCGT
+
+# Pair read filtering configuration
+# -----------------------------------------------------
+aligned_read_filtering:
+  read_1_filtering:
+    mapq_threshold: 20
+    ncigar_value: 1
+    nm_threshold: 3
+    no_sa: True # require no supplementary alignments
+    no_xa: True # require no secondary alignments
+  read_2_filtering:
+    mapq_threshold: 40
+    ncigar_value: 10
+    nm_threshold: 15
+    no_sa: True # require no supplementary alignments
+    no_xa: True # require no secondary alignments
+  require_proper_pair: True # require proper pairs
+
+# Chunk size for parallel processing
+# -----------------------------------------------------
+chunk_size: 3000000
+
+# Merge similar time points configuration
+# -----------------------------------------------------
+merge_similar_timepoints: TRUE
+similar_timepoints:
+  - "0h"
+  - "YES0"
+merged_timepoint: "YES0"
+drop_columns:
+  - "0h"
+
+# Hard filtering configuration and DEseq2 configuration
+# -----------------------------------------------------
+hard_filtering_cutoff: 8
+initial_time_point: "YES0"
+
+# Depletion analysis configuration
+# -----------------------------------------------------
+time_points:
+  - 0
+  - 2.352
+  - 3.588
+  - 9.104
+  - 12.480

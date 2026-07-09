@@ -1,0 +1,4 @@
+Sample	Timepoint	Condition	read1	read2
+HD1328-4	0h	YES	/hugedata/YushengYang/HighDepth_data/20210906_ningshaokai_1328-4_360G/fq1/HD1328-4-0-0h_1.fq.gz	/hugedata/YushengYang/HighDepth_data/20210906_ningshaokai_1328-4_360G/fq2/HD360G_NSKY1328-4-0-spore_NSK-0906_diploid_2.fq.gz
+HD1328-4	YES0	YES	/hugedata/YushengYang/HighDepth_data/20210906_ningshaokai_1328-4_360G/fq1/HD1328-4-0-YES0_1.fq.gz	/hugedata/YushengYang/HighDepth_data/20210906_ningshaokai_1328-4_360G/fq2/HD360G_NSKY1328-4-0-YES0_NSK-0906_diploid_2.fq.gz
+HD1328-4	Diploid	YES	/hugedata/YushengYang/20220511_ningshaokai_1328_7_1TB/fq1/HD1328-4-0-Diploid_1.fq.gz	/hugedata/YushengYang/20220511_ningshaokai_1328_7_1TB/fq2/1328-4_Diploid_2.fq.gz

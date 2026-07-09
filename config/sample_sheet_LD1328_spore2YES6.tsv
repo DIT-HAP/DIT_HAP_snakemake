@@ -1,0 +1,9 @@
+Sample	Timepoint	Condition	read1	read2
+LD1328-7	0h	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-0h_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-spore_2.fq.gz
+LD1328-7	YES0	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-YES0_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-YES0_2.fq.gz
+LD1328-7	YES1	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-YES1_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-YES1_2.fq.gz
+LD1328-7	YES2	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-YES2_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-YES2_2.fq.gz
+LD1328-7	YES3	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-YES3_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-YES3_2.fq.gz
+LD1328-7	YES4	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-YES4_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-YES4_2.fq.gz
+LD1328-7	YES5	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-YES5_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-YES5_2.fq.gz
+LD1328-7	YES6	YES	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/YYS1328-7-1-YES6_1.fq.gz	/hugedata/YushengYang/20220711_yangyusheng_spike_in/YYS1328_7/20220624YYS-NSKY1328-7-1-YES6_2.fq.gz
