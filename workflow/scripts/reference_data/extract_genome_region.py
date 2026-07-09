@@ -1,12 +1,54 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
+# Remove or adjust if managing dependencies via a traditional virtual environment.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "numpy",
+#     "pandas",
+#     "loguru",
+#     "pybedtools",
+# ]
+# ///
+
 """
-Parse GFF3 annotation to extract coding gene primary transcripts, intergenic regions, and non-coding RNAs.
+Extract Genome Regions from PomBase GFF3 Annotation
+===================================================
 
-Reads PomBase GFF3 annotation, FASTA index, peptide statistics, gene metadata, and viability
-data to produce BED-format interval files for downstream insertion site annotation. Identifies
-primary coding transcripts by matching CDS length to known peptide lengths, derives intergenic
-regions as the complement of primary transcripts, and extracts non-coding RNA intervals.
+Parse a PomBase GFF3 annotation together with supporting metadata to produce
+BED-format interval files for downstream insertion-site annotation. Primary
+coding transcripts are identified by matching accumulated CDS length to known
+peptide lengths; intergenic regions are derived as the complement of the primary
+transcript spans; non-coding RNA intervals are extracted from the annotation.
 
-Typical Usage:
+The pipeline additionally annotates each interval with gene names, FYPO
+viability, and deletion-library essentiality, records parental-region spans,
+finds overlapping coding regions via BedTools self-intersection, and derives a
+non-coding RNA set that does not overlap expanded coding parental regions.
+
+Input
+-----
+- ``--gff``            : PomBase GFF3 annotation (tab-separated, ``#`` comments).
+- ``--fai``            : FASTA index (.fai) providing chromosome sizes.
+- ``--peptide_stats``  : PomBase PeptideStats TSV (``Systematic_ID``, ``Residues``).
+- ``--gene_ids``       : gene_IDs_names_products TSV (systematic id / name / synonyms).
+- ``--fypo``           : FYPOviability TSV (headerless: systematic id, viability).
+- ``--hayles``         : Hayles 2013 viability XLSX.
+
+Output
+------
+- ``--out_primary``           : coding gene primary transcripts BED.
+- ``--out_intergenic``        : intergenic regions BED.
+- ``--out_ncrna``             : non-coding RNA BED.
+- ``--out_genome_intervals``  : genome intervals BED (primary + intergenic).
+- ``--out_overlapped``        : overlapping coding regions BED.
+- A derived ``non_coding_rna_without_overlap_with_coding_gene.bed`` written
+  alongside ``--out_ncrna``.
+
+Usage
+-----
     python extract_genome_region.py \
         --gff Schizosaccharomyces_pombe_all_chromosomes.gff3 \
         --fai Schizosaccharomyces_pombe_all_chromosomes.fa.fai \
@@ -20,36 +62,42 @@ Typical Usage:
         --out_genome_intervals Genome_intervals.bed \
         --out_overlapped overlapped_region.bed
 
-Input:  PomBase GFF3, FASTA index (.fai), PeptideStats TSV, gene metadata TSV,
-        FYPOviability TSV, Hayles 2013 viability XLSX
-Output: Five BED-format TSV files with genomic interval annotations
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-07-09
+Version:  1.0.0
 """
 
-# =============================== Imports ===============================
-import sys
-import re
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 import argparse
-from pathlib import Path
-from typing import Optional
+import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
-from loguru import logger
+# 2. Data Processing Imports
 import numpy as np
 import pandas as pd
+
+# 3. Third-party Imports
+from loguru import logger
 import pybedtools
 from pybedtools import BedTool
 
-
-# =============================== Constants ===============================
+# =============================================================================
+# GLOBAL CONSTANTS & ENUMS
+# =============================================================================
 CHR_ORDER = ["chr_II_telomeric_gap", "I", "II", "III", "mating_type_region", "mitochondrial"]
 TRANSCRIPT_FEATURE_TYPES = frozenset(["mRNA", "tRNA", "rRNA", "snoRNA", "snRNA", "lncRNA"])
 NON_CODING_RNA_FEATURES = ["tRNA", "rRNA", "snoRNA", "snRNA", "lncRNA"]
 CODING_PARENTAL_EXPAND_BP = 200
 
-
-# =============================== Configuration & Models ===============================
-
-@dataclass
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
 class Config:
     """Configuration for GFF3 genome region extraction."""
     gff_file: Path
@@ -73,9 +121,9 @@ class Config:
         for field_name in ["out_primary", "out_intergenic", "out_ncrna", "out_genome_intervals", "out_overlapped"]:
             Path(getattr(self, field_name)).parent.mkdir(parents=True, exist_ok=True)
 
-
-# =============================== Setup Logging ===============================
-
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
 def setup_logging(log_level: str = "INFO") -> None:
     """Configure loguru for the application."""
     logger.remove()
@@ -86,9 +134,9 @@ def setup_logging(log_level: str = "INFO") -> None:
         colorize=False,
     )
 
-
-# =============================== Core Functions ===============================
-
+# =============================================================================
+# CORE LOGIC (FUNCTIONS / CLASSES)
+# =============================================================================
 @logger.catch
 def update_sysID(genes: list, gene_IDs_names_products: pd.DataFrame) -> list:
     """Resolve gene identifiers to current systematic IDs via name/synonym lookup."""
@@ -200,7 +248,7 @@ def gff_features_to_bed(
     transcript_features_group_df: pd.DataFrame,
     gene_type_label: str,
     peptide_length_map: dict,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """Convert GFF features for a transcript to BED-like format."""
     bed_df = transcript_features_group_df.copy()
     bed_df["Start"] = bed_df["Start"] - 1
@@ -565,10 +613,10 @@ def run_pipeline(config: Config) -> None:
     non_coding_nonoverlap_df.to_csv(out_ncrna_nooverlap, sep="\t", index=False)
     logger.success(f"Saved non-coding RNA (no coding overlap) → {out_ncrna_nooverlap}")
 
-
-# =============================== Main Function ===============================
-
-def parse_arguments() -> argparse.Namespace:
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def parse_args() -> argparse.Namespace:
     """Set and parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Parse GFF3 annotation to extract genomic region BED files",
@@ -604,30 +652,35 @@ Examples:
     return parser.parse_args()
 
 
-@logger.catch
-def main() -> None:
+def main() -> int:
     """Main entry point of the script."""
-    args = parse_arguments()
+    args = parse_args()
     setup_logging("DEBUG" if args.verbose else "INFO")
 
-    config = Config(
-        gff_file=args.gff,
-        fai_file=args.fai,
-        peptide_stats_file=args.peptide_stats,
-        gene_ids_file=args.gene_ids,
-        fypo_file=args.fypo,
-        hayles_file=args.hayles,
-        out_primary=args.out_primary,
-        out_intergenic=args.out_intergenic,
-        out_ncrna=args.out_ncrna,
-        out_genome_intervals=args.out_genome_intervals,
-        out_overlapped=args.out_overlapped,
-    )
+    try:
+        config = Config(
+            gff_file=args.gff,
+            fai_file=args.fai,
+            peptide_stats_file=args.peptide_stats,
+            gene_ids_file=args.gene_ids,
+            fypo_file=args.fypo,
+            hayles_file=args.hayles,
+            out_primary=args.out_primary,
+            out_intergenic=args.out_intergenic,
+            out_ncrna=args.out_ncrna,
+            out_genome_intervals=args.out_genome_intervals,
+            out_overlapped=args.out_overlapped,
+        )
 
-    logger.info(f"Extracting genome regions from {config.gff_file.name}")
-    run_pipeline(config)
-    logger.success("Script completed successfully!")
+        logger.info(f"Extracting genome regions from {config.gff_file.name}")
+        run_pipeline(config)
+        logger.success("Script completed successfully!")
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred: {e}")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
