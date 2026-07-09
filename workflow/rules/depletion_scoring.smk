@@ -10,9 +10,9 @@ rule control_insertion_selection:
         counts_df=rules.hard_filtering.output,
         annotation_df=rules.concat_counts_and_annotations.output.annotations,
     output:
-        "results/{project_name}/13_filtered/control_insertions.tsv",
+        "projects/{project_name}/results/13_filtered/control_insertions.tsv",
     log:
-        "logs/{project_name}/depletion_scoring/control_insertion_selection.log",
+        "projects/{project_name}/logs/depletion_scoring/control_insertion_selection.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -36,9 +36,9 @@ if config.get("use_DEseq2_for_biological_replicates", False):
             filtered_reads=rules.hard_filtering.output,
             annotation=rules.concat_counts_and_annotations.output.annotations,
         output:
-            "results/{project_name}/13_filtered/imputed_raw_reads.tsv",
+            "projects/{project_name}/results/13_filtered/imputed_raw_reads.tsv",
         log:
-            "logs/{project_name}/depletion_scoring/impute_missing_values_using_FR.log",
+            "projects/{project_name}/logs/depletion_scoring/impute_missing_values_using_FR.log",
         conda:
             "../envs/statistics_and_figure_plotting.yml"
         message:
@@ -58,7 +58,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
             control_insertions_df=rules.control_insertion_selection.output,
         output:
             LFC=report(
-                "results/{project_name}/14_insertion_level_depletion_analysis/LFC.tsv",
+                "projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
                 category="Insertion-level results",
                 labels={
                     "name": "Insertion-level LFC",
@@ -67,7 +67,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 },
             ),
             padj=report(
-                "results/{project_name}/14_insertion_level_depletion_analysis/padj.tsv",
+                "projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
                 category="Insertion-level results",
                 labels={
                     "name": "Insertion-level adjusted p-values",
@@ -76,7 +76,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 },
             ),
         log:
-            "logs/{project_name}/depletion_scoring/insertion_level_depletion_analysis_has_replicates.log",
+            "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_has_replicates.log",
         params:
             initial_time_point=config["initial_time_point"],
         conda:
@@ -101,7 +101,7 @@ else:
             control_insertions_df=rules.control_insertion_selection.output,
         output:
             LFC=report(
-                "results/{project_name}/14_insertion_level_depletion_analysis/LFC.tsv",
+                "projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
                 category="Insertion-level results",
                 labels={
                     "name": "Insertion-level LFC",
@@ -110,7 +110,7 @@ else:
                 },
             ),
         log:
-            "logs/{project_name}/depletion_scoring/insertion_level_depletion_analysis_no_replicates.log",
+            "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_no_replicates.log",
         params:
             initial_time_point=config["initial_time_point"],
         conda:
@@ -131,10 +131,10 @@ else:
 # -----------------------------------------------------
 rule insertion_level_curve_fitting:
     input:
-        "results/{project_name}/14_insertion_level_depletion_analysis/LFC.tsv",
+        "projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
     output:
         report(
-            "results/{project_name}/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
+            "projects/{project_name}/results/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
             category="Insertion-level results",
             labels={
                 "name": "Insertion-level Curve Fitting Statistics",
@@ -143,9 +143,9 @@ rule insertion_level_curve_fitting:
             },
         ),
     log:
-        "logs/{project_name}/depletion_scoring/insertion_level_curve_fitting.log",
+        "projects/{project_name}/logs/depletion_scoring/insertion_level_curve_fitting.log",
     params:
-        time_points=" ".join(map(str, config["time_points"])),
+        time_points=lambda wildcards: " ".join(map(str, config["time_points"])),
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -168,7 +168,7 @@ if not config.get("use_DEseq2_for_biological_replicates", False):
             rules.insertion_level_curve_fitting.output,
         output:
             report(
-                "results/{project_name}/15_insertion_level_curve_fitting/insertions_LFC_fitted_with_r_square_as_weights.tsv",
+                "projects/{project_name}/results/15_insertion_level_curve_fitting/insertions_LFC_fitted_with_r_square_as_weights.tsv",
                 category="Insertion-level results",
                 labels={
                     "name": "Insertion-level LFC Fitted with R-square as Weights",
@@ -177,7 +177,7 @@ if not config.get("use_DEseq2_for_biological_replicates", False):
                 },
             ),
         log:
-            "logs/{project_name}/depletion_scoring/r_square_as_weights.log",
+            "projects/{project_name}/logs/depletion_scoring/r_square_as_weights.log",
         conda:
             "../envs/statistics_and_figure_plotting.yml"
         message:
@@ -193,17 +193,17 @@ if not config.get("use_DEseq2_for_biological_replicates", False):
 # -----------------------------------------------------
 rule gene_level_depletion_analysis:
     input:
-        lfc_path="results/{project_name}/14_insertion_level_depletion_analysis/LFC.tsv",
+        lfc_path="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
         weights_path=branch(
             config.get("use_DEseq2_for_biological_replicates", False),
-            "results/{project_name}/14_insertion_level_depletion_analysis/padj.tsv",
-            "results/{project_name}/15_insertion_level_curve_fitting/insertions_LFC_fitted_with_r_square_as_weights.tsv",
+            "projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
+            "projects/{project_name}/results/15_insertion_level_curve_fitting/insertions_LFC_fitted_with_r_square_as_weights.tsv",
         ),
         annotations_path=rules.concat_counts_and_annotations.output.annotations,
     output:
-        all_statistics="results/{project_name}/16_gene_level_depletion_analysis/gene_level_statistics.tsv",
+        all_statistics="projects/{project_name}/results/16_gene_level_depletion_analysis/gene_level_statistics.tsv",
         LFC=report(
-            "results/{project_name}/16_gene_level_depletion_analysis/LFC.tsv",
+            "projects/{project_name}/results/16_gene_level_depletion_analysis/LFC.tsv",
             category="Gene-level results",
             labels={
                 "name": "Gene-level LFC",
@@ -212,7 +212,7 @@ rule gene_level_depletion_analysis:
             },
         ),
     log:
-        "logs/{project_name}/depletion_scoring/gene_level_depletion_analysis.log",
+        "projects/{project_name}/logs/depletion_scoring/gene_level_depletion_analysis.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -234,7 +234,7 @@ rule gene_level_curve_fitting:
         LFC=rules.gene_level_depletion_analysis.output.LFC,
     output:
         report(
-            "results/{project_name}/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
+            "projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
             category="Gene-level results",
             labels={
                 "name": "Gene-level Curve Fitting Statistics",
@@ -243,9 +243,9 @@ rule gene_level_curve_fitting:
             },
         ),
     log:
-        "logs/{project_name}/depletion_scoring/gene_level_curve_fitting.log",
+        "projects/{project_name}/logs/depletion_scoring/gene_level_curve_fitting.log",
     params:
-        time_points=" ".join(map(str, config["time_points"])),
+        time_points=lambda wildcards: " ".join(map(str, config["time_points"])),
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:

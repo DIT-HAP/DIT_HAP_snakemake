@@ -11,15 +11,19 @@ min_version("9.0")
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-snakemake_config_file = "config/config_HD_generationRAW.yaml"
-# snakemake_config_file = "config/config_HD_generationPLUS1.yaml"
-# snakemake_config_file = "config/config_LD_generationRAW.yaml"
-# snakemake_config_file = "config/config_LD_generationPLUS1.yaml"
-# snakemake_config_file = "config/config_HD_diploid.yaml"
-# snakemake_config_file = "config/config_LD_haploid.yaml"
-# snakemake_config_file = "config/config_spikein.yaml"
-# snakemake_config_file = "config/config_1328_spore2YES6.yaml"
-configfile: snakemake_config_file
+# Select the active project (edit this line to switch experiments).
+# Each project lives under projects/{project}/ with its own config/ and outputs.
+project = "HD_DIT_HAP_generationRAW"
+# project = "HD_DIT_HAP_generationPLUS1"
+# project = "HD_DIT_HAP"
+# project = "LD_DIT_HAP_generationRAW"
+# project = "LD_DIT_HAP_generationPLUS1"
+# project = "HD_diploid"
+# project = "LD_haploid"
+# project = "Spikein"
+# project = "Spore2YES6_1328"
+config_file = f"projects/{project}/config/config.yaml"
+configfile: config_file
 validate(config, "workflow/schemas/config.schema.yaml")
 workdir: "/data/c/yangyusheng_optimized/DIT_HAP"
 
@@ -39,6 +43,11 @@ onerror:
 # Project metadata
 # ---------------------------------------------------------------------------
 project_name = config["project_name"]
+assert project_name == project, (
+    f"Project directory '{project}' does not match config project_name "
+    f"'{project_name}'. The projects/{{project}}/ folder name must equal "
+    f"the project_name in its config.yaml."
+)
 snakemake_wrapper_version = config["snakemake_wrapper_version"]
 
 # ---------------------------------------------------------------------------

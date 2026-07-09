@@ -16,23 +16,23 @@ rule multiqc_preprocessing:
             sample=samples, timepoint=timepoints, condition=conditions
         ),
         fastqc=expand(
-            f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.{{read}}_fastqc.zip",
+            f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.{{read}}_fastqc.zip",
             sample=samples, timepoint=timepoints, condition=conditions,
             read=["PBL_1", "PBL_2", "PBR_1", "PBR_2"]
         ),
         bam_stats=expand(
-            f"reports/{project_name}/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.{{type}}.txt",
+            f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.{{type}}.txt",
             sample=samples, timepoint=timepoints, condition=conditions,
             fragment=["PBL", "PBR"], type=["stats", "flagstat", "idxstats"]
         ),
         picard_metrics=expand(
-            f"reports/{project_name}/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.txt",
+            f"projects/{project_name}/reports/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.txt",
             sample=samples, timepoint=timepoints, condition=conditions,
             fragment=["PBL", "PBR"]
         ),
     output:
         report(
-            f"reports/{project_name}/multiqc/quality_control_multiqc_report.html",
+            f"projects/{project_name}/reports/multiqc/quality_control_multiqc_report.html",
             category="Quality Control",
             labels={
                 "name": "1. Preprocessing MultiQC Report",
@@ -41,11 +41,11 @@ rule multiqc_preprocessing:
             },
         ),
     log:
-        f"logs/{project_name}/quality_control/multiqc_quality_control.log",
+        f"projects/{project_name}/logs/quality_control/multiqc_quality_control.log",
     conda:
         "../envs/multiqc.yml"
     params:
-        outdir=f"reports/{project_name}/multiqc",
+        outdir=f"projects/{project_name}/reports/multiqc",
         title=f"Quality Control Report for {project_name}",
         multiqc_config=config["multiqc_config"],
     message:
@@ -75,9 +75,9 @@ rule mapping_filtering_statistics:
     input:
         expand(rules.filter_aligned_reads.log, sample=samples, timepoint=timepoints, condition=conditions),
     output:
-        f"reports/{project_name}/mapping_filtering_statistics/mapping_filtering_statistics.tsv",
+        f"projects/{project_name}/reports/mapping_filtering_statistics/mapping_filtering_statistics.tsv",
     log:
-        f"logs/{project_name}/quality_control/mapping_filtering_statistics.log",
+        f"projects/{project_name}/logs/quality_control/mapping_filtering_statistics.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -100,7 +100,7 @@ rule datavzrd_mapping_filtering_statistics:
         extra="",
     output:
         report(
-            directory(f"reports/{project_name}/mapping_filtering_statistics/datavzrd_mapping_filtering_statistics"),
+            directory(f"projects/{project_name}/reports/mapping_filtering_statistics/datavzrd_mapping_filtering_statistics"),
             htmlindex="index.html",
             category="Quality Control",
             labels={
@@ -110,7 +110,7 @@ rule datavzrd_mapping_filtering_statistics:
             },
         ),
     log:
-        f"logs/{project_name}/quality_control/mapping_filtering_statistics_datavzrd.log",
+        f"projects/{project_name}/logs/quality_control/mapping_filtering_statistics_datavzrd.log",
     wrapper:
         f"{snakemake_wrapper_version}/utils/datavzrd"
 
@@ -122,7 +122,7 @@ rule PBL_PBR_correlation_analysis:
         expand(rules.merge_strand_insertions.output, sample=samples, timepoint=timepoints, condition=conditions),
     output:
         report(
-            f"reports/{project_name}/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
+            f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
             category="Quality Control",
             labels={
                 "name": "3. PBL-PBR Correlation Analysis",
@@ -131,7 +131,7 @@ rule PBL_PBR_correlation_analysis:
             },
         ),
     log:
-        f"logs/{project_name}/quality_control/PBL_PBR_correlation_analysis.log",
+        f"projects/{project_name}/logs/quality_control/PBL_PBR_correlation_analysis.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -148,12 +148,12 @@ rule read_count_distribution_analysis:
     input:
         branch(
             config["merge_similar_timepoints"],
-            expand(f"results/{project_name}/11_merged/{{sample}}_{{condition}}.merged.tsv", sample=samples, condition=conditions),
+            expand(f"projects/{project_name}/results/11_merged/{{sample}}_{{condition}}.merged.tsv", sample=samples, condition=conditions),
             expand(rules.concat_timepoints.output.Reads, sample=samples, condition=conditions),
         ),
     output:
         report(
-            f"reports/{project_name}/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
+            f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
             category="Quality Control",
             labels={
                 "name": "4. Read Count Distribution Analysis",
@@ -162,7 +162,7 @@ rule read_count_distribution_analysis:
             },
         ),
     log:
-        f"logs/{project_name}/quality_control/read_count_distribution_analysis.log",
+        f"projects/{project_name}/logs/quality_control/read_count_distribution_analysis.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -187,7 +187,7 @@ rule insertion_orientation_analysis:
         rules.hard_filtering.output,
     output:
         report(
-            f"reports/{project_name}/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
+            f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
             category="Quality Control",
             labels={
                 "name": "5. Insertion Orientation Analysis",
@@ -196,7 +196,7 @@ rule insertion_orientation_analysis:
             },
         ),
     log:
-        f"logs/{project_name}/quality_control/insertion_orientation_analysis.log",
+        f"projects/{project_name}/logs/quality_control/insertion_orientation_analysis.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -211,12 +211,12 @@ rule insertion_orientation_analysis:
 # -----------------------------------------------------
 rule insertion_density_analysis:
     input:
-        insertion_data=f"results/{project_name}/14_insertion_level_depletion_analysis/LFC.tsv",
+        insertion_data=f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
         annotation=rules.concat_counts_and_annotations.output.annotations,
     output:
-        table=f"reports/{project_name}/insertion_density_analysis/insertion_density_analysis.tsv",
+        table=f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.tsv",
         plot=report(
-            f"reports/{project_name}/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
+            f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
             category="Quality Control",
             labels={
                 "name": "6. Insertion Density",
@@ -225,7 +225,7 @@ rule insertion_density_analysis:
             },
         ),
     log:
-        f"logs/{project_name}/quality_control/insertion_density_analysis.log",
+        f"projects/{project_name}/logs/quality_control/insertion_density_analysis.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -246,11 +246,11 @@ rule insertion_density_analysis:
 # -----------------------------------------------------
 rule gene_coverage_analysis:
     input:
-        insertion_data=f"results/{project_name}/14_insertion_level_depletion_analysis/LFC.tsv",
+        insertion_data=f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
         annotation=rules.concat_counts_and_annotations.output.annotations,
     output:
         report(
-            f"reports/{project_name}/gene_coverage_analysis/gene_coverage_analysis.pdf",
+            f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
             category="Quality Control",
             labels={
                 "name": "7. Gene Coverage",
@@ -259,7 +259,7 @@ rule gene_coverage_analysis:
             },
         ),
     log:
-        f"logs/{project_name}/quality_control/gene_coverage_analysis.log",
+        f"projects/{project_name}/logs/quality_control/gene_coverage_analysis.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:

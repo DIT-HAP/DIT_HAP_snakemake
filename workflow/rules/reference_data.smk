@@ -16,7 +16,7 @@ rule download_pombase_data:
         release_version = "{release_version}",
         download_dir = "resources/pombase_data/{release_version}",
     log:
-        f"logs/{project_name}/reference_data/download_pombase_data_{{release_version}}.log",
+        f"projects/{project_name}/logs/reference_data/download_pombase_data_{{release_version}}.log",
     message:
         "*** Downloading PomBase data (release {wildcards.release_version}) from FTP server"
     shell:
@@ -34,7 +34,7 @@ rule samtools_faidx:
     output:
         "resources/pombase_data/{release_version}/genome_sequence_and_features/Schizosaccharomyces_pombe_all_chromosomes.fa.fai",
     log:
-        f"logs/{project_name}/reference_data/samtools_faidx_{{release_version}}.log",
+        f"projects/{project_name}/logs/reference_data/samtools_faidx_{{release_version}}.log",
     message:
         "*** Indexing genome FASTA with samtools faidx"
     wrapper:
@@ -53,7 +53,7 @@ rule bwa_index:
         rules.download_pombase_data.output.fasta + ".bwt.2bit.64",
         rules.download_pombase_data.output.fasta + ".pac",
     log:
-        f"logs/{project_name}/reference_data/bwa_index_{{release_version}}.log",
+        f"projects/{project_name}/logs/reference_data/bwa_index_{{release_version}}.log",
     message:
         "*** Indexing genome FASTA with bwa-mem2"
     wrapper:
@@ -78,7 +78,7 @@ rule extract_genome_region:
     params:
         hayles = "resources/Literature/Hayles_2013_OB_merged_categories.xlsx",
     log:
-        f"logs/{project_name}/reference_data/extract_genome_region_{{release_version}}.log",
+        f"projects/{project_name}/logs/reference_data/extract_genome_region_{{release_version}}.log",
     message:
         "*** Extracting genome regions from GFF3 annotation (release {wildcards.release_version})"
     conda:

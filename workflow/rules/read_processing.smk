@@ -10,12 +10,12 @@ rule fastp_preprocessing:
         fq1=lambda wildcards: sample_sheet_dict[wildcards.sample][wildcards.timepoint][wildcards.condition]["fq1"],
         fq2=lambda wildcards: sample_sheet_dict[wildcards.sample][wildcards.timepoint][wildcards.condition]["fq2"],
     output:
-        fq1=temp(f"results/{project_name}/1_fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp_1.fq.gz"),
-        fq2=temp(f"results/{project_name}/1_fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp_2.fq.gz"),
-        html=f"reports/{project_name}/fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp.html",
-        json=f"reports/{project_name}/fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp.json",
+        fq1=temp(f"projects/{project_name}/results/1_fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp_1.fq.gz"),
+        fq2=temp(f"projects/{project_name}/results/1_fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp_2.fq.gz"),
+        html=f"projects/{project_name}/reports/fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp.html",
+        json=f"projects/{project_name}/reports/fastp/{{sample}}_{{timepoint}}_{{condition}}.fastp.json",
     log:
-        f"logs/{project_name}/read_processing/fastp/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/fastp/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/fastp.yml"
     params:
@@ -49,13 +49,13 @@ rule junction_classification:
         fq1=rules.fastp_preprocessing.output.fq1,
         fq2=rules.fastp_preprocessing.output.fq2,
     output:
-        PBL_r1=temp(f"results/{project_name}/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBL_1.fq.gz"),
-        PBL_r2=temp(f"results/{project_name}/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBL_2.fq.gz"),
-        PBR_r1=temp(f"results/{project_name}/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBR_1.fq.gz"),
-        PBR_r2=temp(f"results/{project_name}/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBR_2.fq.gz"),
-        json=f"reports/{project_name}/junction_classification/{{sample}}_{{timepoint}}_{{condition}}.json",
+        PBL_r1=temp(f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBL_1.fq.gz"),
+        PBL_r2=temp(f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBL_2.fq.gz"),
+        PBR_r1=temp(f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBR_1.fq.gz"),
+        PBR_r2=temp(f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBR_2.fq.gz"),
+        json=f"projects/{project_name}/reports/junction_classification/{{sample}}_{{timepoint}}_{{condition}}.json",
     log:
-        f"logs/{project_name}/read_processing/junction_classification/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/junction_classification/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/cutadapt.yml"
     params:
@@ -63,7 +63,7 @@ rule junction_classification:
         PBR_adapter=config["PBR_adapter"],
         PBL_reverseComplement_adapter=config["PBL_reverseComplement_adapter"],
         PBR_reverseComplement_adapter=config["PBR_reverseComplement_adapter"],
-        output_folder=f"results/{project_name}/2_junction_classification",
+        output_folder=f"projects/{project_name}/results/2_junction_classification",
     threads: 6
     message:
         "*** Junction classification {input.fq1} and {input.fq2}..."
@@ -92,20 +92,20 @@ rule fastqc_junction_classification:
         PBR_r1=rules.junction_classification.output.PBR_r1,
         PBR_r2=rules.junction_classification.output.PBR_r2,
     output:
-        PBL_r1_html=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_1_fastqc.html",
-        PBL_r1_zip=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_1_fastqc.zip",
-        PBL_r2_html=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_2_fastqc.html",
-        PBL_r2_zip=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_2_fastqc.zip",
-        PBR_r1_html=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_1_fastqc.html",
-        PBR_r1_zip=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_1_fastqc.zip",
-        PBR_r2_html=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_2_fastqc.html",
-        PBR_r2_zip=f"reports/{project_name}/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_2_fastqc.zip",
+        PBL_r1_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_1_fastqc.html",
+        PBL_r1_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_1_fastqc.zip",
+        PBL_r2_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_2_fastqc.html",
+        PBL_r2_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_2_fastqc.zip",
+        PBR_r1_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_1_fastqc.html",
+        PBR_r1_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_1_fastqc.zip",
+        PBR_r2_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_2_fastqc.html",
+        PBR_r2_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_2_fastqc.zip",
     log:
-        f"logs/{project_name}/read_processing/fastqc/{{sample}}_{{timepoint}}_{{condition}}_fastqc_demultiplexed.log",
+        f"projects/{project_name}/logs/read_processing/fastqc/{{sample}}_{{timepoint}}_{{condition}}_fastqc_demultiplexed.log",
     conda:
         "../envs/fastqc.yml"
     params:
-        output_dir=f"reports/{project_name}/fastqc",
+        output_dir=f"projects/{project_name}/reports/fastqc",
     threads: 4
     message:
         "*** Running FastQC for junction classified paired-end reads for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
@@ -138,10 +138,10 @@ rule bwa_mem_mapping:
         PBR_fastqc_r1=rules.fastqc_junction_classification.output.PBR_r1_html,
         PBR_fastqc_r2=rules.fastqc_junction_classification.output.PBR_r2_html,
     output:
-        PBL=temp(f"results/{project_name}/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.PBL.name_sorted.bam"),
-        PBR=temp(f"results/{project_name}/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.PBR.name_sorted.bam"),
+        PBL=temp(f"projects/{project_name}/results/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.PBL.name_sorted.bam"),
+        PBR=temp(f"projects/{project_name}/results/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.PBR.name_sorted.bam"),
     log:
-        f"logs/{project_name}/read_processing/bwa_mem_mapping/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/bwa_mem_mapping/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/bwa_mapping.yml"
     threads: 8
@@ -166,12 +166,12 @@ rule samtools_sorting_and_indexing:
         PBR=rules.bwa_mem_mapping.output.PBR,
         ref_index=rules.samtools_faidx.output[0].format(release_version=config["Pombase_release_version"]),
     output:
-        PBL_sorted=f"results/{project_name}/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBL.sorted.bam",
-        PBR_sorted=f"results/{project_name}/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBR.sorted.bam",
-        PBL_index=f"results/{project_name}/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBL.sorted.bam.bai",
-        PBR_index=f"results/{project_name}/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBR.sorted.bam.bai",
+        PBL_sorted=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBL.sorted.bam",
+        PBR_sorted=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBR.sorted.bam",
+        PBL_index=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBL.sorted.bam.bai",
+        PBR_index=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBR.sorted.bam.bai",
     log:
-        f"logs/{project_name}/read_processing/samtools_sorting_and_indexing/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/samtools_sorting_and_indexing/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/bwa_mapping.yml"
     threads: 2
@@ -197,14 +197,14 @@ rule samtools_mapping_statistics:
         PBL=rules.samtools_sorting_and_indexing.output.PBL_sorted,
         PBR=rules.samtools_sorting_and_indexing.output.PBR_sorted,
     output:
-        PBL_stats=f"reports/{project_name}/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.stats.txt",
-        PBR_stats=f"reports/{project_name}/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.stats.txt",
-        PBL_flagstat=f"reports/{project_name}/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.flagstat.txt",
-        PBR_flagstat=f"reports/{project_name}/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.flagstat.txt",
-        PBL_idxstats=f"reports/{project_name}/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.idxstats.txt",
-        PBR_idxstats=f"reports/{project_name}/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.idxstats.txt",
+        PBL_stats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.stats.txt",
+        PBR_stats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.stats.txt",
+        PBL_flagstat=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.flagstat.txt",
+        PBR_flagstat=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.flagstat.txt",
+        PBL_idxstats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.idxstats.txt",
+        PBR_idxstats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.idxstats.txt",
     log:
-        f"logs/{project_name}/read_processing/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/bwa_mapping.yml"
     threads: 2
@@ -227,12 +227,12 @@ rule samtools_mapping_statistics:
 # -----------------------------------------------------
 rule insert_size:
     input:
-        f"results/{project_name}/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.sorted.bam",
+        f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.sorted.bam",
     output:
-        txt=f"reports/{project_name}/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.txt",
-        pdf=f"reports/{project_name}/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.pdf",
+        txt=f"projects/{project_name}/reports/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.txt",
+        pdf=f"projects/{project_name}/reports/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.pdf",
     log:
-        f"logs/{project_name}/read_processing/insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
+        f"projects/{project_name}/logs/read_processing/insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     params:
         extra="--VALIDATION_STRINGENCY LENIENT --METRIC_ACCUMULATION_LEVEL null --METRIC_ACCUMULATION_LEVEL SAMPLE",
     resources:
@@ -248,10 +248,10 @@ rule bam_to_tsv:
         PBL=rules.bwa_mem_mapping.output.PBL,
         PBR=rules.bwa_mem_mapping.output.PBR,
     output:
-        PBL_tsv=temp(f"results/{project_name}/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.PBL.tsv"),
-        PBR_tsv=temp(f"results/{project_name}/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.PBR.tsv"),
+        PBL_tsv=temp(f"projects/{project_name}/results/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.PBL.tsv"),
+        PBR_tsv=temp(f"projects/{project_name}/results/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.PBR.tsv"),
     log:
-        f"logs/{project_name}/read_processing/bam_to_tsv/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/bam_to_tsv/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/pysam.yml"
     threads: 8
@@ -275,14 +275,14 @@ rule filter_aligned_reads:
         PBL_tsv=rules.bam_to_tsv.output.PBL_tsv,
         PBR_tsv=rules.bam_to_tsv.output.PBR_tsv,
     output:
-        PBL_filtered=f"results/{project_name}/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBL.filtered.tsv",
-        PBR_filtered=f"results/{project_name}/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBR.filtered.tsv",
+        PBL_filtered=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBL.filtered.tsv",
+        PBR_filtered=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBR.filtered.tsv",
     log:
-        f"logs/{project_name}/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     params:
-        snakemake_config_file=snakemake_config_file,
+        snakemake_config_file=config_file,
         chunk_size=config["chunk_size"],
     message:
         "*** Filtering aligned read pairs for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
@@ -304,10 +304,10 @@ rule extract_insertion_sites:
         PBL_filtered=rules.filter_aligned_reads.output.PBL_filtered,
         PBR_filtered=rules.filter_aligned_reads.output.PBR_filtered,
     output:
-        PBL_insertions=f"results/{project_name}/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBL.tsv",
-        PBR_insertions=f"results/{project_name}/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBR.tsv",
+        PBL_insertions=f"projects/{project_name}/results/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBL.tsv",
+        PBR_insertions=f"projects/{project_name}/results/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBR.tsv",
     log:
-        f"logs/{project_name}/read_processing/extract_insertion_sites/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/extract_insertion_sites/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     params:
@@ -332,9 +332,9 @@ rule merge_strand_insertions:
         PBL_insertions=rules.extract_insertion_sites.output.PBL_insertions,
         PBR_insertions=rules.extract_insertion_sites.output.PBR_insertions,
     output:
-        f"results/{project_name}/8_merged/{{sample}}_{{timepoint}}_{{condition}}.tsv",
+        f"projects/{project_name}/results/8_merged/{{sample}}_{{timepoint}}_{{condition}}.tsv",
     log:
-        f"logs/{project_name}/read_processing/merge_strand_insertions/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/merge_strand_insertions/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -360,11 +360,11 @@ rule concat_timepoints:
         ),
         ref=rules.download_pombase_data.output.fasta.format(release_version=config["Pombase_release_version"]),
     output:
-        PBL=f"results/{project_name}/9_concatenated/{{sample}}_{{condition}}.PBL.tsv",
-        PBR=f"results/{project_name}/9_concatenated/{{sample}}_{{condition}}.PBR.tsv",
-        Reads=f"results/{project_name}/9_concatenated/{{sample}}_{{condition}}.Reads.tsv",
+        PBL=f"projects/{project_name}/results/9_concatenated/{{sample}}_{{condition}}.PBL.tsv",
+        PBR=f"projects/{project_name}/results/9_concatenated/{{sample}}_{{condition}}.PBR.tsv",
+        Reads=f"projects/{project_name}/results/9_concatenated/{{sample}}_{{condition}}.Reads.tsv",
     log:
-        f"logs/{project_name}/read_processing/concat_timepoints/{{sample}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/concat_timepoints/{{sample}}_{{condition}}.log",
     conda:
         "../envs/biopython.yml"
     params:
@@ -391,9 +391,9 @@ rule annotate_insertions:
             release_version=config["Pombase_release_version"]
         ),
     output:
-        f"results/{project_name}/10_annotated/{{sample}}_{{condition}}.annotated.tsv",
+        f"projects/{project_name}/results/10_annotated/{{sample}}_{{condition}}.annotated.tsv",
     log:
-        f"logs/{project_name}/read_processing/annotate_insertions/{{sample}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/annotate_insertions/{{sample}}_{{condition}}.log",
     conda:
         "../envs/pybedtools.yml"
     message:
@@ -412,9 +412,9 @@ if config["merge_similar_timepoints"]:
         input:
             rules.concat_timepoints.output.Reads,
         output:
-            f"results/{project_name}/11_merged/{{sample}}_{{condition}}.merged.tsv",
+            f"projects/{project_name}/results/11_merged/{{sample}}_{{condition}}.merged.tsv",
         log:
-            f"logs/{project_name}/read_processing/merge_similar_timepoints/{{sample}}_{{condition}}.log",
+            f"projects/{project_name}/logs/read_processing/merge_similar_timepoints/{{sample}}_{{condition}}.log",
         params:
             similar_timepoints=config["similar_timepoints"],
             merged_timepoint=config["merged_timepoint"],
@@ -440,7 +440,7 @@ rule concat_counts_and_annotations:
         counts=branch(
             config["merge_similar_timepoints"],
             expand(
-                f"results/{project_name}/11_merged/{{sample}}_{{condition}}.merged.tsv",
+                f"projects/{project_name}/results/11_merged/{{sample}}_{{condition}}.merged.tsv",
                 sample=samples,
                 condition=conditions,
             ),
@@ -448,10 +448,10 @@ rule concat_counts_and_annotations:
         ),
         annotations=expand(rules.annotate_insertions.output, sample=samples, condition=conditions),
     output:
-        counts=f"results/{project_name}/12_concatenated/raw_reads.tsv",
-        annotations=f"results/{project_name}/12_concatenated/annotations.tsv",
+        counts=f"projects/{project_name}/results/12_concatenated/raw_reads.tsv",
+        annotations=f"projects/{project_name}/results/12_concatenated/annotations.tsv",
     log:
-        f"logs/{project_name}/read_processing/concat_counts_and_annotations.log",
+        f"projects/{project_name}/logs/read_processing/concat_counts_and_annotations.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -472,9 +472,9 @@ rule hard_filtering:
     input:
         rules.concat_counts_and_annotations.output.counts,
     output:
-        f"results/{project_name}/13_filtered/raw_reads.filtered.tsv",
+        f"projects/{project_name}/results/13_filtered/raw_reads.filtered.tsv",
     log:
-        f"logs/{project_name}/read_processing/hard_filtering.log",
+        f"projects/{project_name}/logs/read_processing/hard_filtering.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     params:
