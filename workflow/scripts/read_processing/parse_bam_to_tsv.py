@@ -1,36 +1,72 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
+# Remove or adjust if managing dependencies via a traditional virtual environment.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "loguru",
+#     "pysam",
+# ]
+# ///
+
 """
-BAM to TSV parser for comprehensive read pair analysis.
+BAM to TSV Read-Pair Parser
+===========================
 
-Extracts detailed summary information for read pairs from BAM/SAM files including
-mapping quality, CIGAR strings, strand orientation, and custom tags with full
-validation and logging.
+Extract per-read-pair alignment summaries from a QNAME-sorted BAM/SAM file and
+write them as a tab-delimited table. For each query template the parser records
+read 1 and read 2 mapping quality, alignment length, CIGAR string, strand,
+number of CIGAR operations, reference name, position, reference start/end,
+SAM flag, a configurable set of alignment tags, and the proper-pair status.
 
-Key Features:
-- Comprehensive extraction of read pair information from BAM/SAM files
-- Full validation of all extracted data using Pydantic models
-- Support for custom SAM/BAM tags extraction
-- Streaming processing for memory efficiency
-- Detailed logging and error handling
-- Multi-threaded BAM decompression support
+The core algorithm is a single streaming pass over the alignment file: it relies
+on the input being QNAME-sorted so that all alignments sharing a query name are
+adjacent. Unmapped, secondary, and supplementary alignments are skipped; the
+first primary read 1 and read 2 seen for a query name are retained. When a new
+query name is encountered the previous pair is formatted and written, keeping
+memory usage flat regardless of file size. Multi-threaded BAM decompression is
+supported via pysam.
 
-Typical Usage:
-    python parse_bam_to_tsv.py --input_bam input.bam --output_file output.tsv --threads 8
+Input
+-----
+- A QNAME-sorted BAM (``.bam``, read as ``rb``) or SAM (any other suffix, read
+  as ``r``) file.
 
-Input: QNAME-sorted BAM/SAM file
-Output: Tab-delimited file with comprehensive read pair information
+Output
+------
+- A tab-delimited file with a header row followed by one line per read pair.
+  Columns: ``QueryName``, the ten R1 fields, the R1 tag columns, the ten R2
+  fields, the R2 tag columns, and ``Is_Proper_Pair``. Tags are emitted in
+  sorted order.
+
+Usage
+-----
+    python parse_bam_to_tsv.py -i input.bam -o output.tsv -t 8
+    python parse_bam_to_tsv.py --input input.bam --output output.tsv --threads 8 --verbose
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-07-09
+Version:  1.0.0
 """
 
-# =============================== Imports ===============================
-import sys
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 import argparse
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
+
+# 2. Third-party Imports
 from loguru import logger
-from typing import List, Optional, Dict, Tuple
-from pydantic import BaseModel, Field, field_validator
 import pysam
 
-
-# =============================== Constants ===============================
+# =============================================================================
+# GLOBAL CONSTANTS & ENUMS
+# =============================================================================
 # Default tags to extract from BAM/SAM files
 DEFAULT_TAGS = ["AS", "MC", "MD", "MQ", "NM", "SA", "XA", "XS"]
 
@@ -38,106 +74,57 @@ DEFAULT_TAGS = ["AS", "MC", "MD", "MQ", "NM", "SA", "XA", "XS"]
 READ_PROGRESS_INTERVAL = 2000000
 PAIR_PROGRESS_INTERVAL = 500000
 
-# =============================== Configuration & Models ===============================
-class InputOutputConfig(BaseModel):
-    """Input and output data with validation."""
-    input_bam: Path = Field(..., description="Path to input BAM/SAM file")
-    output_file: Path = Field(..., description="Path for output TSV results")
-    threads: int = Field(
-        default=4, ge=1, le=32, description="Number of processing threads"
-    )
-    tag_list: List[str] = Field(
-        default=DEFAULT_TAGS,
-        description="List of SAM/BAM tags to extract and include in output",
-    )
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
+class InputOutputConfig:
+    """Input/output paths and processing parameters for BAM to TSV conversion."""
+    input_bam: Path
+    output_file: Path
+    threads: int = 4
+    tag_list: list[str] = field(default_factory=lambda: list(DEFAULT_TAGS))
 
-    @field_validator("input_bam")
-    def validate_input_exists(cls, v):
-        """Validate that the input BAM/SAM file exists."""
-        if not v.exists():
-            raise ValueError(f"Input file not found: {v}")
-        return v
-
-    @field_validator("output_file")
-    def validate_output_dir(cls, v):
-        """Validate and create output directory if needed."""
-        output_dir = v.parent
+    def __post_init__(self) -> None:
+        """Validate the input file and thread count, then ensure the output directory exists."""
+        if not self.input_bam.exists():
+            raise ValueError(f"Input file not found: {self.input_bam}")
+        if not 1 <= self.threads <= 32:
+            raise ValueError(f"threads must be between 1 and 32, got {self.threads}")
+        output_dir = self.output_file.parent
         if not output_dir.exists():
             logger.info(f"Creating output directory: {output_dir}")
             output_dir.mkdir(parents=True, exist_ok=True)
-        return v
-
-    class Config:
-        frozen = True
 
 
-class ReadInfo(BaseModel):
-    """Validated read information extracted from pysam AlignedSegment objects."""
-
-    mapq: int = Field(default=0, ge=0, le=255, description="Mapping quality score")
-    length: Optional[int] = Field(
-        default=None, ge=0, description="Query alignment length"
-    )
-    cigar: str = Field(default="N/A", description="CIGAR string representation")
-    strand: str = Field(
-        default="N/A", pattern="^[+-]$|^N/A$", description="Read strand orientation"
-    )
-    n_cigar: int = Field(default=0, ge=0, description="Number of CIGAR operations")
-    chrom: str = Field(default="N/A", description="Reference chromosome name")
-    pos: str = Field(default="N/A", description="0-based leftmost mapping position")
-    ref_start: str = Field(
-        default="N/A", description="0-based reference start coordinate"
-    )
-    ref_end: str = Field(
-        default="N/A", description="0-based reference end coordinate (exclusive)"
-    )
-    flag: int = Field(default=0, ge=0, description="SAM flag bitwise field")
-    tags: Dict[str, str] = Field(
-        default_factory=dict, description="Key-value pairs of alignment tags"
-    )
-
-    class Config:
-        frozen = True
-
-    @field_validator("strand")
-    def validate_strand(cls, v):
-        """Validate strand values."""
-        if v not in ["+", "-", "N/A"]:
-            logger.warning(f"Unexpected strand value encountered: {v}")
-        return v
+@dataclass(kw_only=True, slots=True, frozen=True)
+class ReadInfo:
+    """Alignment information extracted from a single pysam AlignedSegment."""
+    mapq: int = 0
+    length: int | None = None
+    cigar: str = "N/A"
+    strand: str = "N/A"
+    n_cigar: int = 0
+    chrom: str = "N/A"
+    pos: str = "N/A"
+    ref_start: str = "N/A"
+    ref_end: str = "N/A"
+    flag: int = 0
+    tags: dict[str, str] = field(default_factory=dict)
 
 
-class AnalysisResult(BaseModel):
-    """Result of the analysis."""
-    total_pairs_processed: int = Field(..., ge=0, description="Total number of read pairs processed")
-    total_alignments_scanned: int = Field(..., ge=0, description="Total number of alignments scanned")
-    processing_time_seconds: float = Field(..., ge=0.0, description="Total processing time in seconds")
+@dataclass(kw_only=True, slots=True, frozen=True)
+class ReadPairInfo:
+    """Paired-end read information container for a single query template."""
+    qname: str
+    read1: ReadInfo | None = None
+    read2: ReadInfo | None = None
+    is_proper_pair: str = "N/A"
 
-
-class ReadPairInfo(BaseModel):
-    """Validated information container for paired-end read analysis."""
-
-    qname: str = Field(..., min_length=1, description="Query template name")
-    read1: Optional[ReadInfo] = None
-    read2: Optional[ReadInfo] = None
-    is_proper_pair: str = Field(
-        default="N/A", description="Proper pair alignment status"
-    )
-
-    class Config:
-        frozen = True
-
-    @field_validator("is_proper_pair")
-    def validate_proper_pair(cls, v):
-        """Validate proper pair status values."""
-        valid_values = ["Yes", "No", "Single_End_Or_Flag_Issue", "N/A"]
-        if v not in valid_values:
-            logger.warning(f"Unexpected proper pair status value: {v}")
-        return v
-
-
-# =============================== Setup Logging ===============================
-def setup_logging(log_level: str = "INFO") -> None:
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+def setup_logger(log_level: str = "INFO") -> None:
     """Configure loguru for BAM to TSV conversion."""
     logger.remove()
     logger.add(
@@ -147,12 +134,14 @@ def setup_logging(log_level: str = "INFO") -> None:
         colorize=False,
     )
 
-# =============================== Core Functions ===============================
+setup_logger()
+
+# =============================================================================
+# CORE LOGIC (FUNCTIONS / CLASSES)
+# =============================================================================
 @logger.catch
-def extract_read_info(
-    read: Optional[pysam.AlignedSegment], tag_list: List[str]
-) -> ReadInfo:
-    """Extract and validate information from a pysam AlignedSegment."""
+def extract_read_info(read: pysam.AlignedSegment | None, tag_list: list[str]) -> ReadInfo:
+    """Extract alignment information from a pysam AlignedSegment (or a placeholder if None)."""
     if read is None:
         return ReadInfo(tags={tag: "N/A" for tag in tag_list})
 
@@ -168,7 +157,7 @@ def extract_read_info(
 
     # Extract tags
     read_tags = dict(read.get_tags())
-    formatted_tags = {}
+    formatted_tags: dict[str, str] = {}
 
     for tag_name in tag_list:
         value = read_tags.get(tag_name, "N/A")
@@ -181,7 +170,6 @@ def extract_read_info(
         else:
             formatted_tags[tag_name] = str(value)
 
-    # Create validated ReadInfo
     return ReadInfo(
         mapq=read.mapping_quality if read.mapping_quality is not None else 0,
         length=read.query_alignment_length,
@@ -203,9 +191,9 @@ def extract_read_info(
 
 @logger.catch
 def determine_proper_pair_status(
-    read1: Optional[pysam.AlignedSegment], read2: Optional[pysam.AlignedSegment]
+    read1: pysam.AlignedSegment | None, read2: pysam.AlignedSegment | None
 ) -> str:
-    """Determine if reads form a proper pair."""
+    """Determine whether the reads form a proper pair."""
     if read1 and read1.is_paired:
         return "Yes" if read1.is_proper_pair else "No"
     elif read2 and read2.is_paired:
@@ -218,11 +206,11 @@ def determine_proper_pair_status(
 @logger.catch
 def process_read_pair(
     qname: str,
-    read1: Optional[pysam.AlignedSegment],
-    read2: Optional[pysam.AlignedSegment],
-    tag_list: List[str],
+    read1: pysam.AlignedSegment | None,
+    read2: pysam.AlignedSegment | None,
+    tag_list: list[str],
 ) -> ReadPairInfo:
-    """Process a read pair and return validated information."""
+    """Process a read pair and return its consolidated information."""
     is_proper_pair = determine_proper_pair_status(read1, read2)
 
     r1_info = extract_read_info(read1, tag_list)
@@ -233,8 +221,8 @@ def process_read_pair(
     )
 
 
-def format_output_line(pair_info: ReadPairInfo, tag_list: List[str]) -> List[str]:
-    """Format ReadPairInfo into output line."""
+def format_output_line(pair_info: ReadPairInfo, tag_list: list[str]) -> list[str]:
+    """Format ReadPairInfo into an ordered list of output fields."""
     output_line = [pair_info.qname]
 
     # Read 1 information
@@ -279,8 +267,8 @@ def format_output_line(pair_info: ReadPairInfo, tag_list: List[str]) -> List[str
     return output_line
 
 
-def build_header(tag_list: List[str]) -> List[str]:
-    """Build the header for the output TSV file."""
+def build_header(tag_list: list[str]) -> list[str]:
+    """Build the header row for the output TSV file."""
     header_fields = [
         "QueryName",
         "R1_MAPQ",
@@ -322,7 +310,7 @@ def build_header(tag_list: List[str]) -> List[str]:
 
 @logger.catch
 def process_bam_file(config: InputOutputConfig) -> None:
-    """Process BAM/SAM file and write comprehensive TSV output."""
+    """Process a QNAME-sorted BAM/SAM file and write the read-pair TSV output."""
     logger.info(f"Starting BAM processing with {config.threads} threads")
     logger.info(f"Input: {config.input_bam}")
     logger.info(f"Output: {config.output_file}")
@@ -335,7 +323,7 @@ def process_bam_file(config: InputOutputConfig) -> None:
     header_fields = build_header(sorted_tags)
 
     # Process BAM file
-    with open(config.output_file, "w") as outfile:
+    with config.output_file.open("w") as outfile:
         # Write header
         outfile.write("\t".join(header_fields) + "\n")
 
@@ -346,79 +334,75 @@ def process_bam_file(config: InputOutputConfig) -> None:
         processed_qname_count = 0
         read_count = 0
 
-        try:
-            # Open BAM/SAM file
-            mode = "rb" if str(config.input_bam).endswith(".bam") else "r"
-            samfile = pysam.AlignmentFile(
-                str(config.input_bam), mode, threads=config.threads
+        # Open BAM/SAM file
+        mode = "rb" if str(config.input_bam).endswith(".bam") else "r"
+        samfile = pysam.AlignmentFile(
+            str(config.input_bam), mode, threads=config.threads
+        )
+
+        logger.info(
+            "Processing reads in streaming mode (requires qname-sorted input)"
+        )
+
+        for read in samfile:
+            read_count += 1
+
+            if read_count % READ_PROGRESS_INTERVAL == 0:
+                logger.info(f"Processed {read_count // 1000000}M alignments")
+
+            # Skip unmapped, secondary, and supplementary alignments
+            if read.is_unmapped or read.is_secondary or read.is_supplementary:
+                continue
+
+            qname = read.query_name
+
+            # Process completed pair when encountering new qname
+            if qname != current_qname:
+                if current_qname is not None:
+                    pair_info = process_read_pair(
+                        current_qname, current_r1, current_r2, sorted_tags
+                    )
+                    output_line = format_output_line(pair_info, sorted_tags)
+                    outfile.write("\t".join(output_line) + "\n")
+
+                    processed_qname_count += 1
+                    if processed_qname_count % PAIR_PROGRESS_INTERVAL == 0:
+                        logger.info(f"Written {processed_qname_count} read pairs")
+
+                # Reset for new qname
+                current_qname = qname
+                current_r1 = None
+                current_r2 = None
+
+            # Store reads
+            if read.is_read1:
+                if current_r1 is None:
+                    current_r1 = read
+            elif read.is_read2:
+                if current_r2 is None:
+                    current_r2 = read
+
+        # Process final pair
+        if current_qname is not None:
+            pair_info = process_read_pair(
+                current_qname, current_r1, current_r2, sorted_tags
             )
+            output_line = format_output_line(pair_info, sorted_tags)
+            outfile.write("\t".join(output_line) + "\n")
+            processed_qname_count += 1
 
-            logger.info(
-                "Processing reads in streaming mode (requires qname-sorted input)"
-            )
-
-            for read in samfile:
-                read_count += 1
-
-                if read_count % READ_PROGRESS_INTERVAL == 0:
-                    logger.info(f"Processed {read_count // 1000000}M alignments")
-
-                # Skip unmapped, secondary, and supplementary alignments
-                if read.is_unmapped or read.is_secondary or read.is_supplementary:
-                    continue
-
-                qname = read.query_name
-
-                # Process completed pair when encountering new qname
-                if qname != current_qname:
-                    if current_qname is not None:
-                        pair_info = process_read_pair(
-                            current_qname, current_r1, current_r2, sorted_tags
-                        )
-                        output_line = format_output_line(pair_info, sorted_tags)
-                        outfile.write("\t".join(output_line) + "\n")
-
-                        processed_qname_count += 1
-                        if processed_qname_count % PAIR_PROGRESS_INTERVAL == 0:
-                            logger.info(f"Written {processed_qname_count} read pairs")
-
-                    # Reset for new qname
-                    current_qname = qname
-                    current_r1 = None
-                    current_r2 = None
-
-                # Store reads
-                if read.is_read1:
-                    if current_r1 is None:
-                        current_r1 = read
-                elif read.is_read2:
-                    if current_r2 is None:
-                        current_r2 = read
-
-            # Process final pair
-            if current_qname is not None:
-                pair_info = process_read_pair(
-                    current_qname, current_r1, current_r2, sorted_tags
-                )
-                output_line = format_output_line(pair_info, sorted_tags)
-                outfile.write("\t".join(output_line) + "\n")
-                processed_qname_count += 1
-
-            samfile.close()
-
-        except Exception as e:
-            logger.error(f"Error processing BAM file: {e}")
-            raise
+        samfile.close()
 
     logger.success("Processing complete!")
     logger.info(f"Total alignments scanned: {read_count:,}")
     logger.info(f"Total read pairs written: {processed_qname_count:,}")
     logger.info(f"Output saved to: {config.output_file}")
 
-
-# =============================== Main Function ===============================
-def parse_arguments():
-    """Set command line arguments."""
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments and return the populated namespace."""
     parser = argparse.ArgumentParser(
         description="Extract comprehensive summary for read pairs from BAM/SAM files"
     )
@@ -440,25 +424,36 @@ def parse_arguments():
         default=4,
         help="Number of threads for BAM decompression (default: 4)",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable DEBUG level logging",
+    )
 
     return parser.parse_args()
 
 
-@logger.catch
-def main():
-    """Main execution function for BAM to TSV conversion."""
-    args = parse_arguments()
-    setup_logging()
-    
-    config = InputOutputConfig(
-        input_bam=args.input,
-        output_file=args.output,
-        threads=args.threads,
-    )
-    
-    # Execute BAM processing pipeline
-    process_bam_file(config)
+def main() -> int:
+    """Main orchestrator for BAM to TSV conversion."""
+    args = parse_args()
+    setup_logger(log_level="DEBUG" if args.verbose else "INFO")
+
+    try:
+        config = InputOutputConfig(
+            input_bam=args.input,
+            output_file=args.output,
+            threads=args.threads,
+        )
+
+        # Execute BAM processing pipeline
+        process_bam_file(config)
+
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred: {e}")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
