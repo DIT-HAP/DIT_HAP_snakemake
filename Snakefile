@@ -2,11 +2,11 @@
 # Snakefile — DIT-HAP pipeline entry point
 # =============================================================================
 
-from snakemake.utils import min_version
+from snakemake.utils import min_version, validate
 from pathlib import Path
 import pandas as pd
 
-min_version("8.0")
+min_version("9.0")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -20,6 +20,7 @@ snakemake_config_file = "config/config_HD_generationRAW.yaml"
 # snakemake_config_file = "config/config_spikein.yaml"
 # snakemake_config_file = "config/config_1328_spore2YES6.yaml"
 configfile: snakemake_config_file
+validate(config, "workflow/schemas/config.schema.yaml")
 workdir: "/data/c/yangyusheng_optimized/DIT_HAP"
 
 # ---------------------------------------------------------------------------
@@ -43,7 +44,8 @@ snakemake_wrapper_version = config["snakemake_wrapper_version"]
 # ---------------------------------------------------------------------------
 # Sample sheet
 # ---------------------------------------------------------------------------
-sample_sheet = pd.read_csv(config["sample_sheet"], sep="\t")
+sample_sheet = pd.read_csv(config["sample_sheet"], sep="\t", dtype=str)
+validate(sample_sheet, "workflow/schemas/samples.schema.yaml")
 samples    = sample_sheet["Sample"].unique().tolist()
 timepoints = sample_sheet["Timepoint"].unique().tolist()
 conditions = sample_sheet["Condition"].unique().tolist()

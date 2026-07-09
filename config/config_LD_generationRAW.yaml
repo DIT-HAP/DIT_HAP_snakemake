@@ -15,7 +15,7 @@ multiqc_config: config/multiqc_config.yml
 
 # Preparation configuration
 # -----------------------------------------------------
-Pombase_release_version: 2025-10-01
+Pombase_release_version: "2025-10-01"
 
 # Preprocessing configuration
 # -----------------------------------------------------

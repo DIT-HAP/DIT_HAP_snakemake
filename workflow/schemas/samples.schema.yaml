@@ -1,0 +1,36 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+description: >
+  Row schema for the DIT-HAP sample sheet TSV. Applied per row by
+  snakemake.utils.validate(df, schema). The sheet must be read with dtype=str so
+  every column is a string (e.g. a numeric-looking Timepoint like "0" stays a
+  string).
+
+type: object
+
+properties:
+  Sample:
+    type: string
+    description: "Sample / library ID. Groups the timepoints belonging to one library."
+  Timepoint:
+    type: string
+    description: >
+      Timepoint label (e.g. YES0, YES1). Becomes a column in the per-sample count
+      matrix; one of these is the initial_time_point in the config.
+  Condition:
+    type: string
+    description: "Experimental condition (e.g. YES)."
+  read1:
+    type: string
+    pattern: "\\.(fq|fastq)\\.gz$"
+    description: "Absolute path to the R1 FASTQ (gzipped)."
+  read2:
+    type: string
+    pattern: "\\.(fq|fastq)\\.gz$"
+    description: "Absolute path to the R2 FASTQ (gzipped)."
+
+required:
+  - Sample
+  - Timepoint
+  - Condition
+  - read1
+  - read2

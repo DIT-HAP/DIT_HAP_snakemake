@@ -1,0 +1,228 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+description: >
+  Configuration schema for the DIT-HAP upstream pipeline. Validated at load time
+  by snakemake.utils.validate() in the Snakefile. Every parameter documents its
+  meaning, unit, and where it is consumed.
+
+type: object
+
+properties:
+
+  # --- Project / environment ---------------------------------------------
+  project_name:
+    type: string
+    description: >
+      Experiment name. Used as the {project_name} directory under results/,
+      reports/, and logs/. Example: HD_DIT_HAP_generationRAW.
+
+  workdir:
+    type: string
+    description: >
+      Absolute path to the working directory (this repository). Snakemake
+      resolves all relative paths against it.
+
+  snakemake_wrapper_version:
+    type: string
+    description: >
+      Version tag of the Snakemake wrappers used by wrapper-based rules
+      (e.g. samtools/faidx, bwa-mem2/index). Example: v7.7.0.
+
+  sample_sheet:
+    type: string
+    description: >
+      Path to the sample sheet TSV (columns: Sample, Timepoint, Condition,
+      read1, read2). Validated against samples.schema.yaml.
+
+  multiqc_config:
+    type: string
+    description: "Path to the MultiQC config YAML used by the multiqc rule."
+
+  # --- Reference data -----------------------------------------------------
+  Pombase_release_version:
+    type: string
+    pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    description: >
+      PomBase data release date (YYYY-MM-DD). Determines the
+      resources/pombase_data/{release_version}/ directory that reference data
+      is downloaded into.
+
+  # --- Adapter / junction sequences ---------------------------------------
+  adapter_sequence:
+    type: string
+    pattern: "^[ACGTNacgtn]+$"
+    description: "Read 1 3' adapter sequence for fastp trimming."
+
+  adapter_sequence_r2:
+    type: string
+    pattern: "^[ACGTNacgtn]+$"
+    description: "Read 2 3' adapter sequence for fastp trimming."
+
+  PBL_adapter:
+    type: string
+    pattern: "^[ACGTNacgtn]+$"
+    description: "piggyBac Left (PBL) junction sequence for cutadapt classification."
+
+  PBL_reverseComplement_adapter:
+    type: string
+    pattern: "^[ACGTNacgtn]+$"
+    description: "Reverse complement of the PBL junction sequence."
+
+  PBR_adapter:
+    type: string
+    pattern: "^[ACGTNacgtn]+$"
+    description: "piggyBac Right (PBR) junction sequence for cutadapt classification."
+
+  PBR_reverseComplement_adapter:
+    type: string
+    pattern: "^[ACGTNacgtn]+$"
+    description: "Reverse complement of the PBR junction sequence."
+
+  # --- Aligned-read filtering thresholds ----------------------------------
+  aligned_read_filtering:
+    type: object
+    description: "Per-mate alignment-quality filters applied in filter_aligned_reads."
+    properties:
+      read_1_filtering:
+        type: object
+        properties:
+          mapq_threshold:
+            type: integer
+            minimum: 0
+            maximum: 60
+            description: "Minimum MAPQ for read 1 (0-60)."
+          ncigar_value:
+            type: integer
+            minimum: 0
+            description: "Maximum number of CIGAR operations allowed for read 1."
+          nm_threshold:
+            type: integer
+            minimum: 0
+            description: "Maximum edit distance (NM tag) for read 1."
+          no_sa:
+            type: boolean
+            description: "Require no supplementary alignments (SA tag absent) for read 1."
+          no_xa:
+            type: boolean
+            description: "Require no secondary alignments (XA tag absent) for read 1."
+        required: [mapq_threshold, ncigar_value, nm_threshold, no_sa, no_xa]
+      read_2_filtering:
+        type: object
+        properties:
+          mapq_threshold:
+            type: integer
+            minimum: 0
+            maximum: 60
+            description: "Minimum MAPQ for read 2 (0-60)."
+          ncigar_value:
+            type: integer
+            minimum: 0
+            description: "Maximum number of CIGAR operations allowed for read 2."
+          nm_threshold:
+            type: integer
+            minimum: 0
+            description: "Maximum edit distance (NM tag) for read 2."
+          no_sa:
+            type: boolean
+            description: "Require no supplementary alignments (SA tag absent) for read 2."
+          no_xa:
+            type: boolean
+            description: "Require no secondary alignments (XA tag absent) for read 2."
+        required: [mapq_threshold, ncigar_value, nm_threshold, no_sa, no_xa]
+      require_proper_pair:
+        type: boolean
+        description: "Require reads to be flagged as a proper pair."
+    required: [read_1_filtering, read_2_filtering, require_proper_pair]
+
+  # --- Performance --------------------------------------------------------
+  chunk_size:
+    type: integer
+    minimum: 1
+    description: >
+      Number of rows per chunk when streaming large TSVs (parse/filter/extract
+      stages). Controls memory footprint.
+
+  # --- Timepoint merging (optional stage) ---------------------------------
+  merge_similar_timepoints:
+    type: boolean
+    description: >
+      Whether to sum near-identical timepoints into one merged column before
+      concatenation. When true, similar_timepoints / merged_timepoint /
+      drop_columns are required.
+
+  similar_timepoints:
+    type: array
+    items:
+      type: string
+    description: "Timepoint column names to sum together (only used when merge_similar_timepoints)."
+
+  merged_timepoint:
+    type: string
+    description: "Name of the merged timepoint column (only used when merge_similar_timepoints)."
+
+  drop_columns:
+    type: array
+    items:
+      type: string
+    description: "Timepoint columns to drop after merging (only used when merge_similar_timepoints)."
+
+  # --- Hard filtering -----------------------------------------------------
+  hard_filtering_cutoff:
+    type: integer
+    minimum: 0
+    description: >
+      Minimum read count at initial_time_point for an insertion to be retained
+      in hard_filtering.
+
+  initial_time_point:
+    type: string
+    description: >
+      Column name of the initial (reference) timepoint. Used as the DESeq2
+      reference level and the denominator in no-replicate LFC. Example: YES0.
+
+  # --- Depletion analysis -------------------------------------------------
+  use_DEseq2_for_biological_replicates:
+    type: boolean
+    default: false
+    description: >
+      Whether to run the DESeq2 (replicate) branch. When false, the no-replicate
+      LFC branch is used. Optional; defaults to false when absent.
+
+  time_points:
+    type: array
+    items:
+      type: number
+    description: >
+      Generation / doubling value per timepoint column, in column order. Consumed
+      by curve_fitting. Optional: omit for experiments that do not run curve
+      fitting (e.g. spike-in).
+
+required:
+  - project_name
+  - workdir
+  - snakemake_wrapper_version
+  - sample_sheet
+  - multiqc_config
+  - Pombase_release_version
+  - adapter_sequence
+  - adapter_sequence_r2
+  - PBL_adapter
+  - PBL_reverseComplement_adapter
+  - PBR_adapter
+  - PBR_reverseComplement_adapter
+  - aligned_read_filtering
+  - chunk_size
+  - merge_similar_timepoints
+  - hard_filtering_cutoff
+  - initial_time_point
+
+if:
+  properties:
+    merge_similar_timepoints:
+      const: true
+  required:
+    - merge_similar_timepoints
+then:
+  required:
+    - similar_timepoints
+    - merged_timepoint
+    - drop_columns
