@@ -1,83 +1,113 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
+# Remove or adjust if managing dependencies via a traditional virtual environment.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "loguru",
+#     "numpy",
+#     "pandas",
+#     "pydeseq2",
+# ]
+# ///
+
 """
-Insertion-level depletion analysis script with replicates.
+Insertion-Level Depletion Analysis (Replicated Samples)
+=======================================================
 
-This script performs differential expression analysis on transposon insertion counts
-using DESeq2 to identify genes that show depletion across time points. It handles
-replicated samples and generates comprehensive statistical outputs including
-log2 fold changes, p-values, and normalized counts.
+Differential-abundance analysis of transposon insertion counts using PyDESeq2
+(DESeq2). The script identifies insertions that deplete across time points
+relative to an initial time point, using replicated samples.
 
-The script processes count data with complex multi-level indexing and performs:
-- Data preprocessing and quality control
-- DESeq2 normalization and differential analysis
-- Multiple testing correction
-- Result visualization (MA plots)
-- Comprehensive output files for downstream analysis
+Counts are read with a four-level row MultiIndex (chromosome, coordinate,
+strand, target) and a two-level column MultiIndex (group, condition). Size
+factors are estimated from a supplied set of control insertions, dispersions
+and log2 fold changes are fitted, Cook's-distance outliers are refit, and a
+Wald test is run for each non-initial time point versus the initial time point.
+Log2 fold changes and Wald statistics are negated so that depletion is reported
+as a negative fold change. Per-statistic tables (baseMean, log2FoldChange,
+lfcSE, stat, pvalue, padj) and normalized/raw count matrices are written out.
 
-Typical Usage:
+Input
+-----
+- Counts TSV: ``index_col=[0, 1, 2, 3]`` row MultiIndex, ``header=[0, 1]`` column
+  MultiIndex, tab-separated integer insertion counts.
+- Control-insertions TSV: ``index_col=[0, 1, 2, 3]`` row MultiIndex, tab-separated;
+  its index selects the control insertions used for size-factor estimation.
+
+Output
+------
+- ``log2FoldChange.tsv`` (the ``-o`` path): primary log2 fold-change table.
+- Alongside it in the same directory: ``insertion_level_statistics.tsv``,
+  ``baseMean.tsv``, ``lfcSE.tsv``, ``stat.tsv``, ``pvalue.tsv``, ``padj.tsv``,
+  ``normed_counts.tsv``, ``count_X.tsv``, ``cooks.tsv``.
+- Plots: ``dispersions.png`` and ``MA_<timepoint>.png``.
+
+Usage
+-----
     python insertion_level_depletion_analysis_has_replicates.py \
-        -i counts.tsv \
-        -c control_insertions.tsv \
-        -t 0h \
-        -o output_directory/log2FoldChange.tsv
+        -i counts.tsv -c control_insertions.tsv -t 0h -o output_dir/log2FoldChange.tsv
+    python insertion_level_depletion_analysis_has_replicates.py \
+        -i counts.tsv -c control_insertions.tsv -t 0h -o output_dir/log2FoldChange.tsv --verbose
 
-Input:
-    - counts.tsv: Multi-index TSV file with insertion counts
-    - control_insertions.tsv: TSV file with control insertion annotations
-
-Output:
-    - log2FoldChange.tsv: Primary output with log2 fold changes
-    - Additional TSV files: baseMean, lfcSE, stat, pvalue, padj, normed_counts
-    - PNG files: dispersions.png, MA_*.png plots
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-07-09
+Version:  1.0.0
 """
 
-# =============================== Imports ===============================
-import sys
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# 1. Standard Library Imports
 import argparse
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+import sys
 import time
-from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from dataclasses import dataclass
+from pathlib import Path
+
+# 2. Data Processing Imports
 import numpy as np
 import pandas as pd
+
+# 3. Third-party Imports
+from loguru import logger
 from pydeseq2.dds import DeseqDataSet
 from pydeseq2.default_inference import DefaultInference
 from pydeseq2.ds import DeseqStats
 
-# =============================== Configuration & Models ===============================
+# =============================================================================
+# CONFIGURATION & DATACLASSES
+# =============================================================================
+@dataclass(kw_only=True, slots=True, frozen=True)
+class InputOutputConfig:
+    """Validated input/output paths and run flags for the analysis."""
+    counts_file: Path
+    control_insertions_file: Path
+    initial_timepoint: str
+    output_file: Path
+    verbose: bool = False
 
-class InputOutputConfig(BaseModel):
-    """Pydantic model for validating and managing input/output paths."""
-    counts_file: Path = Field(..., description="Path to the counts file")
-    control_insertions_file: Path = Field(..., description="Path to the control insertions file")
-    initial_timepoint: str = Field(..., description="Initial timepoint")
-    output_file: Path = Field(..., description="Path to the output file")
-    verbose: bool = Field(False, description="Enable verbose logging")
+    def __post_init__(self) -> None:
+        for path in (self.counts_file, self.control_insertions_file):
+            if not path.exists():
+                raise ValueError(f"Input file does not exist: {path}")
+        self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    @field_validator('counts_file', 'control_insertions_file')
-    def validate_input_files(cls, v):
-        if not v.exists():
-            raise ValueError(f"Input file does not exist: {v}")
-        return v
-    
-    @field_validator('output_file')
-    def validate_output_file(cls, v):
-        v.parent.mkdir(parents=True, exist_ok=True)
-        return v
-    
-    class Config:
-        frozen = True
 
-class AnalysisResult(BaseModel):
-    """Pydantic model to hold and validate the results of the analysis."""
-    total_insertions_analyzed: int = Field(..., ge=0, description="Total number of insertions analyzed")
-    timepoints_processed: int = Field(..., ge=0, description="Number of timepoints processed")
-    control_insertions_count: int = Field(..., ge=0, description="Number of control insertions used")
-    execution_time: float = Field(..., ge=0.0, description="Total execution time in seconds")
+@dataclass(kw_only=True, slots=True, frozen=True)
+class AnalysisResult:
+    """Summary statistics describing a completed analysis run."""
+    total_insertions_analyzed: int
+    timepoints_processed: int
+    control_insertions_count: int
+    execution_time: float
 
-# =============================== Setup Logging ===============================
-
-def setup_logging(log_level: str = "INFO") -> None:
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+def setup_logger(log_level: str = "INFO") -> None:
     """Configure loguru for the application."""
     logger.remove()
     logger.add(
@@ -85,15 +115,16 @@ def setup_logging(log_level: str = "INFO") -> None:
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
         level=log_level,
         colorize=False
-    ) 
+    )
 
-# =============================== Core Functions ===============================
-
+# =============================================================================
+# CORE LOGIC (FUNCTIONS / CLASSES)
+# =============================================================================
 @logger.catch
-def load_and_preprocess_data(counts_file: Path, control_insertions_file: Path) -> Tuple[pd.DataFrame, pd.DataFrame, List, List, pd.Index]:
+def load_and_preprocess_data(counts_file: Path, control_insertions_file: Path) -> tuple[pd.DataFrame, pd.DataFrame, list, list, pd.Index]:
     """Load and preprocess count data and control insertions."""
     logger.info(f"Loading counts data from {counts_file}")
-    
+
     # Load counts data
     counts_df = pd.read_csv(counts_file, index_col=[0, 1, 2, 3], header=[0, 1], sep="\t")
     counts_df_index_names = counts_df.index.names
@@ -119,14 +150,15 @@ def load_and_preprocess_data(counts_file: Path, control_insertions_file: Path) -
     control_insertion_annotations.index = ["=".join(map(str, index)) for index in control_insertion_annotations.index]
 
     logger.info(f"Loaded {len(counts_df.columns)} insertions and {len(control_insertion_annotations)} control insertions")
-    
+
     return counts_df, metadata, counts_df_index_names, counts_df_columns_names, control_insertion_annotations.index
+
 
 @logger.catch
 def create_deseq_dataset(counts_df: pd.DataFrame, metadata: pd.DataFrame, control_insertions: pd.Index, initial_timepoint: str = "0h") -> DeseqDataSet:
     """Create and fit DESeq2 dataset for differential analysis."""
     logger.info("Creating DESeq2 dataset")
-    
+
     inference = DefaultInference(n_cpus=36)
     dds = DeseqDataSet(
         counts=counts_df,
@@ -136,7 +168,7 @@ def create_deseq_dataset(counts_df: pd.DataFrame, metadata: pd.DataFrame, contro
         inference=inference,
         min_replicates=7,
     )
-    
+
     logger.info("Fitting size factors using control insertions")
     dds.fit_size_factors(control_genes=control_insertions)
     logger.info("Fitting genewise dispersions")
@@ -154,44 +186,47 @@ def create_deseq_dataset(counts_df: pd.DataFrame, metadata: pd.DataFrame, contro
     if dds.refit_cooks:
         logger.info("Refitting after outlier removal")
         dds.refit()
-    
+
     return dds
 
+
 @logger.catch
-def perform_differential_analysis(dds: DeseqDataSet, timepoints: List[str], initial_timepoint: str = "0h") -> Dict[str, DeseqStats]:
+def perform_differential_analysis(dds: DeseqDataSet, timepoints: list[str], initial_timepoint: str = "0h") -> dict[str, DeseqStats]:
     """Perform differential expression analysis for all timepoints."""
     logger.info(f"Performing differential analysis for {len(timepoints)} timepoints")
-    
+
     stat_res = {}
     inference = DefaultInference(n_cpus=36)
-    
+
     for tp in timepoints:
         logger.info(f"Analyzing timepoint: {tp} vs {initial_timepoint}")
         stat_res[tp] = DeseqStats(
-            dds, contrast=["condition", tp, initial_timepoint], inference=inference, 
+            dds, contrast=["condition", tp, initial_timepoint], inference=inference,
             cooks_filter=True, independent_filter=True, quiet=True
         )
         stat_res[tp].summary()
         # Uncomment the following line if you want to perform LFC shrinkage
         # stat_res[tp].lfc_shrink(coeff=f"condition[T.{tp}]")
-    
+
     return stat_res
 
+
 @logger.catch
-def plot_ma(stat_res: Dict[str, DeseqStats], output_dir: Path) -> None:
+def plot_ma(stat_res: dict[str, DeseqStats], output_dir: Path) -> None:
     """Generate MA plots for all timepoint comparisons."""
     logger.info("Generating MA plots")
-    
+
     for tp, res in stat_res.items():
         output_path = output_dir / f"MA_{tp}.png"
         res.plot_MA(save_path=output_path)
         logger.debug(f"Saved MA plot for {tp} to {output_path}")
 
+
 @logger.catch
-def concatenate_results(stat_res: Dict[str, DeseqStats], timepoints: List[str]) -> pd.DataFrame:
+def concatenate_results(stat_res: dict[str, DeseqStats], timepoints: list[str]) -> pd.DataFrame:
     """Concatenate results from all timepoints into a single DataFrame."""
     logger.info("Concatenating results from all timepoints")
-    
+
     result_df = {}
     for tp in timepoints:
         result_df[tp] = stat_res[tp].results_df
@@ -209,17 +244,18 @@ def concatenate_results(stat_res: Dict[str, DeseqStats], timepoints: List[str]) 
         strand = idx[2]
         target = idx[3]
         new_index.append((chr_name, coordinate, strand, target))
-    
+
     # Create a new MultiIndex with the converted values
     concated_results.index = pd.MultiIndex.from_tuples(
         new_index, names=concated_results.index.names)
     return concated_results
 
+
 @logger.catch
 def transform_index_to_multiindex(dds: DeseqDataSet, layer_name: str) -> pd.DataFrame:
     """Transform DESeq2 layer data to multi-index DataFrame."""
     logger.debug(f"Transforming {layer_name} layer to multi-index")
-    
+
     df = pd.DataFrame(dds.layers[layer_name], index=dds.obs.index.tolist(), columns=dds.var.index.tolist()).T
     df.index = pd.MultiIndex.from_tuples(df.index.str.split("=").tolist())
     new_index = []
@@ -230,7 +266,7 @@ def transform_index_to_multiindex(dds: DeseqDataSet, layer_name: str) -> pd.Data
         strand = idx[2]
         target = idx[3]
         new_index.append((chr_name, coordinate, strand, target))
-    
+
     # Create a new MultiIndex with the converted values
     df.index = pd.MultiIndex.from_tuples(
         new_index, names=df.index.names)
@@ -238,9 +274,10 @@ def transform_index_to_multiindex(dds: DeseqDataSet, layer_name: str) -> pd.Data
 
     return df
 
-# =============================== Main Function ===============================
-
-def parse_arguments():
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+def parse_args() -> argparse.Namespace:
     """Set and parse command line arguments."""
     parser = argparse.ArgumentParser(description="Perform differential expression analysis on insertion counts.")
     parser.add_argument("-i", "--counts_file", type=Path, required=True, help="Path to the counts file.")
@@ -250,17 +287,17 @@ def parse_arguments():
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
-@logger.catch
-def main():
+
+def main() -> int:
     """Main entry point for insertion-level depletion analysis."""
     start_time = time.time()
-    
-    args = parse_arguments()
+
+    args = parse_args()
     log_level = "DEBUG" if args.verbose else "INFO"
-    setup_logging(log_level)
-    
+    setup_logger(log_level)
+
     try:
-        # Validate input and output paths using the Pydantic model
+        # Validate input and output paths using the config dataclass
         config = InputOutputConfig(
             counts_file=args.counts_file,
             control_insertions_file=args.control_insertions_file,
@@ -268,13 +305,13 @@ def main():
             output_file=args.output,
             verbose=args.verbose
         )
-        
+
         logger.info("Starting insertion-level depletion analysis")
         logger.info(f"Counts file: {config.counts_file}")
         logger.info(f"Control insertions file: {config.control_insertions_file}")
         logger.info(f"Initial timepoint: {config.initial_timepoint}")
         logger.info(f"Output file: {config.output_file}")
-        
+
         # Load and preprocess data
         counts_df, metadata, counts_df_index_names, counts_df_columns_names, control_insertions = load_and_preprocess_data(
             config.counts_file, config.control_insertions_file
@@ -288,7 +325,7 @@ def main():
         timepoints.remove(config.initial_timepoint)
         logger.info(f"Control timepoint: {config.initial_timepoint}")
         logger.info(f"Timepoints for analysis: {timepoints}")
-        
+
         # Create DESeq2 dataset
         dds = create_deseq_dataset(counts_df, metadata, control_insertions, config.initial_timepoint)
         logger.info("Plotting dispersions...")
@@ -344,7 +381,7 @@ def main():
         concated_results.insert(0, (config.initial_timepoint,"lfcSE"), lfcSE_initial)
         concated_results.insert(0, (config.initial_timepoint,"log2FoldChange"), log2FoldChange_initial)
         concated_results.insert(0, (config.initial_timepoint,"baseMean"), baseMean_initial)
-        
+
         numeric_columns = {"baseMean": 3, "log2FoldChange": 3, "lfcSE": 3, "stat": 3, "pvalue": 6, "padj": 6}
         logger.info("Rounding numeric columns...")
         for stat_name, decimal_places in numeric_columns.items():
@@ -371,7 +408,7 @@ def main():
 
         padj_df = concated_results.xs("padj", axis=1, level="Statistic")
         padj_df.to_csv(config.output_file.parent/"padj.tsv", index=True, sep="\t")
-        
+
         # Create analysis result
         end_time = time.time()
         execution_time = end_time - start_time
@@ -381,15 +418,18 @@ def main():
             control_insertions_count=len(control_insertions),
             execution_time=execution_time
         )
-        
+
         logger.success(f"Analysis completed in {execution_time:.2f} seconds")
         logger.info(f"Analyzed {result.total_insertions_analyzed} insertions across {result.timepoints_processed} timepoints")
         logger.info(f"Used {result.control_insertions_count} control insertions for normalization")
         logger.success(f"Results saved to {config.output_file.parent}")
-        
+
     except ValueError as e:
         logger.error(f"Error: {e}")
-        sys.exit(1)
+        return 1
+
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
