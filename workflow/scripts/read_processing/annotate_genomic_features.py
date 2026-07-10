@@ -317,12 +317,14 @@ def annotate_insertions(
 
     logger.info("Removing boundary duplicates...")
 
-    # Drop duplicated insertions at boundaries
-    annotated_df = (
-        annotated_df.groupby(["Chr", "Coordinate", "Strand"])
-        .apply(drop_boundary_duplicates)
-        .reset_index(drop=True)
-    )
+    # Drop duplicated insertions at boundaries. Iterate manually rather than
+    # groupby().apply() so the Chr/Coordinate/Strand grouping columns are not
+    # dropped from the result (pandas >=2.2 excludes them from the group frame
+    # passed to apply(), and drop_boundary_duplicates() never re-adds them).
+    deduped_groups = []
+    for _, group in annotated_df.groupby(["Chr", "Coordinate", "Strand"]):
+        deduped_groups.append(drop_boundary_duplicates(group))
+    annotated_df = pd.concat(deduped_groups).reset_index(drop=True)
 
     # Calculate statistics
     stats = AnalysisResult(

@@ -169,7 +169,8 @@ def apply_hard_filtering(df: pd.DataFrame, config: InputOutputConfig) -> tuple[p
     total_insertions = 0
     retained_insertions = 0
 
-    for sample_name, sample_data in df.groupby(level="Sample", axis=1):
+    for sample_name, sample_data_t in df.T.groupby(level="Sample"):
+        sample_data = sample_data_t.T
         logger.debug(f"Processing sample: {sample_name}")
 
         sample_total = len(sample_data)
