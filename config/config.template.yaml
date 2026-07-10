@@ -15,7 +15,7 @@ sample_sheet: projects/MY_PROJECT/config/sample_sheet.tsv
 multiqc_config: config/multiqc_config.yml   # shared, at repo root
 
 # --- Reference data ----------------------------------------------------------
-Pombase_release_version: "2025-10-01"  # QUOTE it (YYYY-MM-DD); unquoted YAML parses it as a date
+Pombase_release_version: "2026-06-01"  # QUOTE it (YYYY-MM-DD); unquoted YAML parses it as a date
 
 # --- Adapter / junction sequences (ACGTN only) -------------------------------
 adapter_sequence: CTGTCTCTTATACACATCT
