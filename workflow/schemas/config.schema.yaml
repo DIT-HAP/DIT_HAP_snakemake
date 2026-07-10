@@ -25,7 +25,7 @@ properties:
     type: string
     description: >
       Version tag of the Snakemake wrappers used by wrapper-based rules
-      (e.g. samtools/faidx, bwa-mem2/index). Example: v7.7.0.
+      (e.g. samtools/faidx, bwa-mem2/index). Example: v9.13.0.
 
   sample_sheet:
     type: string

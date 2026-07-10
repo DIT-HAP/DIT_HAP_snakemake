@@ -1,4 +1,4 @@
-snakemake_wrapper_version: v7.7.0
+snakemake_wrapper_version: v9.13.0
 
 workdir: /data/c/yangyusheng_optimized/DIT_HAP
 
