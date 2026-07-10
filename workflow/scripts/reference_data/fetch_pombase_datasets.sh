@@ -49,13 +49,24 @@
 #   │   ├── protein_families_and_domains.tsv
 #   │   ├── disordered_regions.tsv
 #   │   └── protein_modifications.tsv
-#   └── ontologies_and_associations/     # Ontology files and annotations
+#   ├── curated_orthologs/               # Manually curated ortholog datasets
+#   │   ├── pombe_japonicus_orthologs.txt
+#   │   ├── pombe_cerevisiae_orthologs.txt
+#   │   └── pombe_human_orthologs.txt
+#   └── ontologies_and_associations/     # Ontology files and term associations
 #       ├── go-basic.obo                 # Gene Ontology core
 #       ├── goslim_pombe.obo             # GO slim subset
 #       ├── fypo-simple-pombase.obo      # Fission Yeast Phenotype Ontology
 #       ├── mondo-simple.obo             # Mondo Disease Ontology
-#       ├── gene_ontology_annotation.gaf.tsv    # GO annotations
-#       ├── pombase_phenotype_annotation.phaf.tsv  # Phenotype annotations
+#       ├── bp_go_slim_terms.tsv         # GO Biological Process slim terms
+#       ├── cc_go_slim_terms.tsv         # GO Cellular Component slim terms
+#       ├── mf_go_slim_terms.tsv         # GO Molecular Function slim terms
+#       ├── fypo_slim_ids_and_names.tsv  # FYPO slim terms
+#       ├── pombe_mondo_disease_slim_terms.tsv  # Mondo disease slim terms
+#       ├── gene_ontology_annotation.gaf.tsv    # GO annotations (GAF format)
+#       ├── macromolecular_complex_annotation.tsv  # Complex annotations
+#       ├── pombase_single_locus_haploid_phenotype_annotation.phaf.tsv      # Phenotype annotations (PHAF format)
+#       ├── pombase_single_locus_haploid_phenotype_annotation.eco.phaf.tsv  # Phenotype annotations with ECO evidence
 #       └── human_disease_association.tsv        # Disease associations
 #
 # ERROR HANDLING:
@@ -514,8 +525,8 @@ download_ontologies() {
     local association_files=(
         "gene_ontology/gene_ontology_annotation.gaf.tsv"              # GO annotations (GAF format)
         "macromolecular_complexes/macromolecular_complex_annotation.tsv"  # Complex annotations
-        "phenotypes_and_genotypes/pombase_phenotype_annotation.phaf.tsv"  # Phenotype annotations (PHAF format)
-        "phenotypes_and_genotypes/pombase_phenotype_annotation.eco.phaf.tsv"  # Phenotype annotations with ECO evidence
+        "phenotypes_and_genotypes/pombase_single_locus_haploid_phenotype_annotation.phaf.tsv"  # Phenotype annotations (PHAF format)
+        "phenotypes_and_genotypes/pombase_single_locus_haploid_phenotype_annotation.eco.phaf.tsv"  # Phenotype annotations with ECO evidence
         "human_disease_annotation/human_disease_association.tsv"       # Human disease associations
     )
 
