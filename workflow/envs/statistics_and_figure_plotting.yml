@@ -4,17 +4,16 @@ channels:
   - defaults
 dependencies:
   - python=3.12
-  - matplotlib=3.10
-  - seaborn=0.13.2
-  - altair=5.5.0
-  - numpy=2.2.5
-  - pandas=2.2.3
-  - scipy=1.15.3
-  - scikit-learn=1.6.1
+  - matplotlib>=3.11
+  - seaborn>=0.13.2
+  - altair>=6.2.2
+  - numpy>=2.5.0
+  - pandas>=3.0.4
+  - scipy>=1.18
+  - scikit-learn>=1.9
   - numba
   - pyyaml
   - openpyxl
   - tqdm
   - loguru
-  - pydantic
   - tabulate

@@ -3,7 +3,6 @@ channels:
   - bioconda
 dependencies:
   - python=3.12
-  - pysam=0.23.3
+  - pysam>=0.24
   - loguru
-  - pydantic
   
