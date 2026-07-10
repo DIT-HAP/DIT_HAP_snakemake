@@ -213,7 +213,7 @@ def parse_gff_data(gff_file_path: Path) -> pd.DataFrame:
         names=column_names,
         dtype={"Chr": str, "Start": pd.Int64Dtype(), "End": pd.Int64Dtype()},
     )
-    extract_systematic_ID_pattern = re.compile(r"ID=(\S+?)(?:$|(?:|\.\d(?::\S+|));))")
+    extract_systematic_ID_pattern = re.compile(r"ID=(\S+?)(?:$|(?:|\.\d(?::\S+|));)")
     gff_df["Systematic ID"] = gff_df["Attribute"].str.extract(extract_systematic_ID_pattern, expand=False)
     gff_df["Transcript"] = gff_df.apply(get_gff_transcript_id, axis=1)
     gff_df["Chr"] = pd.Categorical(gff_df["Chr"], categories=CHR_ORDER, ordered=True)
@@ -509,11 +509,15 @@ def run_pipeline(config: Config) -> None:
     non_coding_rna_df = gff_df[gff_df["Feature"].isin(NON_CODING_RNA_FEATURES)].copy().sort_values(
         ["Feature", "Chr", "Start", "End", "Systematic ID", "Transcript"]
     )
+    processed_ncrna_beds = []
+    for name, group in non_coding_rna_df.groupby("Feature"):
+        result = gff_features_to_bed(group, "Non-coding gene", gene_to_peptide_length_map)
+        if result is not None and not result.empty:
+            processed_ncrna_beds.append(result)
     non_coding_rna_bed_df = (
-        non_coding_rna_df
-        .groupby("Feature")
-        .apply(gff_features_to_bed, "Non-coding gene", gene_to_peptide_length_map)
-        .reset_index(drop=True)
+        pd.concat(processed_ncrna_beds).reset_index(drop=True)
+        if processed_ncrna_beds
+        else pd.DataFrame()
     )
     logger.info(f"Non-coding RNA BED: {len(non_coding_rna_bed_df):,} rows")
 

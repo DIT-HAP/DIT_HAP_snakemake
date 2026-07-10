@@ -38,7 +38,7 @@ rule samtools_faidx:
     message:
         "*** Indexing genome FASTA with samtools faidx"
     wrapper:
-        "v5.8.3/bio/samtools/faidx"
+        f"{snakemake_wrapper_version}/bio/samtools/faidx"
 
 
 # index genome FASTA with bwa-mem2
@@ -57,7 +57,7 @@ rule bwa_index:
     message:
         "*** Indexing genome FASTA with bwa-mem2"
     wrapper:
-        "v5.8.3/bio/bwa-mem2/index"
+        f"{snakemake_wrapper_version}/bio/bwa-mem2/index"
 
 
 # extract genome regions from GFF3 annotation
@@ -83,5 +83,17 @@ rule extract_genome_region:
         "*** Extracting genome regions from GFF3 annotation (release {wildcards.release_version})"
     conda:
         "../envs/pybedtools.yml"
-    script:
-        "../scripts/reference_data/extract_genome_region.py"
+    shell:
+        "python workflow/scripts/reference_data/extract_genome_region.py"
+        " --gff {input.gff}"
+        " --fai {input.fai}"
+        " --peptide_stats {input.peptide_stats}"
+        " --gene_ids {input.gene_ids}"
+        " --fypo {input.fypo}"
+        " --hayles {params.hayles}"
+        " --out_primary {output.primary_transcripts_bed}"
+        " --out_intergenic {output.intergenic_regions_bed}"
+        " --out_ncrna {output.non_coding_rna_bed}"
+        " --out_genome_intervals {output.genome_intervals_bed}"
+        " --out_overlapped {output.overlapped_region_bed}"
+        " &> {log}"
