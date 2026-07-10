@@ -6,8 +6,6 @@ dependencies:
   - python=3.12
   - pybedtools=0.12.0
   - openpyxl
-  - snakemake
-  - ipykernel
-  - notebook
+  - numpy
+  - pandas
   - loguru
-  - pydantic
