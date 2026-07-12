@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   - python=3.12
-  - pandas>=3.0.4
+  - pandas>=3.0.3
   - biopython>=1.87
   - openpyxl
   - loguru

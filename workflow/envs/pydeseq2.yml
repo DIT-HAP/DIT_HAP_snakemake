@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   - python=3.12
-  - pandas>=3.0.4
+  - pandas>=3.0.3
   - numpy>=2.5.0
   - pydeseq2>=0.5.4
   - openpyxl
