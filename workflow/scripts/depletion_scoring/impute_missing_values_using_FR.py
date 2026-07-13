@@ -153,8 +153,8 @@ def transfer_FR_index(idxs: tuple) -> tuple:
 @logger.catch
 def impute_missing_values(in_gene_counts_df: pd.DataFrame) -> tuple[pd.DataFrame, list[tuple]]:
     """Impute all-missing insertion rows from their complementary-strand counterpart."""
-    stacked_df = in_gene_counts_df.stack(level=0, dropna=False)
-    stacked_dropna_df = in_gene_counts_df.stack(level=0, dropna=True)
+    stacked_df = in_gene_counts_df.stack(level=0)
+    stacked_dropna_df = stacked_df.dropna(how="all")
 
     # Find indices with missing values
     in_gene_isna_idx = stacked_df[stacked_df.isna().all(axis=1)].index
