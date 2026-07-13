@@ -10,3 +10,5 @@ __pycache__/
 /reports/
 /logs/
 /resources/pombase_data/
+projects
+.vscode
