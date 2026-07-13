@@ -10,5 +10,7 @@ __pycache__/
 /reports/
 /logs/
 /resources/pombase_data/
-projects
+# Ignore all sub-sub-folders under projects, except their config folders
+projects/*/*/
+!projects/*/*/config/
 .vscode
