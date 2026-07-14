@@ -66,6 +66,7 @@ drop_columns:
 # -----------------------------------------------------
 hard_filtering_cutoff: 8
 initial_time_point: "YES0"
+final_time_point: "YES4"
 
 # Depletion analysis configuration
 # -----------------------------------------------------
