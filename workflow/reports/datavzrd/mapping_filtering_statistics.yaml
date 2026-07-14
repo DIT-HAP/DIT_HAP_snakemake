@@ -19,6 +19,17 @@ views:
     desc: |
       Overview of mapping filtering statistics for all samples.
       Shows original, filtered, and removed read pairs for both PBL and PBR fragments,
-      along with retention rates.
-    
+      along with retention rates. Low retention rates (red) flag samples worth a
+      closer look; the raw output-file paths are hidden by default.
     page-size: 50
+    render-table:
+      columns:
+        regex('^output_file_.+$'):
+          display-mode: hidden
+        regex('^retention_rate_.+$'):
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["#b2182b", "white", "#2166ac"]
+              domain: [0.7, 0.85, 1.0]

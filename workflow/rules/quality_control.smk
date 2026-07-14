@@ -123,6 +123,7 @@ rule PBL_PBR_correlation_analysis:
     output:
         report(
             f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
+            caption="../reports/captions/PBL_PBR_correlation_analysis.rst",
             category="Quality Control",
             labels={
                 "name": "3. PBL-PBR Correlation Analysis",
@@ -154,6 +155,7 @@ rule read_count_distribution_analysis:
     output:
         report(
             f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
+            caption="../reports/captions/read_count_distribution_analysis.rst",
             category="Quality Control",
             labels={
                 "name": "4. Read Count Distribution Analysis",
@@ -188,6 +190,7 @@ rule insertion_orientation_analysis:
     output:
         report(
             f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
+            caption="../reports/captions/insertion_orientation_analysis.rst",
             category="Quality Control",
             labels={
                 "name": "5. Insertion Orientation Analysis",
@@ -211,15 +214,16 @@ rule insertion_orientation_analysis:
 # -----------------------------------------------------
 rule insertion_density_analysis:
     input:
-        insertion_data=f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
+        insertion_data=rules.hard_filtering.output,
         annotation=rules.concat_counts_and_annotations.output.annotations,
     output:
         table=f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.tsv",
         plot=report(
             f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
+            caption="../reports/captions/insertion_density_analysis.rst",
             category="Quality Control",
             labels={
-                "name": "6. Insertion Density",
+                "name": "6a. Insertion Density (Distributions)",
                 "type": "Distribution Plot",
                 "format": "PDF",
             },
@@ -232,14 +236,41 @@ rule insertion_density_analysis:
         "*** Performing insertion density analysis..."
     params:
         initial_time_point=config["initial_time_point"],
+        final_time_point=config["final_time_point"],
     shell:
         """
         python workflow/scripts/quality_control/insertion_density_analysis.py \
             -i {input.insertion_data} \
             -a {input.annotation} \
             -t {params.initial_time_point} \
+            -f {params.final_time_point} \
             -o {output.table} &> {log}
         """
+
+
+# Datavzrd report for insertion density statistics
+# -----------------------------------------------------
+rule datavzrd_insertion_density_analysis:
+    input:
+        config="workflow/reports/datavzrd/insertion_density_analysis.yaml",
+        table=rules.insertion_density_analysis.output.table,
+    params:
+        extra="",
+    output:
+        report(
+            directory(f"projects/{project_name}/reports/insertion_density_analysis/datavzrd_insertion_density_analysis"),
+            htmlindex="index.html",
+            category="Quality Control",
+            labels={
+                "name": "6b. Insertion Density (Table)",
+                "type": "Datavzrd Report",
+                "format": "Datavzrd HTML",
+            },
+        ),
+    log:
+        f"projects/{project_name}/logs/quality_control/insertion_density_analysis_datavzrd.log",
+    wrapper:
+        f"{snakemake_wrapper_version}/utils/datavzrd"
 
 
 # Gene coverage analysis
@@ -251,6 +282,7 @@ rule gene_coverage_analysis:
     output:
         report(
             f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
+            caption="../reports/captions/gene_coverage_analysis.rst",
             category="Quality Control",
             labels={
                 "name": "7. Gene Coverage",

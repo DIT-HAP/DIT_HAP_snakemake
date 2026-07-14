@@ -1,0 +1,47 @@
+__use_yte__: true
+
+name: "Gene-Level Log2 Fold Change"
+
+default-view: gene_level_LFC
+
+max-in-memory-rows: 20000
+
+datasets:
+  gene_level_LFC:
+    path: ?input.table
+    separator: "\t"
+    offer-excel: true
+
+views:
+  gene_level_LFC:
+    dataset: gene_level_LFC
+    desc: |
+      Per-gene log2 fold change (LFC) at each timepoint, relative to the initial
+      timepoint. Positive values indicate insertion depletion (loss of reads);
+      values near zero indicate no change. Sort by a later timepoint column to
+      surface the most strongly depleted (typically essential) genes.
+    page-size: 50
+    render-table:
+      columns:
+        Name:
+          link-to-url:
+            PomBase:
+              url: "https://www.pombase.org/gene/{Systematic ID}"
+              new-window: true
+        FYPOviability:
+          plot:
+            heatmap:
+              scale: ordinal
+              color-scheme: category10
+        DeletionLibrary_essentiality:
+          plot:
+            heatmap:
+              scale: ordinal
+              color-scheme: category10
+        regex('^(?!Systematic ID$|Name$|FYPOviability$|DeletionLibrary_essentiality$).+$'):
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["#2166ac", "white", "#b2182b"]
+              domain: [-2, 0, 8]

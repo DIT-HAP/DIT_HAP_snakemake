@@ -12,9 +12,96 @@ datasets:
     separator: "\t"
     offer-excel: true
 
-
 views:
   insertion_density_stats:
     dataset: insertion_density_stats
-    desc: Overview of insertion density statistics for all samples.
+    desc: |
+      Per-gene insertion-site density at the initial and final timepoint, and
+      the log2 fold-change between them — the classic piggyBac phenotyping
+      readout. A large negative `insertion_density_log2fc` marks a gene whose
+      insertion sites dropped out over time (typically an essential gene).
+      Sort by `insertion_density_log2fc` ascending to surface the strongest
+      depletion signals first.
     page-size: 50
+    render-table:
+      columns:
+        Name:
+          link-to-url:
+            PomBase:
+              url: "https://www.pombase.org/gene/{Systematic ID}"
+              new-window: true
+        FYPOviability:
+          plot:
+            heatmap:
+              scale: ordinal
+              color-scheme: category10
+        Chr:
+          display-mode: hidden
+        Start:
+          display-mode: hidden
+        End:
+          display-mode: hidden
+        insertion_density_per_kb_initial:
+          precision: 2
+          plot:
+            heatmap:
+              scale: linear
+              range: ["white", "#2166ac"]
+        insertion_density_per_kb_final:
+          precision: 2
+          plot:
+            heatmap:
+              scale: linear
+              range: ["white", "#2166ac"]
+        insertion_density_change:
+          display-mode: hidden
+        insertion_density_log2fc:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["#b2182b", "white", "#2166ac"]
+              domain: [-3, 0, 3]
+        total_reads_initial:
+          display-mode: hidden
+        total_reads_final:
+          display-mode: hidden
+        total_reads_log2fc:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["#b2182b", "white", "#2166ac"]
+              domain: [-3, 0, 3]
+        gini_coefficient_of_depth_initial:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["white", "#f46d43"]
+              domain: [0, 1]
+        gini_coefficient_of_depth_final:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["white", "#f46d43"]
+              domain: [0, 1]
+        gini_coefficient_of_location:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["white", "#f46d43"]
+              domain: [0, 1]
+        strand_bias:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["white", "#f46d43"]
+              domain: [0, 0.5]
+        all_gap_lengths:
+          display-mode: hidden
+        all_gap_lengths_fraction:
+          display-mode: hidden
