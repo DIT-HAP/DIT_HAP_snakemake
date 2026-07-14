@@ -179,6 +179,14 @@ properties:
       Column name of the initial (reference) timepoint. Used as the DESeq2
       reference level and the denominator in no-replicate LFC. Example: YES0.
 
+  final_time_point:
+    type: string
+    description: >
+      Column name of the final (endpoint) timepoint. Used by
+      insertion_density_analysis to compare insertion-site density at the
+      initial vs. final timepoint (the classic piggyBac phenotyping readout).
+      Example: YES4.
+
   # --- Depletion analysis -------------------------------------------------
   use_DEseq2_for_biological_replicates:
     type: boolean
