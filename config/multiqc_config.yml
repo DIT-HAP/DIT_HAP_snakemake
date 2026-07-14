@@ -6,8 +6,27 @@ use_filename_as_sample_name:
   - picard
 
 table_sample_merge:
-  "R1": "_1"
-  "R2": "_2"
+  # fastqc reads:  {sample}.PBL_1 / .PBL_2 / .PBR_1 / .PBR_2
+  "PBL_R1":
+    - type: regex
+      pattern: '\.PBL_1$'
+  "PBL_R2":
+    - type: regex
+      pattern: '\.PBL_2$'
+  "PBR_R1":
+    - type: regex
+      pattern: '\.PBR_1$'
+  "PBR_R2":
+    - type: regex
+      pattern: '\.PBR_2$'
+  # samtools / picard fragments:  {sample}.PBL / .PBR  (must come after the
+  # _R1/_R2 patterns so those match first and are not truncated by these)
+  "PBL":
+    - type: regex
+      pattern: '\.PBL$'
+  "PBR":
+    - type: regex
+      pattern: '\.PBR$'
 
 module_order:
   - fastp
