@@ -12,40 +12,46 @@
 Insertion Density Analysis for Transposon Insertion Sequencing
 ==============================================================
 
-Analyzes insertion density patterns in transposon sequencing data. Loads
-insertion LFC data and genomic annotations, filters for in-gene insertions
-using established criteria (non-intergenic and distance to stop codon > 4),
-and computes comprehensive per-gene density metrics.
+Analyzes insertion density patterns in transposon sequencing data, comparing
+the initial and final timepoints to reveal the classic piggyBac phenotyping
+signal: insertion sites well-covered at the initial timepoint that drop out
+by the final timepoint mark depleted (typically essential) genes.
 
-For each gene it derives insertion/site density per kilobase, gap-distribution
+Loads raw insertion read counts (summed across biological replicates) and
+genomic annotations, filters for in-gene insertions using established
+criteria (non-intergenic and distance to stop codon > 4), and computes
+per-gene density metrics at both timepoints plus their change.
+
+For each gene it derives insertion-site density per kilobase at the initial
+and final timepoint (and their difference / log2 fold-change), gap-distribution
 metrics (including a Gini coefficient of insertion location), read-depth
-inequality (Gini coefficient of depth), and strand-preference measures. A
-multi-page PDF of histogram distributions is produced alongside the density
-statistics table.
+inequality (Gini coefficient of depth) at both timepoints, and strand-preference
+measures. A multi-page PDF of histogram distributions and initial-vs-final
+scatter plots is produced alongside the density statistics table.
 
 Input
 -----
-- Insertion data (``-i``): tab-separated file with a 4-level index and
-  per-timepoint read-count columns. The initial-timepoint column (``-t``) is
-  used as the read-count proxy.
+- Insertion data (``-i``): tab-separated file with a 4-level row index and a
+  2-level column header (Sample, Timepoint). Read counts are summed across
+  samples (replicates) at the initial (``-t``) and final (``-f``) timepoints.
 - Annotation data (``-a``): tab-separated file with a 4-level index and gene
   annotation columns (Type, Distance_to_stop_codon, Systematic ID, Name,
-  Chr_Interval, Strand_Interval, ParentalRegion_start, ParentalRegion_end,
-  ParentalRegion_length, Insertion_direction).
+  FYPOviability, Chr_Interval, Strand_Interval, ParentalRegion_start,
+  ParentalRegion_end, ParentalRegion_length, Insertion_direction).
 
 Output
 ------
 - Density statistics table (``-o``): tab-separated, one row per gene.
-- Histogram distribution report: multi-page PDF written next to the table as
-  ``<output_stem>_histograms.pdf``.
+- Histogram/scatter distribution report: multi-page PDF written next to the
+  table as ``<output_stem>_histograms.pdf``.
 
 Usage
 -----
-    python insertion_density_analysis.py -i insertion_data.tsv -a annotations.tsv -o density_stats.tsv -t T0
+    python insertion_density_analysis.py -i raw_reads.filtered.tsv -a annotations.tsv -o density_stats.tsv -t YES0 -f YES4
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -85,12 +91,13 @@ COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class InputOutputConfig:
-    """Validated input/output paths and the initial-timepoint column name."""
+    """Validated input/output paths and the initial/final timepoint column names."""
 
     insertion_data_path: Path
     annotations_path: Path
     output_path: Path
     initial_timepoint: str
+    final_timepoint: str
 
     def __post_init__(self) -> None:
         for path in (self.insertion_data_path, self.annotations_path):
@@ -109,6 +116,8 @@ class InputOutputConfig:
 
         if not self.initial_timepoint:
             raise ValueError("initial_timepoint must be a non-empty string")
+        if not self.final_timepoint:
+            raise ValueError("final_timepoint must be a non-empty string")
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -117,8 +126,10 @@ class AnalysisResult:
 
     total_genes_analyzed: int
     total_insertions_analyzed: int
-    mean_insertion_density_per_kb: float
-    mean_gini_coefficient_of_depth: float
+    mean_insertion_density_per_kb_initial: float
+    mean_insertion_density_per_kb_final: float
+    mean_insertion_density_log2fc: float
+    mean_gini_coefficient_of_depth_initial: float
     mean_strand_bias: float
 
 
@@ -140,80 +151,45 @@ def setup_logger(log_level: str = "INFO") -> None:
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
 @logger.catch
-def validate_data_file_structure(file_path: Path, required_columns: list[str], file_type: str) -> None:
-    """Validate that a data file has the required structure and columns."""
-    try:
-        # Read first few lines to check structure
-        if file_path.suffix.lower() == '.csv':
-            df_sample = pd.read_csv(file_path, nrows=5, sep=',')
-        else:
-            df_sample = pd.read_csv(file_path, nrows=5, sep='\t')
-
-        # Check if DataFrame is empty
-        if df_sample.empty:
-            raise ValueError(f"{file_type} file appears to be empty or malformed")
-
-        # Check for required columns
-        missing_columns = [col for col in required_columns if col not in df_sample.columns]
-        if missing_columns:
-            available_columns = df_sample.columns.tolist()
-            raise ValueError(
-                f"Missing required columns in {file_type}: {missing_columns}. "
-                f"Available columns: {available_columns}"
-            )
-
-        # Check for multi-index structure if expected
-        if file_type == "insertion data":
-            try:
-                # Try to read with multi-index to validate structure
-                pd.read_csv(file_path, index_col=[0, 1, 2, 3], nrows=5, sep='\t')
-                logger.debug(f"{file_type} multi-index structure validated successfully")
-            except Exception as e:
-                logger.warning(f"Could not validate {file_type} multi-index structure: {e}")
-
-    except Exception as e:
-        raise ValueError(f"Error validating {file_type} file structure: {e}")
-
-
-@logger.catch
-def load_insertion_data(insertion_data_path: Path, initial_timepoint: str) -> pd.DataFrame:
-    """Load insertion data and extract initial timepoint read counts."""
+def load_insertion_data(
+    insertion_data_path: Path, initial_timepoint: str, final_timepoint: str
+) -> pd.DataFrame:
+    """Load raw insertion read counts and sum replicate samples at the initial/final timepoints."""
     logger.info(f"Loading insertion data from {insertion_data_path}")
 
     try:
-        # First validate file structure
-        logger.debug("Validating insertion data file structure")
-        validate_data_file_structure(
-            insertion_data_path,
-            [initial_timepoint],  # Initial timepoint is the only required column we know about
-            "insertion data"
+        raw_counts = pd.read_csv(
+            insertion_data_path, index_col=[0, 1, 2, 3], header=[0, 1], sep="\t"
         )
 
-        # Load with multi-level index
-        insertion_data = pd.read_csv(insertion_data_path, index_col=[0, 1, 2, 3], sep="\t")
+        if not isinstance(raw_counts.columns, pd.MultiIndex):
+            raise ValueError("Expected a 2-level (Sample, Timepoint) column header")
 
-        # Validate that initial timepoint exists (re-check after full load)
-        if initial_timepoint not in insertion_data.columns:
-            available_cols = insertion_data.columns.tolist()
-            raise ValueError(
-                f"Initial timepoint '{initial_timepoint}' not found. "
-                f"Available columns: {available_cols}"
-            )
+        available_timepoints = raw_counts.columns.get_level_values(1).unique().tolist()
+        for timepoint in (initial_timepoint, final_timepoint):
+            if timepoint not in available_timepoints:
+                raise ValueError(
+                    f"Timepoint '{timepoint}' not found. Available timepoints: {available_timepoints}"
+                )
 
-        # Check for valid data in the timepoint column
-        if insertion_data[initial_timepoint].isna().all():
-            raise ValueError(f"All values in timepoint column '{initial_timepoint}' are NaN")
+        # Sum read counts across replicate samples at each timepoint
+        initial_counts = raw_counts.xs(initial_timepoint, level=1, axis=1).sum(axis=1, skipna=True)
+        final_counts = raw_counts.xs(final_timepoint, level=1, axis=1).sum(axis=1, skipna=True)
 
-        # Check for reasonable values (non-negative counts)
-        negative_counts = (insertion_data[initial_timepoint] < 0).sum()
-        if negative_counts > 0:
-            logger.warning(f"Found {negative_counts} negative read counts in timepoint '{initial_timepoint}'")
-
-        # Extract initial timepoint data (used as read counts proxy)
-        insertion_data = insertion_data[initial_timepoint]
+        insertion_data = pd.DataFrame({
+            "reads_initial": initial_counts,
+            "reads_final": final_counts,
+        })
 
         logger.info(f"Loaded {len(insertion_data)} insertions with read count data")
-        logger.info(f"Read count statistics - Mean: {insertion_data.mean():.2f}, Median: {insertion_data.median():.2f}")
+        logger.info(
+            f"Initial ({initial_timepoint}) reads - Mean: {insertion_data['reads_initial'].mean():.2f}, "
+            f"Median: {insertion_data['reads_initial'].median():.2f}"
+        )
+        logger.info(
+            f"Final ({final_timepoint}) reads - Mean: {insertion_data['reads_final'].mean():.2f}, "
+            f"Median: {insertion_data['reads_final'].median():.2f}"
+        )
 
         return insertion_data
 
@@ -227,39 +203,27 @@ def load_annotation_data(annotations_path: Path) -> pd.DataFrame:
     logger.info(f"Loading annotation data from {annotations_path}")
 
     try:
-        # First validate file structure
-        logger.debug("Validating annotation data file structure")
-        required_cols = ['Type', 'Distance_to_stop_codon', 'Systematic ID', 'Name', 'Chr_Interval', 'Strand_Interval', 'ParentalRegion_start', 'ParentalRegion_end', 'ParentalRegion_length', 'Insertion_direction']
-        validate_data_file_structure(annotations_path, required_cols, "annotation data")
+        required_cols = [
+            'Type', 'Distance_to_stop_codon', 'Systematic ID', 'Name', 'FYPOviability',
+            'Chr_Interval', 'Strand_Interval', 'ParentalRegion_start',
+            'ParentalRegion_end', 'ParentalRegion_length', 'Insertion_direction',
+        ]
 
-        # Load with multi-level index and tab separator
         annotations = pd.read_csv(annotations_path, index_col=[0, 1, 2, 3], sep="\t")
 
-        # Validate required columns exist (re-check after full load)
         missing_cols = [col for col in required_cols if col not in annotations.columns]
         if missing_cols:
             raise ValueError(f"Missing required annotation columns: {missing_cols}")
 
-        # Validate data quality
-        # Check for empty systematic IDs
         empty_systematic_ids = annotations['Systematic ID'].isna().sum()
         if empty_systematic_ids > 0:
             logger.warning(f"Found {empty_systematic_ids} annotations with empty Systematic ID")
 
-        # Check for invalid gene lengths
         invalid_lengths = (annotations['ParentalRegion_length'] <= 0).sum()
         if invalid_lengths > 0:
             logger.warning(f"Found {invalid_lengths} annotations with invalid gene length (<= 0)")
 
-        # Check for valid strand values
-        valid_strands = ['+', '-', 'Forward', 'Reverse', 'forward', 'reverse']
-        invalid_strands = ~annotations['Strand_Interval'].isin(valid_strands)
-        if invalid_strands.any():
-            unique_invalid = annotations.loc[invalid_strands, 'Strand_Interval'].unique()
-            logger.warning(f"Found invalid strand values: {unique_invalid}")
-
         logger.info(f"Loaded annotations for {len(annotations)} insertions")
-        logger.info(f"Annotation columns: {annotations.columns.tolist()}")
         logger.info(f"Unique gene types: {annotations['Type'].value_counts().to_dict()}")
 
         return annotations
@@ -274,7 +238,6 @@ def filter_in_gene_insertions(insertion_data: pd.DataFrame,
     """Filter insertions to include only those within genes using established criteria."""
     logger.info("Filtering for in-gene insertions")
 
-    # Merge insertion data with annotations
     merged_data = pd.merge(
         insertion_data, annotations,
         left_index=True, right_index=True,
@@ -297,25 +260,36 @@ def filter_in_gene_insertions(insertion_data: pd.DataFrame,
 
 @logger.catch
 def calculate_insertion_statistics(gene_insertions: pd.DataFrame) -> dict[str, int | float]:
-    """Calculate basic insertion and site statistics for a gene."""
-    # Basic counts
-    total_insertions = len(gene_insertions)
+    """Calculate insertion-site density at the initial and final timepoint for a gene.
 
-    # Count unique sites (same coordinate regardless of strand)
+    A site counts as "detected" at a timepoint when its summed replicate read
+    count is > 0. Since the input is already hard-filtered on the initial
+    timepoint, every retained row is detected at the initial timepoint by
+    construction; sites that lose signal by the final timepoint (density
+    drop) are the classic piggyBac phenotyping readout for essential genes.
+    """
     coordinates = gene_insertions.index.get_level_values(1)
-    unique_sites = len(coordinates.unique())
+    total_insertions = len(gene_insertions)
+    unique_sites_initial = len(coordinates[gene_insertions["reads_initial"] > 0].unique())
+    unique_sites_final = len(coordinates[gene_insertions["reads_final"] > 0].unique())
 
-    # Calculate normalized densities (per 1000 bp)
     gene_length = gene_insertions["ParentalRegion_length"].iloc[0]
-    insertion_density = (total_insertions / gene_length) * 1000 if gene_length > 0 else 0
-    site_density = (unique_sites / gene_length) * 1000 if gene_length > 0 else 0
+    density_initial = (unique_sites_initial / gene_length) * 1000 if gene_length > 0 else 0
+    density_final = (unique_sites_final / gene_length) * 1000 if gene_length > 0 else 0
+
+    # Gene length cancels out in the ratio, so the fold-change of per-kb
+    # density equals the fold-change of raw site counts (+1 pseudocount).
+    density_log2fc = np.log2((unique_sites_final + 1) / (unique_sites_initial + 1))
 
     return {
         'total_insertions': total_insertions,
-        'unique_sites': unique_sites,
+        'unique_sites_initial': unique_sites_initial,
+        'unique_sites_final': unique_sites_final,
         'gene_length': gene_length,
-        'insertion_density_per_kb': round(insertion_density, 3),
-        'site_density_per_kb': round(site_density, 3)
+        'insertion_density_per_kb_initial': round(density_initial, 3),
+        'insertion_density_per_kb_final': round(density_final, 3),
+        'insertion_density_change': round(density_final - density_initial, 3),
+        'insertion_density_log2fc': round(density_log2fc, 3),
     }
 
 
@@ -380,41 +354,45 @@ def calculate_gini_coefficient(values: np.ndarray) -> float:
     sorted_values = np.sort(values)
     n = len(sorted_values)
 
-    # Calculate Gini coefficient
+    # A gene fully depleted by the final timepoint has all-zero read counts;
+    # the Gini ratio is 0/0 there, not an inequality signal, so short-circuit.
     cumsum = np.cumsum(sorted_values)
+    if cumsum[-1] == 0:
+        return 0.0
+
+    # Calculate Gini coefficient
     gini = (2 * np.sum((np.arange(1, n+1) * sorted_values))) / (n * cumsum[-1]) - (n + 1) / n
 
     return max(0.0, min(1.0, gini))  # Ensure result is between 0 and 1
 
 
-def calculate_read_statistics(gene_insertions: pd.DataFrame, initial_timepoint: str) -> dict[str, int | float]:
-    """Calculate read distribution statistics for insertions within a gene."""
-    read_counts = gene_insertions[initial_timepoint].values
+def calculate_read_statistics(gene_insertions: pd.DataFrame) -> dict[str, int | float]:
+    """Calculate read distribution statistics at the initial and final timepoint for a gene."""
+    initial_counts = gene_insertions["reads_initial"].values
+    final_counts = gene_insertions["reads_final"].values
 
-    if len(read_counts) == 0:
+    if len(initial_counts) == 0:
         return {
-            'total_reads': 0,
-            'mean_reads_per_insertion': 0,
-            'median_reads_per_insertion': 0,
-            'read_count_sd': 0,
-            'gini_coefficient_of_depth': 0
+            'total_reads_initial': 0,
+            'total_reads_final': 0,
+            'mean_reads_per_insertion_initial': 0,
+            'mean_reads_per_insertion_final': 0,
+            'gini_coefficient_of_depth_initial': 0,
+            'gini_coefficient_of_depth_final': 0,
+            'total_reads_log2fc': 0,
         }
 
-    # Calculate basic statistics
-    total_reads = read_counts.sum()
-    mean_reads = np.mean(read_counts)
-    median_reads = np.median(read_counts)
-    read_sd = np.std(read_counts)
-
-    # Calculate Gini coefficient for read distribution inequality
-    gini_coeff_of_depth = calculate_gini_coefficient(read_counts)
+    total_reads_initial = initial_counts.sum()
+    total_reads_final = final_counts.sum()
 
     return {
-        'total_reads': int(total_reads),
-        'mean_reads_per_insertion': round(mean_reads, 2),
-        'median_reads_per_insertion': round(median_reads, 2),
-        'read_count_sd': round(read_sd, 2),
-        'gini_coefficient_of_depth': round(gini_coeff_of_depth, 3)
+        'total_reads_initial': int(total_reads_initial),
+        'total_reads_final': int(total_reads_final),
+        'mean_reads_per_insertion_initial': round(np.mean(initial_counts), 2),
+        'mean_reads_per_insertion_final': round(np.mean(final_counts), 2),
+        'gini_coefficient_of_depth_initial': round(calculate_gini_coefficient(initial_counts), 3),
+        'gini_coefficient_of_depth_final': round(calculate_gini_coefficient(final_counts), 3),
+        'total_reads_log2fc': round(np.log2((total_reads_final + 1) / (total_reads_initial + 1)), 3),
     }
 
 
@@ -464,12 +442,12 @@ def calculate_strand_statistics(gene_insertions: pd.DataFrame) -> dict[str, int 
 
 
 @logger.catch
-def analyze_gene_insertions(gene_id: str, gene_insertions: pd.DataFrame, initial_timepoint: str) -> dict[str, str | int | float]:
+def analyze_gene_insertions(gene_id: str, gene_insertions: pd.DataFrame) -> dict[str, str | int | float]:
     """Perform comprehensive analysis of insertions within a single gene."""
     # Calculate all statistics
     insertion_stats = calculate_insertion_statistics(gene_insertions)
     gap_stats = calculate_gap_statistics(gene_insertions)
-    read_stats = calculate_read_statistics(gene_insertions, initial_timepoint)
+    read_stats = calculate_read_statistics(gene_insertions)
     strand_stats = calculate_strand_statistics(gene_insertions)
 
     # Combine all statistics
@@ -481,6 +459,7 @@ def analyze_gene_insertions(gene_id: str, gene_insertions: pd.DataFrame, initial
         'End': gene_insertions['ParentalRegion_end'].iloc[0],
         'Length': gene_insertions['ParentalRegion_length'].iloc[0],
         'Strand': gene_insertions['Strand_Interval'].iloc[0],
+        'FYPOviability': gene_insertions['FYPOviability'].iloc[0],
     }
 
     gene_analysis.update(insertion_stats)
@@ -496,15 +475,20 @@ def generate_summary_statistics(results_df: pd.DataFrame) -> dict[str, int | flo
     stats = {
         'total_genes_analyzed': len(results_df),
         'total_insertions_analyzed': results_df['total_insertions'].sum(),
-        'total_unique_sites': results_df['unique_sites'].sum(),
+        'total_unique_sites_initial': results_df['unique_sites_initial'].sum(),
+        'total_unique_sites_final': results_df['unique_sites_final'].sum(),
         'mean_insertions_per_gene': results_df['total_insertions'].mean(),
         'median_insertions_per_gene': results_df['total_insertions'].median(),
-        'mean_insertion_density_per_kb': results_df['insertion_density_per_kb'].mean(),
-        'median_insertion_density_per_kb': results_df['insertion_density_per_kb'].median(),
+        'mean_insertion_density_per_kb_initial': results_df['insertion_density_per_kb_initial'].mean(),
+        'mean_insertion_density_per_kb_final': results_df['insertion_density_per_kb_final'].mean(),
+        'median_insertion_density_per_kb_initial': results_df['insertion_density_per_kb_initial'].median(),
+        'median_insertion_density_per_kb_final': results_df['insertion_density_per_kb_final'].median(),
+        'mean_insertion_density_log2fc': results_df['insertion_density_log2fc'].mean(),
+        'genes_with_density_drop': len(results_df[results_df['insertion_density_log2fc'] < -0.5]),
         'mean_gini_coefficient_of_location': results_df['gini_coefficient_of_location'].mean(),
         'genes_with_high_inequality_of_location': len(results_df[results_df['gini_coefficient_of_location'] > 0.5]),
-        'mean_gini_coefficient_of_depth': results_df['gini_coefficient_of_depth'].mean(),
-        'genes_with_high_inequality_of_depth': len(results_df[results_df['gini_coefficient_of_depth'] > 0.5]),
+        'mean_gini_coefficient_of_depth_initial': results_df['gini_coefficient_of_depth_initial'].mean(),
+        'genes_with_high_inequality_of_depth': len(results_df[results_df['gini_coefficient_of_depth_initial'] > 0.5]),
         'mean_strand_bias': results_df['strand_bias'].mean(),
         'genes_with_strong_strand_bias': len(results_df[results_df['strand_bias'] > 0.2]),
         'mean_paired_sites_fraction': results_df['paired_sites_fraction'].mean(),
@@ -514,8 +498,87 @@ def generate_summary_statistics(results_df: pd.DataFrame) -> dict[str, int | flo
     return stats
 
 
-def plot_numeric_distributions_to_pdf(results_df: pd.DataFrame, output_path: Path) -> None:
-    """Generate histograms for all numeric columns and save to a multi-page PDF."""
+def plot_initial_vs_final_scatter(
+    results_df: pd.DataFrame, initial_timepoint: str, final_timepoint: str, pdf: PdfPages
+) -> None:
+    """Plot initial-vs-final insertion density scatter panels — the classic phenotyping view."""
+    fig, axes = plt.subplots(2, 2, figsize=(AX_WIDTH * 2, AX_HEIGHT * 2))
+
+    essentiality = None
+    if 'FYPOviability' in results_df.columns:
+        essentiality = results_df['FYPOviability']
+
+    def scatter_by_essentiality(ax, x, y, xlabel, ylabel, title):
+        """Draw a scatter plot, colored by FYPOviability when available."""
+        if essentiality is not None:
+            for label, color in [('viable', COLORS[0]), ('inviable', COLORS[3])]:
+                mask = essentiality == label
+                ax.scatter(x[mask], y[mask], s=6, alpha=0.4, color=color,
+                           edgecolors='none', label=label, rasterized=True)
+            ax.legend(fontsize=8, loc='best')
+        else:
+            ax.scatter(x, y, s=6, alpha=0.4, color=COLORS[0], edgecolors='none', rasterized=True)
+
+        ax.set_xlabel(xlabel, fontsize=10)
+        ax.set_ylabel(ylabel, fontsize=10)
+        ax.set_title(title, fontsize=11, fontweight='semibold')
+        ax.grid(True, alpha=0.3)
+
+    # Panel 1: initial vs. final density, with the y = x reference line
+    density_initial = results_df['insertion_density_per_kb_initial']
+    density_final = results_df['insertion_density_per_kb_final']
+    scatter_by_essentiality(
+        axes[0, 0], density_initial, density_final,
+        f'Insertion density per kb ({initial_timepoint})',
+        f'Insertion density per kb ({final_timepoint})',
+        'Initial vs. Final Insertion Density',
+    )
+    max_val = max(density_initial.max(), density_final.max(), 1)
+    axes[0, 0].plot([0, max_val], [0, max_val], color='red', linestyle='--', alpha=0.6, linewidth=1)
+
+    # Panel 2: initial density vs. log2 fold-change, with the y = 0 reference line
+    log2fc = results_df['insertion_density_log2fc']
+    scatter_by_essentiality(
+        axes[0, 1], density_initial, log2fc,
+        f'Insertion density per kb ({initial_timepoint})',
+        f'log2FC density ({final_timepoint} / {initial_timepoint})',
+        'Density Depletion vs. Initial Coverage',
+    )
+    axes[0, 1].axhline(0, color='red', linestyle='--', alpha=0.6, linewidth=1)
+
+    # Panel 3: initial vs. final total reads (log scale)
+    reads_initial = results_df['total_reads_initial']
+    reads_final = results_df['total_reads_final']
+    scatter_by_essentiality(
+        axes[1, 0], reads_initial, reads_final,
+        f'Total reads ({initial_timepoint})',
+        f'Total reads ({final_timepoint})',
+        'Initial vs. Final Read Depth',
+    )
+    axes[1, 0].set_xscale('symlog')
+    axes[1, 0].set_yscale('symlog')
+
+    # Panel 4: initial vs. final Gini coefficient of read depth
+    gini_initial = results_df['gini_coefficient_of_depth_initial']
+    gini_final = results_df['gini_coefficient_of_depth_final']
+    scatter_by_essentiality(
+        axes[1, 1], gini_initial, gini_final,
+        f'Gini coefficient of depth ({initial_timepoint})',
+        f'Gini coefficient of depth ({final_timepoint})',
+        'Initial vs. Final Depth Inequality',
+    )
+    axes[1, 1].plot([0, 1], [0, 1], color='red', linestyle='--', alpha=0.6, linewidth=1)
+
+    fig.suptitle('Initial vs. Final Timepoint Comparison', fontsize=16, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
+
+
+def plot_numeric_distributions_to_pdf(
+    results_df: pd.DataFrame, output_path: Path, initial_timepoint: str, final_timepoint: str
+) -> None:
+    """Generate histograms and scatter comparisons and save to a multi-page PDF."""
     logger.info("Generating histograms for numeric columns in PDF format")
 
     # Identify numeric columns (excluding string columns like gene names)
@@ -535,7 +598,7 @@ def plot_numeric_distributions_to_pdf(results_df: pd.DataFrame, output_path: Pat
         'Density Metrics': [col for col in numeric_columns if 'density' in col.lower()],
         'Gap Statistics': [col for col in numeric_columns if 'gap' in col.lower()],
         'Read Statistics': [col for col in numeric_columns if any(term in col.lower()
-                           for term in ['read', 'gini_coefficient_of_depth'])],
+                           for term in ['reads', 'gini_coefficient_of_depth'])],
         'Strand Statistics': [col for col in numeric_columns if any(term in col.lower()
                              for term in ['forward', 'reverse', 'strand', 'paired'])],
         'Location Statistics': [col for col in numeric_columns if 'gini_coefficient_of_location' in col.lower()],
@@ -563,6 +626,9 @@ def plot_numeric_distributions_to_pdf(results_df: pd.DataFrame, output_path: Pat
 
         # Create summary plot with key metrics first
         create_summary_histogram_plot_pdf(results_df, pdf)
+
+        # Initial-vs-final scatter comparison — the classic phenotyping view
+        plot_initial_vs_final_scatter(results_df, initial_timepoint, final_timepoint, pdf)
 
         # Generate plots for each group
         for group_name, group_columns in column_groups.items():
@@ -600,17 +666,19 @@ def plot_numeric_distributions_to_pdf(results_df: pd.DataFrame, output_path: Pat
                     color = COLOR_PALETTE[0]
                 elif 'gap' in column.lower():
                     color = COLOR_PALETTE[1]
-                elif any(term in column.lower() for term in ['read', 'gini']):
+                elif any(term in column.lower() for term in ['reads', 'gini']):
                     color = COLOR_PALETTE[2]
                 else:
                     color = COLOR_PALETTE[3]
 
                 # Check if this is a read depth related column that should be log transformed
                 is_read_depth = any(term in column.lower() for term in
-                                  ['read', 'basemean', 'count', 'depth'])
+                                  ['reads', 'basemean', 'count', 'depth'])
+                # log2fc / change columns are already on a difference scale — never log-transform those
+                is_diff_metric = any(term in column.lower() for term in ['log2fc', '_change'])
 
                 # Transform data if it's read depth related
-                if is_read_depth and data.min() > 0:
+                if is_read_depth and not is_diff_metric and data.min() > 0:
                     # Log transform the data values (add small constant to handle zeros)
                     plot_data = np.log10(data + 1)
                     xlabel = 'log10(Value + 1)'
@@ -679,7 +747,7 @@ def create_title_page(pdf: PdfPages, results_df: pd.DataFrame) -> None:
            transform=ax.transAxes, fontsize=24, fontweight='bold',
            ha='center', va='center')
 
-    ax.text(0.5, 0.85, 'Histogram Distribution Report',
+    ax.text(0.5, 0.85, 'Initial vs. Final Timepoint Comparison Report',
            transform=ax.transAxes, fontsize=16,
            ha='center', va='center', style='italic')
 
@@ -688,19 +756,21 @@ def create_title_page(pdf: PdfPages, results_df: pd.DataFrame) -> None:
 Analysis Summary:
 • Total genes analyzed: {len(results_df):,}
 • Numeric metrics calculated: {len(results_df.select_dtypes(include=[np.number]).columns)}
-• Analysis includes: insertion density, gap statistics, read distribution, and strand preferences
+• Analysis includes: initial/final insertion density, gap statistics, read
+  distribution, and strand preferences
 
 Report Contents:
 1. Key Metrics Summary (6 most important measures)
-2. Density Metrics (insertion and site density per kb)
-3. Gap Statistics (gap lengths, counts, and distributions)
-4. Read Statistics (read counts and depth inequality)
-5. Strand Statistics (forward/reverse preferences and pairing)
-6. Location Statistics (spatial inequality measures)
-7. Count Statistics (total insertions, unique sites, gap counts)
+2. Initial vs. Final Scatter Comparison (density, reads, depth inequality)
+3. Density Metrics (initial/final density per kb and log2 fold-change)
+4. Gap Statistics (gap lengths, counts, and distributions)
+5. Read Statistics (read counts and depth inequality, initial/final)
+6. Strand Statistics (forward/reverse preferences and pairing)
+7. Location Statistics (spatial inequality measures)
+8. Count Statistics (total insertions, unique sites, gap counts)
 
 Statistical Annotations:
-• Red dashed line: Mean value
+• Red dashed line: Mean value / y=x or y=0 reference (scatter panels)
 • Orange dotted line: Median value
 • Text box: Mean, Median, and sample size (N)
 • Bin count optimized using square root rule
@@ -724,12 +794,12 @@ def create_summary_histogram_plot_pdf(results_df: pd.DataFrame, pdf: PdfPages) -
     """Create a summary plot with the most important metrics for PDF."""
     # Select key metrics for summary plot
     key_metrics = [
-        'insertion_density_per_kb',
-        'site_density_per_kb',
-        'gini_coefficient_of_depth',
+        'insertion_density_per_kb_initial',
+        'insertion_density_per_kb_final',
+        'insertion_density_log2fc',
+        'gini_coefficient_of_depth_initial',
         'gini_coefficient_of_location',
         'strand_bias',
-        'paired_sites_fraction'
     ]
 
     COLOR_PALETTE = COLORS
@@ -770,10 +840,11 @@ def create_summary_histogram_plot_pdf(results_df: pd.DataFrame, pdf: PdfPages) -
 
         # Check if this is a read depth related metric that should be log transformed
         is_read_depth = any(term in metric.lower() for term in
-                          ['read', 'basemean', 'count', 'depth', 'gini_coefficient_of_depth'])
+                          ['reads', 'basemean', 'count', 'depth', 'gini_coefficient_of_depth'])
+        is_diff_metric = any(term in metric.lower() for term in ['log2fc', '_change'])
 
         # Transform data if it's read depth related
-        if is_read_depth and data.min() > 0:
+        if is_read_depth and not is_diff_metric and data.min() > 0:
             # Log transform the data values (add small constant to handle zeros)
             plot_data = np.log10(data + 1)
             xlabel = 'log10(Value + 1)'
@@ -838,10 +909,11 @@ def create_summary_histogram_plot_pdf(results_df: pd.DataFrame, pdf: PdfPages) -
 def parse_args() -> argparse.Namespace:
     """Set and parse command line arguments."""
     parser = argparse.ArgumentParser(description="Insertion density analysis script")
-    parser.add_argument("-i", "--insertion_data_path", type=Path, required=True, help="Input CSV file with insertion data")
+    parser.add_argument("-i", "--insertion_data_path", type=Path, required=True, help="Input TSV file with raw insertion read counts (4-level index, 2-level (Sample, Timepoint) header)")
     parser.add_argument("-a", "--annotations_path", type=Path, required=True, help="Input TSV file with annotations")
-    parser.add_argument("-o", "--output_path", type=Path, required=True, help="Output CSV file with density statistics")
+    parser.add_argument("-o", "--output_path", type=Path, required=True, help="Output TSV file with density statistics")
     parser.add_argument("-t", "--initial_timepoint", type=str, required=True, help="Initial timepoint column name")
+    parser.add_argument("-f", "--final_timepoint", type=str, required=True, help="Final timepoint column name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
@@ -860,28 +932,24 @@ def main() -> int:
             insertion_data_path=args.insertion_data_path,
             annotations_path=args.annotations_path,
             output_path=args.output_path,
-            initial_timepoint=args.initial_timepoint
+            initial_timepoint=args.initial_timepoint,
+            final_timepoint=args.final_timepoint,
         )
 
         # Get file sizes for result tracking
         insertion_file_size = config.insertion_data_path.stat().st_size
         annotation_file_size = config.annotations_path.stat().st_size
 
-        res = AnalysisResult(
-            total_genes_analyzed=0,
-            total_insertions_analyzed=0,
-            mean_insertion_density_per_kb=0.0,
-            mean_gini_coefficient_of_depth=0.0,
-            mean_strand_bias=0.0
-        )
-
         logger.info("Starting insertion density analysis")
         logger.info(f"Insertion data file: {config.insertion_data_path} ({insertion_file_size:,} bytes)")
         logger.info(f"Annotations file: {config.annotations_path} ({annotation_file_size:,} bytes)")
         logger.info(f"Initial timepoint: {config.initial_timepoint}")
+        logger.info(f"Final timepoint: {config.final_timepoint}")
 
         # Load data
-        insertion_data = load_insertion_data(config.insertion_data_path, config.initial_timepoint)
+        insertion_data = load_insertion_data(
+            config.insertion_data_path, config.initial_timepoint, config.final_timepoint
+        )
         annotations = load_annotation_data(config.annotations_path)
 
         # Filter for in-gene insertions
@@ -900,7 +968,7 @@ def main() -> int:
             ]
 
             if len(gene_insertions) > 0:
-                gene_analysis = analyze_gene_insertions(gene_id, gene_insertions, config.initial_timepoint)
+                gene_analysis = analyze_gene_insertions(gene_id, gene_insertions)
                 gene_results.append(gene_analysis)
 
         # Create results DataFrame
@@ -914,17 +982,20 @@ def main() -> int:
         end_time = time.time()
         analysis_duration = end_time - start_time
 
-        # Create a new AnalysisResult instance with the calculated values
         res = AnalysisResult(
             total_genes_analyzed=stats['total_genes_analyzed'],
             total_insertions_analyzed=stats['total_insertions_analyzed'],
-            mean_insertion_density_per_kb=stats['mean_insertion_density_per_kb'],
-            mean_gini_coefficient_of_depth=stats['mean_gini_coefficient_of_location'],
-            mean_strand_bias=stats['mean_strand_bias']
+            mean_insertion_density_per_kb_initial=stats['mean_insertion_density_per_kb_initial'],
+            mean_insertion_density_per_kb_final=stats['mean_insertion_density_per_kb_final'],
+            mean_insertion_density_log2fc=stats['mean_insertion_density_log2fc'],
+            mean_gini_coefficient_of_depth_initial=stats['mean_gini_coefficient_of_depth_initial'],
+            mean_strand_bias=stats['mean_strand_bias'],
         )
 
         # Generate histogram plots in PDF format
-        plot_numeric_distributions_to_pdf(results_df, config.output_path)
+        plot_numeric_distributions_to_pdf(
+            results_df, config.output_path, config.initial_timepoint, config.final_timepoint
+        )
 
         # Save results
         results_df.to_csv(config.output_path, index=True, sep="\t")
@@ -938,10 +1009,7 @@ def main() -> int:
         # Log summary statistics
         summary = asdict(res)
         logger.info(f"Analysis summary: {summary}")
-
-        if res:
-            logger.success(f"Analysis complete. Results saved to {config.output_path}")
-            logger.info(f"Performance: {analysis_duration:.2f} seconds for {res.total_genes_analyzed} genes")
+        logger.info(f"Performance: {analysis_duration:.2f} seconds for {res.total_genes_analyzed} genes")
 
     except ValueError as e:
         logger.error(f"Validation error: {e}")
@@ -957,3 +1025,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
