@@ -671,15 +671,20 @@ def plot_numeric_distributions_to_pdf(
                 else:
                     color = COLOR_PALETTE[3]
 
-                # Check if this is a read depth related column that should be log transformed
-                is_read_depth = any(term in column.lower() for term in
-                                  ['reads', 'basemean', 'count', 'depth'])
+                # Check if this is a count/density metric that should be log transformed
+                # Include: reads, counts, insertion sites, insertion density
+                # Exclude: gini coefficients (bounded [0,1]), percentages, ratios
+                is_count_metric = any(term in column.lower() for term in
+                                     ['reads', 'basemean', 'count', 'sites', 'density'])
+                is_bounded_metric = any(term in column.lower() for term in
+                                       ['gini', 'percent', 'fraction', 'bias'])
                 # log2fc / change columns are already on a difference scale — never log-transform those
                 is_diff_metric = any(term in column.lower() for term in ['log2fc', '_change'])
 
-                # Transform data if it's read depth related
-                if is_read_depth and not is_diff_metric and data.min() > 0:
-                    # Log transform the data values (add small constant to handle zeros)
+                # Transform data if it's count-like but not bounded or a difference metric
+                # Always use log10(data + 1) to handle zeros consistently across initial/final pairs
+                if is_count_metric and not is_bounded_metric and not is_diff_metric:
+                    # Log transform with +1 pseudo-count (handles zeros consistently)
                     plot_data = np.log10(data + 1)
                     xlabel = 'log10(Value + 1)'
 
@@ -691,7 +696,7 @@ def plot_numeric_distributions_to_pdf(
                     plot_mean = plot_data.mean()
                     plot_median = plot_data.median()
                 else:
-                    # Use original data for other metrics
+                    # Use original data for bounded metrics, percentages, and difference metrics
                     plot_data = data
                     xlabel = 'Value'
                     mean_val = data.mean()
