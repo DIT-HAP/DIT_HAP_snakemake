@@ -9,8 +9,7 @@
 
 ## 1. 目标
 
-给 config YAML 和 sample sheet TSV 引入 Snakemake 官方标准的 JSON Schema 校验
-（`snakemake.utils.validate`），实现：
+给 config YAML 和 sample sheet TSV 引入 Snakemake 官方标准的 JSON Schema 校验（`snakemake.utils.validate`），实现：
 - 加载时立即校验（而非跑到一半才因缺键/类型错炸）
 - schema 内嵌每个参数的 `description`（含单位/取值范围/示例）作为权威文档
 - sample sheet 的列结构、类型、必填得到约束
@@ -18,14 +17,9 @@
 ## 2. 已确认的设计决策
 
 - **方式**：JSON Schema + `snakemake.utils.validate()`（官方标准）。
-- **条件必填（决策 A）**：用 JSON Schema `if/then` —— 当 `merge_similar_timepoints: true`
-  时才 require `similar_timepoints / merged_timepoint / drop_columns`。
-- **默认值（决策 B）**：schema 给可选参数标 `default` + `description`（起文档作用，
-  `validate` 不回填），代码保持 `config.get(...)` 兜底。仅 `use_DEseq2_for_biological_replicates`
-  属此类（default: false）。
-- **约束严格度**：严格 —— 类型 + 数值范围（minimum/maximum）+ 字符串 pattern
-  （adapter 序列 `^[ACGTNacgtn]+$`、release_version 日期 `^\d{4}-\d{2}-\d{2}$`、
-  fastq 路径后缀 `\.(fq|fastq)\.gz$`）。
+- **条件必填（决策 A）**：用 JSON Schema `if/then` —— 当 `merge_similar_timepoints: true` 时才 require `similar_timepoints / merged_timepoint / drop_columns`。
+- **默认值（决策 B）**：schema 给可选参数标 `default` + `description`（起文档作用，`validate` 不回填），代码保持 `config.get(...)` 兜底。仅 `use_DEseq2_for_biological_replicates` 属此类（default: false）。
+- **约束严格度**：严格 —— 类型 + 数值范围（minimum/maximum）+ 字符串 pattern（adapter 序列 `^[ACGTNacgtn]+$`、release_version 日期 `^\d{4}-\d{2}-\d{2}$`、fastq 路径后缀 `\.(fq|fastq)\.gz$`）。
 
 ## 3. 目录结构
 
@@ -39,17 +33,11 @@ workflow/schemas/
 
 JSON Schema draft-07（YAML 写法），`type: object`。
 
-**必填核心键（17 个，9/9 全有）**：
-workdir, snakemake_wrapper_version, sample_sheet, project_name, multiqc_config,
-merge_similar_timepoints, initial_time_point, hard_filtering_cutoff, chunk_size,
-aligned_read_filtering, adapter_sequence, adapter_sequence_r2, Pombase_release_version,
-PBL_adapter, PBL_reverseComplement_adapter, PBR_adapter, PBR_reverseComplement_adapter。
+**必填核心键（17 个，9/9 全有）**：workdir, snakemake_wrapper_version, sample_sheet, project_name, multiqc_config, merge_similar_timepoints, initial_time_point, hard_filtering_cutoff, chunk_size, aligned_read_filtering, adapter_sequence, adapter_sequence_r2, Pombase_release_version, PBL_adapter, PBL_reverseComplement_adapter, PBR_adapter, PBR_reverseComplement_adapter。
 
 **可选带 default**：`use_DEseq2_for_biological_replicates` (boolean, default false)。
 
-**曲线拟合**：`time_points`（array of number）—— 必填（8/9，spikein 缺；spikein 不跑
-曲线拟合，但为一致性仍建议要求或单独说明。实施时确认：若 spikein 确实不需要，改为
-非 required 并在 description 注明）。
+**曲线拟合**：`time_points`（array of number）—— 必填（8/9，spikein 缺；spikein 不跑曲线拟合，但为一致性仍建议要求或单独说明。实施时确认：若 spikein 确实不需要，改为非 required 并在 description 注明）。
 
 **条件必填（if/then）**：
 ```yaml
@@ -59,9 +47,7 @@ then:
   required: [similar_timepoints, merged_timepoint, drop_columns]
 ```
 
-**嵌套 object**：`aligned_read_filtering` 定义为嵌套 schema —— `read_1_filtering` /
-`read_2_filtering` 各含 mapq_threshold(0-60)、nm_threshold(≥0)、ncigar_value(≥0)、
-no_sa(bool)、no_xa(bool)；顶层 require_proper_pair(bool)。
+**嵌套 object**：`aligned_read_filtering` 定义为嵌套 schema —— `read_1_filtering` / `read_2_filtering` 各含 mapq_threshold(0-60)、nm_threshold(≥0)、ncigar_value(≥0)、no_sa(bool)、no_xa(bool)；顶层 require_proper_pair(bool)。
 
 **约束示例**：
 - `hard_filtering_cutoff`: integer, minimum 0
@@ -89,9 +75,7 @@ properties:
 required: [Sample, Timepoint, Condition, read1, read2]
 ```
 
-**关键**：Snakefile 用 `pd.read_csv(config["sample_sheet"], sep="\t", dtype=str)` 读，
-保证列都是 string（避免 Timepoint 形如 `0` 被读成 int 导致校验失败）。不校验路径存在
-（那由 Snakemake DAG 处理）。
+**关键**：Snakefile 用 `pd.read_csv(config["sample_sheet"], sep="\t", dtype=str)` 读，保证列都是 string（避免 Timepoint 形如 `0` 被读成 int 导致校验失败）。不校验路径存在（那由 Snakemake DAG 处理）。
 
 ## 6. Snakefile 集成
 

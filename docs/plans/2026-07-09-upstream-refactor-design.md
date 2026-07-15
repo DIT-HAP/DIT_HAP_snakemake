@@ -8,21 +8,15 @@
 
 ## 1. 背景与目标
 
-原项目 `DIT_HAP_pipeline` 将上游 Snakemake 流程与下游分析（enrichment / clustering /
-机器学习 / thesis figures 等 notebooks 及配套 `src` 模块）混在一个仓库里。本次重构把
-**上游**抽到干净的新仓库 `DIT_HAP`，并对其代码结构与风格做现代化优化。
+原项目 `DIT_HAP_pipeline` 将上游 Snakemake 流程与下游分析（enrichment / clustering / 机器学习 / thesis figures 等 notebooks 及配套 `src` 模块）混在一个仓库里。本次重构把**上游**抽到干净的新仓库 `DIT_HAP`，并对其代码结构与风格做现代化优化。
 
 ### 分离边界
 
-- **DIT_HAP（上游，本仓库）**：从原始测序 reads 一路跑到 **gene-level DR/DL 表格**，
-  外加 QC 报告。
-- **DIT_HAP_pipeline（下游，保持不动）**：其 notebooks 消费上游产出的 gene-level 表格，
-  做后续生物学分析。
-- **交接接口**：gene-level DR/DL 表格（`results/{project_name}/16_gene_level_depletion_analysis/`
-  与 `17_gene_level_curve_fitting/`）。
+- **DIT_HAP（上游，本仓库）**：从原始测序 reads 一路跑到 **gene-level DR/DL 表格**，外加 QC 报告。
+- **DIT_HAP_pipeline（下游，保持不动）**：其 notebooks 消费上游产出的 gene-level 表格，做后续生物学分析。
+- **交接接口**：gene-level DR/DL 表格（`results/{project_name}/16_gene_level_depletion_analysis/` 与 `17_gene_level_curve_fitting/`）。
 
-分离本身在 DIT_HAP 中已基本完成（下游 notebooks 与 `src` 模块未带入）。本次聚焦于
-清理「重组做到一半」留下的连接点，并把上游代码提升到统一的现代标准。
+分离本身在 DIT_HAP 中已基本完成（下游 notebooks 与 `src` 模块未带入）。本次聚焦于清理「重组做到一半」留下的连接点，并把上游代码提升到统一的现代标准。
 
 ### 四项工作
 
@@ -46,17 +40,12 @@
 
 **改动清单**：
 
-1. **合并 reference 目录**：`scripts/reference/fetch_pombase_datasets.sh` →
-   `scripts/reference_data/`；删空目录 `scripts/reference/`；reference_data.smk 中
-   shell 路径同步更新。
-2. **修脚本引用路径**：depletion_scoring.smk 中所有
-   `workflow/scripts/depletion_analysis/` → `workflow/scripts/depletion_scoring/`
-   （当前指向不存在的目录，会导致规则失败）。
+1. **合并 reference 目录**：`scripts/reference/fetch_pombase_datasets.sh` → `scripts/reference_data/`；删空目录 `scripts/reference/`；reference_data.smk 中 shell 路径同步更新。
+2. **修脚本引用路径**：depletion_scoring.smk 中所有 `workflow/scripts/depletion_analysis/` → `workflow/scripts/depletion_scoring/`（当前指向不存在的目录，会导致规则失败）。
 3. **统一 log 路径**：
    - `logs/{project_name}/preprocessing/` → `logs/{project_name}/read_processing/`
    - `logs/{project_name}/depletion_analysis/` → `logs/{project_name}/depletion_scoring/`
-   - reference_data.smk 中 `logs/preparation/...` → `logs/{project_name}/reference_data/...`
-     （补上缺失的 `{project_name}` 层级）
+   - reference_data.smk 中 `logs/preparation/...` → `logs/{project_name}/reference_data/...`（补上缺失的 `{project_name}` 层级）
 4. **results 步骤编号保留不动**（01–17）。
 
 ---
@@ -73,11 +62,8 @@
 
 **改动清单**：
 
-1. 三个 `run:` 块 → `shell:` 调用对应脚本，参数经命令行（`-i/-o` 等）传入，
-   与其余规则风格一致。
-2. **接线前逐个核对**脚本的输入 / 输出 / 参数签名与 `run:` 块逻辑是否一致；
-   `concat_counts_and_annotations` 需确认 argparse 能接收多文件列表输入
-   （`input.counts` / `input.annotations` 各为多文件）。
+1. 三个 `run:` 块 → `shell:` 调用对应脚本，参数经命令行（`-i/-o` 等）传入，与其余规则风格一致。
+2. **接线前逐个核对**脚本的输入 / 输出 / 参数签名与 `run:` 块逻辑是否一致；`concat_counts_and_annotations` 需确认 argparse 能接收多文件列表输入（`input.counts` / `input.annotations` 各为多文件）。
 3. **逻辑冲突时以脚本（改进版）为准**。
 4. 接线后规则中不再有任何 `run:` 块，全部走 `shell:` + 脚本。
 
@@ -100,8 +86,7 @@
 - **日志**：loguru（禁 print）、`@logger.catch` 于核心函数、`--verbose` flag
 - **路径**：`pathlib.Path`（禁 `os.path`）
 - **入口**：`parse_args()` + `if __name__ == "__main__": sys.exit(main())`，失败返回 1
-- **docstring**：模块级按 §3.2 格式（title → description → Input → Output → Usage → metadata）；
-  函数级单行
+- **docstring**：模块级按 §3.2 格式（title → description → Input → Output → Usage → metadata）；函数级单行
 - **库模块 vs standalone**：被 import 的库模块省略 LOGGING/CONFIG/MAIN 段
 - **文档语言**：公开仓库用英文
 
@@ -120,19 +105,9 @@
 ### 待重构脚本清单（按模块）
 
 - **reference_data/**：extract_genome_region.py
-- **read_processing/**：parse_bam_to_tsv.py, filter_aligned_reads.py,
-  extract_insertion_sites.py, merge_strand_insertions.py,
-  concatenate_timepoint_data.py, annotate_genomic_features.py,
-  merge_similar_timepoints.py, concat_counts_and_annotations.py,
-  reads_hard_filtering.py
-- **depletion_scoring/**：def_ctr_insertions.py, impute_missing_values_using_FR.py,
-  insertion_level_depletion_analysis_has_replicates.py,
-  insertion_level_depletion_analysis_no_replicates.py, curve_fitting.py,
-  compute_r2_weights.py, gene_level_depletion_analysis.py
-- **quality_control/**：extract_mapping_filtering_statistics.py,
-  PBL_PBR_correlation_analysis.py, read_count_distribution_analysis.py,
-  insertion_orientation_analysis.py, insertion_density_analysis.py,
-  gene_coverage_analysis.py, distribution_of_curve_fitting_results.py
+- **read_processing/**：parse_bam_to_tsv.py, filter_aligned_reads.py, extract_insertion_sites.py, merge_strand_insertions.py, concatenate_timepoint_data.py, annotate_genomic_features.py, merge_similar_timepoints.py, concat_counts_and_annotations.py, reads_hard_filtering.py
+- **depletion_scoring/**：def_ctr_insertions.py, impute_missing_values_using_FR.py, insertion_level_depletion_analysis_has_replicates.py, insertion_level_depletion_analysis_no_replicates.py, curve_fitting.py, compute_r2_weights.py, gene_level_depletion_analysis.py
+- **quality_control/**：extract_mapping_filtering_statistics.py, PBL_PBR_correlation_analysis.py, read_count_distribution_analysis.py, insertion_orientation_analysis.py, insertion_density_analysis.py, gene_coverage_analysis.py, distribution_of_curve_fitting_results.py
 
 ---
 
@@ -140,19 +115,15 @@
 
 ### 配置
 
-1. **修 config workdir**（重要）：所有 `config/*.yaml` 的 `workdir:` 由
-   `DIT_HAP_pipeline` → `DIT_HAP`（Snakefile 的 `workdir:` 已正确）。
+1. **修 config workdir**（重要）：所有 `config/*.yaml` 的 `workdir:` 由 `DIT_HAP_pipeline` → `DIT_HAP`（Snakefile 的 `workdir:` 已正确）。
 2. **删下游 config 字段**：经扫描确认，**无下游专用残留字段**，此项无需执行。
 
 ### 文档（DIT_HAP 当前无 README/CLAUDE.md，按需新建）
 
-3. **README.md**（新建）：只讲上游到 gene-level 表格 + QC；注明「下游分析见
-   DIT_HAP_pipeline」。英文。
-4. **CLAUDE.md**（新建）：新模块名、正确的 output structure、无下游 notebooks 段落；
-   Python 风格指向 `python-script-conventions` skill。
+3. **README.md**（新建）：只讲上游到 gene-level 表格 + QC；注明「下游分析见 DIT_HAP_pipeline」。英文。
+4. **CLAUDE.md**（新建）：新模块名、正确的 output structure、无下游 notebooks 段落；Python 风格指向 `python-script-conventions` skill。
 5. **openspec**：不引入。
-6. **resources/**：上游仅用 PomBase 下载数据与 `Hayles_2013` 表；下游用的一堆
-   xlsx/csv 本就未带入，确认即可。
+6. **resources/**：上游仅用 PomBase 下载数据与 `Hayles_2013` 表；下游用的一堆 xlsx/csv 本就未带入，确认即可。
 
 ### 验证关卡
 

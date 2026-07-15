@@ -1,17 +1,13 @@
 # 单脚本重构规范（阶段 C 通用指令）
 
-> 每个 implementer 重构 **一个** 脚本时遵循本规范。目标：把脚本改写到
-> `python-script-conventions` skill 的 Modern Python 3.12+ 标准，**只改结构/风格，
-> 绝不改算法或行为**。
+> 每个 implementer 重构 **一个** 脚本时遵循本规范。目标：把脚本改写到 `python-script-conventions` skill 的 Modern Python 3.12+ 标准，**只改结构/风格，绝不改算法或行为**。
 
 ## STEP 0：加载标准
 1. 用 Skill 工具加载 `python-script-conventions`（打印完整标准）。
 2. 读模板：`/data/a/yangyusheng/.claude/skills/python-script-conventions/templates/agent_script_template.py`
 
 ## 绝对铁律
-1. **不改算法 / 行为。** 重构后对相同输入必须产生相同输出：相同的 pandas 操作、
-   相同的数值逻辑、相同的 I/O 格式、**完全相同的 CLI flag（名称/类型/required/nargs 语义）**、
-   相同日志信息的含义。
+1. **不改算法 / 行为。** 重构后对相同输入必须产生相同输出：相同的 pandas 操作、相同的数值逻辑、相同的 I/O 格式、**完全相同的 CLI flag（名称/类型/required/nargs 语义）**、相同日志信息的含义。
 2. **保留这些易被"顺手改坏"的行为**（若脚本里有）：
    - `df.groupby(..., axis=1)` / 任何 pandas `axis=1` 弃用写法——**保持原样**，不要"修复"。
    - 多索引读写：`index_col=[...]`, `header=[...]`。

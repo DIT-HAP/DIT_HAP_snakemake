@@ -9,18 +9,14 @@
 
 ## 1. 目标
 
-把当前"config 集中在根 config/、输出散在 results/reports/logs/{project_name}/"的布局，
-改为**每个 project 自包含**的 `projects/{project_name}/` 布局，同时保持 reference 数据、
-代码、全局配置的中心共享。既支持日常共享代码/reference 跑多 project，也支持完成的
-project 整体打包归档。
+把当前"config 集中在根 config/、输出散在 results/reports/logs/{project_name}/"的布局，改为**每个 project 自包含**的 `projects/{project_name}/` 布局，同时保持 reference 数据、代码、全局配置的中心共享。既支持日常共享代码/reference 跑多 project，也支持完成的 project 整体打包归档。
 
 ## 2. 已确认的决策
 
 - **布局**：`projects/{project_name}/` 收纳该 project 的 config + sample_sheet + results + reports + logs。
 - **身份键**：`project_name`（如 `HD_DIT_HAP_generationRAW`），目录名 = project_name。
 - **共享资源**：完全自包含 —— 被多 config 共用的 sample sheet 复制多份到各 project。
-- **中心共享（不进 project）**：`resources/pombase_data/{release_version}/`（reference，按版本共享）、
-  `workflow/`（代码/schema）、`config/DIT_HAP.mplstyle` + `config/multiqc_config.yml`（全局配置）。
+- **中心共享（不进 project）**：`resources/pombase_data/{release_version}/`（reference，按版本共享）、`workflow/`（代码/schema）、`config/DIT_HAP.mplstyle` + `config/multiqc_config.yml`（全局配置）。
 - **project 内 config 位置**：放 `projects/{project_name}/config/` 子目录（与 results 等平级）。
 - **模板**：根 `config/` 下加 `config.template.yaml` + `sample_sheet.template.tsv` 作为新建起点。
 
@@ -92,8 +88,7 @@ validate(sample_sheet, "workflow/schemas/samples.schema.yaml")
 - `logs/{project_name}/...` → `projects/{project_name}/logs/...`
 - `resources/pombase_data/...` **不变**（中心共享）
 
-规则里是 f-string 与 `{project_name}` wildcard 混用，需逐文件核对替换，
-**不误伤 resources 路径**。
+规则里是 f-string 与 `{project_name}` wildcard 混用，需逐文件核对替换，**不误伤 resources 路径**。
 
 每个 project 的 `config.yaml`：
 - `sample_sheet:` → `projects/{project_name}/config/sample_sheet.tsv`
@@ -102,8 +97,7 @@ validate(sample_sheet, "workflow/schemas/samples.schema.yaml")
 ## 7. 迁移步骤
 
 1. 建根 `config/config.template.yaml` + `config/sample_sheet.template.tsv`。
-2. 对 9 个 project：建 `projects/{project_name}/config/`，`git mv` config 进去改名 `config.yaml`；
-   sample sheet 复制进去改名 `sample_sheet.tsv`（共享的复制多份）。
+2. 对 9 个 project：建 `projects/{project_name}/config/`，`git mv` config 进去改名 `config.yaml`；sample sheet 复制进去改名 `sample_sheet.tsv`（共享的复制多份）。
 3. 改各 config.yaml 的 `sample_sheet:` 路径。
 4. 改 4 个 .smk 的路径前缀。
 5. 改 Snakefile（选 project + 校验一致）。
