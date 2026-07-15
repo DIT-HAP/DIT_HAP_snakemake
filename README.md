@@ -1,16 +1,18 @@
-# DIT-HAP (Upstream Pipeline)
+# DIT-HAP snakemake
 
 [![Snakemake](https://img.shields.io/badge/snakemake-≥9.0.0-brightgreen.svg)](https://snakemake.github.io)
 
-**DIT-HAP** (Diploid for Insertional Mutagenesis by Transposon and Haploid for
-Analysis of Phenotype) is a Snakemake workflow for analyzing piggyBac transposon
-insertion sequencing data in *Schizosaccharomyces pombe*.
+**DIT-HAP snakemake** is a Snakemake workflow for the **DIT-HAP** project
+(Diploid for Insertional Mutagenesis by Transposon and Haploid for Analysis of
+Phenotype), analyzing piggyBac transposon insertion sequencing data in
+*Schizosaccharomyces pombe*.
 
 This repository is the **upstream half** of the DIT-HAP project. It takes raw
 paired-end sequencing reads and produces **gene-level depletion / curve-fitting
 tables** plus quality-control reports. Downstream analysis (enrichment,
-clustering, machine learning, thesis figures) lives in a separate project and
-consumes the packaged `release/` tables produced here as its interface.
+clustering, machine learning, thesis figures) lives in a separate project
+(`DIT_HAP_pipeline`) and consumes the packaged `release/` tables produced here
+as its interface.
 
 The repository is **multi-project**: each experiment lives self-contained under
 `projects/{project_name}/` (own config, sample sheet, results, reports, release),
@@ -168,7 +170,3 @@ finishes, as shown in Quick start. `package_reference` separately archives the
 shared PomBase reference data (`resources/pombase_data/{release_version}/`)
 into a `.tar.gz`, since it isn't tied to any single project's run — invoke it
 directly when needed.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
