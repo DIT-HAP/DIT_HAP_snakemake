@@ -1,7 +1,7 @@
 # Config & Sample Sheet Schema 规范化设计
 
 **日期**: 2026-07-09
-**范围**: 仅 `/data/c/yangyusheng_optimized/DIT_HAP`
+**范围**: 仅 `/data/c/yangyusheng_optimized/DIT_HAP_snakemake`
 **状态**: 已确认，待实施
 **前置**: 上游重构（分支 refactor/upstream-cleanup）已完成
 

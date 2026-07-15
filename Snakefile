@@ -25,7 +25,7 @@ project = "Spore2YES6_1328"
 config_file = f"projects/{project}/config/config.yaml"
 configfile: config_file
 validate(config, "workflow/schemas/config.schema.yaml")
-workdir: "/data/c/yangyusheng_optimized/DIT_HAP"
+workdir: "/data/c/yangyusheng_optimized/DIT_HAP_snakemake"
 
 # ---------------------------------------------------------------------------
 # Workflow lifecycle hooks

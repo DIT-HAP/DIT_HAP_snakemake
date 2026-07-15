@@ -9,7 +9,7 @@
 
 # --- Project / environment ---------------------------------------------------
 project_name: MY_PROJECT               # == the projects/<project_name>/ folder name
-workdir: /data/c/yangyusheng_optimized/DIT_HAP   # repository root
+workdir: /data/c/yangyusheng_optimized/DIT_HAP_snakemake   # repository root
 snakemake_wrapper_version: v9.13.0      # Snakemake wrappers tag used by wrapper rules
 sample_sheet: projects/MY_PROJECT/config/sample_sheet.tsv
 multiqc_config: config/multiqc_config.yml   # shared, at repo root

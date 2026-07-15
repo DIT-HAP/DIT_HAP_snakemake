@@ -1,7 +1,7 @@
 # DIT-HAP 上游流程重构设计
 
 **日期**: 2026-07-09
-**范围**: 仅 `/data/c/yangyusheng_optimized/DIT_HAP`（`DIT_HAP_pipeline` 不动）
+**范围**: 仅 `/data/c/yangyusheng_optimized/DIT_HAP_snakemake`（`DIT_HAP_pipeline` 不动）
 **状态**: 已确认，待实施
 
 ---
