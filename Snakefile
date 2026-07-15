@@ -13,7 +13,7 @@ min_version("9.0")
 # ---------------------------------------------------------------------------
 # Select the active project (edit this line to switch experiments).
 # Each project lives under projects/{project}/ with its own config/ and outputs.
-project = "HD_DIT_HAP_generationRAW"
+# project = "HD_DIT_HAP_generationRAW"
 # project = "HD_DIT_HAP_generationPLUS1"
 # project = "HD_DIT_HAP"
 # project = "LD_DIT_HAP_generationRAW"
@@ -21,7 +21,7 @@ project = "HD_DIT_HAP_generationRAW"
 # project = "HD_diploid"
 # project = "LD_haploid"
 # project = "Spikein"
-# project = "Spore2YES6_1328"
+project = "Spore2YES6_1328"
 config_file = f"projects/{project}/config/config.yaml"
 configfile: config_file
 validate(config, "workflow/schemas/config.schema.yaml")
@@ -97,6 +97,12 @@ rule all:
         # f"reports/{project_name}/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
         # f"reports/{project_name}/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
         # f"reports/{project_name}/gene_coverage_analysis",
+        # --- packaging ---
+        # see workflow/rules/packaging.smk's package_release for the release/
+        # folder target; generate the Snakemake HTML/zip report separately with
+        # `snakemake --use-conda --cores <N> \
+        #     --report projects/{project_name}/reports/snakemake_report/report.zip \
+        #     --report-after-run -- all`
         # --- smoke-test target (uncomment one to run) ---
         f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
 
@@ -107,3 +113,4 @@ include: "workflow/rules/reference_data.smk"
 include: "workflow/rules/read_processing.smk"
 include: "workflow/rules/depletion_scoring.smk"
 include: "workflow/rules/quality_control.smk"
+include: "workflow/rules/packaging.smk"
