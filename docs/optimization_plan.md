@@ -40,3 +40,20 @@
 下次运行请验证:
 1. `snakemake --use-conda --cores 16` 全流程,检查 `results/7_insertions/*.tsv` 和 `results/10_annotated/*.tsv` 内容未变
 2. 对比批 3 前后 `logs/read_processing/extract_insertion_sites/*.log` 和 `logs/read_processing/annotate_insertions/*.log` 的墙钟时间
+
+### 批 3 修复(commit `674a73b`)
+
+向量化过程中发现的三个陷阱(已修复):
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| `Residue_affected` / `Residue_frame` 列缺失 | `@logger.catch` 装饰向量化函数,异常被吞掉返回 `None`,`pd.concat([df, None])` 静默跳过,丢失列 | 移除向量化函数 + `annotate_insertions` 的 `@logger.catch`,让异常正常传播;只在 I/O 函数保留 |
+| `TypeError: can only concatenate str (not int) to str` | `Accumulated_CDS_bases` 列混合 `'0.0'`(str) 和 `0.0`(float),与整数 `cds_offset` 相加触发类型错误 | `pd.to_numeric(errors='coerce')` 显式转换为 float 再运算 |
+| `DTypePromotionError: PyFloatDType could not be promoted by StrDType` | `np.where(intergenic, np.nan, "Forward"/"Reverse")` 混合 float NaN + str,numpy 2.x 不允许(除非 `dtype=object`) | 改用 `None`(object 的 null)替代 `np.nan`,显式指定 `dtype=object` |
+
+**经验教训**
+- **`@logger.catch` 在计算函数上会静默失败**:它捕获异常后返回 `None` 而不重新抛出,导致调用者无法察觉计算失败,下游逻辑用 `None` 继续运行产生错误结果。计算函数应该让异常传播,只在 I/O 边界(文件读写、网络请求)使用 `@logger.catch`。
+- **numpy 2.x 的 dtype 更严格**:`np.nan` 是 `float64`,不能与 `str` 共存于非 `object` 数组;混合 null + str 时必须用 `None`(object) + `dtype=object`。
+- **外部数据列的 dtype 不可信**:即使 schema 定义为 float,实际文件可能混入字符串;运算前用 `pd.to_numeric(errors='coerce')` 统一。
+
+最终验证:✅ 两个脚本独立测试,输出均**字节一致**于原版。
