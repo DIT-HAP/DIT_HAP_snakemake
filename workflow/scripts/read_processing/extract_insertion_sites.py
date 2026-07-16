@@ -61,6 +61,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
+import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
@@ -136,22 +137,17 @@ setup_logger()
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
 @logger.catch
-def calculate_insertion_coordinate(row: pd.Series) -> int | None:
-    """Calculate insertion coordinate based on strand orientation."""
-    try:
-        strand = row['R1_Strand']
+def calculate_insertion_coordinates_vectorized(valid_df: pd.DataFrame) -> pd.Series:
+    """Calculate insertion coordinates for all rows using vectorized operations."""
+    # For + strand: ref_start + 4; for - strand: ref_end
+    plus_coords = valid_df['R1_Ref_Start'].astype('Int64') + 4
+    minus_coords = valid_df['R1_Ref_End'].astype('Int64')
 
-        if strand == '+':
-            # For + strand: TTAA[Genome] - use position after TTAA (ref_start + 4)
-            return int(row['R1_Ref_Start']) + 4
-        elif strand == '-':
-            # For - strand: [Genome]TTAA - use position at end (ref_end)
-            return int(row['R1_Ref_End'])
-        else:
-            return None
+    # Select based on strand with np.where
+    plus_mask = valid_df['R1_Strand'] == '+'
+    coordinates = np.where(plus_mask, plus_coords, minus_coords)
 
-    except (ValueError, TypeError, KeyError):
-        return None
+    return pd.Series(coordinates, index=valid_df.index, dtype='Int64')
 
 
 @logger.catch
@@ -169,13 +165,12 @@ def create_validation_mask(df: pd.DataFrame) -> pd.Series:
 @logger.catch
 def count_insertions_vectorized(valid_df: pd.DataFrame) -> InsertionCounts:
     """Count insertions using vectorized operations."""
-    # Calculate coordinates for all valid rows at once
-    coordinates = valid_df.apply(calculate_insertion_coordinate, axis=1)
-    valid_coords_df = valid_df[coordinates.notna()].copy()
-    valid_coords_df['Insertion_Coordinate'] = coordinates.dropna()
+    # Calculate coordinates for all valid rows at once (vectorized)
+    valid_df = valid_df.copy()
+    valid_df['Insertion_Coordinate'] = calculate_insertion_coordinates_vectorized(valid_df)
 
     # Group and count using pandas operations
-    grouped = valid_coords_df.groupby(['R1_Chrom', 'Insertion_Coordinate', 'R1_Strand']).size()
+    grouped = valid_df.groupby(['R1_Chrom', 'Insertion_Coordinate', 'R1_Strand']).size()
 
     # Convert to our dictionary format
     insertion_counts = defaultdict(lambda: {'+': 0, '-': 0})

@@ -163,68 +163,112 @@ def load_genome_regions(region_path: Path) -> pd.DataFrame:
 
 
 @logger.catch
-def calculate_codon_distances(row: pd.Series) -> pd.Series:
-    """Compute strand-aware distances/fractions to the start and stop codons."""
-    name_distance = [
-        "Distance_to_start_codon",
-        "Distance_to_stop_codon",
-        "Fraction_to_start_codon",
-        "Fraction_to_stop_codon",
-    ]
+def calculate_codon_distances_vectorized(annotated_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute strand-aware distances/fractions to start and stop codons using vectorized operations."""
+    # Initialize output columns
+    codon_df = pd.DataFrame(index=annotated_df.index)
 
-    if row["Type"] != "Intergenic region":
-        if row["Strand_Interval"] == "+":
-            distance_values = [
-                row["Distance_to_region_start"],
-                row["Distance_to_region_end"],
-                row["Fraction_to_region_start"],
-                row["Fraction_to_region_end"],
-            ]
-        else:
-            distance_values = [
-                row["Distance_to_region_end"],
-                row["Distance_to_region_start"],
-                row["Fraction_to_region_end"],
-                row["Fraction_to_region_start"],
-            ]
-    else:
-        distance_values = [np.nan] * 4
+    # Mask for non-intergenic
+    non_intergenic = annotated_df["Type"] != "Intergenic region"
+    plus_strand = annotated_df["Strand_Interval"] == "+"
 
-    return pd.Series(distance_values, index=name_distance)
+    # For + strand: start=region_start, stop=region_end; for - strand: reverse
+    codon_df["Distance_to_start_codon"] = np.where(
+        non_intergenic & plus_strand,
+        annotated_df["Distance_to_region_start"],
+        np.where(
+            non_intergenic & ~plus_strand,
+            annotated_df["Distance_to_region_end"],
+            np.nan
+        )
+    )
+    codon_df["Distance_to_stop_codon"] = np.where(
+        non_intergenic & plus_strand,
+        annotated_df["Distance_to_region_end"],
+        np.where(
+            non_intergenic & ~plus_strand,
+            annotated_df["Distance_to_region_start"],
+            np.nan
+        )
+    )
+    codon_df["Fraction_to_start_codon"] = np.where(
+        non_intergenic & plus_strand,
+        annotated_df["Fraction_to_region_start"],
+        np.where(
+            non_intergenic & ~plus_strand,
+            annotated_df["Fraction_to_region_end"],
+            np.nan
+        )
+    )
+    codon_df["Fraction_to_stop_codon"] = np.where(
+        non_intergenic & plus_strand,
+        annotated_df["Fraction_to_region_end"],
+        np.where(
+            non_intergenic & ~plus_strand,
+            annotated_df["Fraction_to_region_start"],
+            np.nan
+        )
+    )
 
-
-@logger.catch
-def calculate_affected_residue(row: pd.Series) -> pd.Series:
-    """Compute the affected amino-acid residue index and reading frame."""
-    residue_stat = ["Residue_affected", "Residue_frame"]
-
-    if row["Type"] in ["Intergenic region", "Non-coding gene"]:
-        return pd.Series([np.nan, np.nan], index=residue_stat)
-
-    cds_base = float(row.get("Accumulated_CDS_bases", 0))
-
-    if row["Feature"] == "CDS":
-        if row["Strand_Interval"] == "+":
-            cds_base += int(row["Coordinate"]) - int(row["Start_Interval"])
-        else:
-            cds_base += int(row["End_Interval"] - row["Coordinate"])
-
-    residue_affected = cds_base // 3 + 1
-    residue_frame = cds_base % 3
-
-    return pd.Series([residue_affected, residue_frame], index=residue_stat)
+    return codon_df
 
 
 @logger.catch
-def assign_insertion_direction(row: pd.Series) -> str:
-    """Determine the insertion direction (Forward/Reverse/NaN) relative to the gene."""
-    if row["Type"] == "Intergenic region":
-        return np.nan
+def calculate_affected_residue_vectorized(annotated_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute the affected amino-acid residue index and reading frame using vectorized operations."""
+    residue_df = pd.DataFrame(index=annotated_df.index)
 
-    if row["Strand"] == row["Strand_Interval"]:
-        return "Forward"
-    else:
-        return "Reverse"
+    # Mask for rows where calculation applies
+    non_coding_mask = (annotated_df["Type"] == "Intergenic region") | (annotated_df["Type"] == "Non-coding gene")
+
+    # Get accumulated CDS base (default 0 if missing)
+    cds_base = annotated_df.get("Accumulated_CDS_bases", pd.Series(0.0, index=annotated_df.index)).fillna(0.0)
+
+    # Add offset for CDS features
+    is_cds = annotated_df["Feature"] == "CDS"
+    plus_strand = annotated_df["Strand_Interval"] == "+"
+
+    cds_offset = np.where(
+        is_cds & plus_strand,
+        annotated_df["Coordinate"].astype(int) - annotated_df["Start_Interval"].astype(int),
+        np.where(
+            is_cds & ~plus_strand,
+            annotated_df["End_Interval"].astype(int) - annotated_df["Coordinate"].astype(int),
+            0
+        )
+    )
+
+    cds_base_total = cds_base + cds_offset
+
+    # Calculate residue and frame
+    residue_df["Residue_affected"] = np.where(
+        non_coding_mask,
+        np.nan,
+        (cds_base_total // 3 + 1)
+    )
+    residue_df["Residue_frame"] = np.where(
+        non_coding_mask,
+        np.nan,
+        (cds_base_total % 3)
+    )
+
+    return residue_df
+
+
+@logger.catch
+def assign_insertion_direction_vectorized(annotated_df: pd.DataFrame) -> pd.Series:
+    """Determine the insertion direction (Forward/Reverse/NaN) relative to the gene using vectorized operations."""
+    intergenic = annotated_df["Type"] == "Intergenic region"
+    same_strand = annotated_df["Strand"] == annotated_df["Strand_Interval"]
+
+    return pd.Series(
+        np.where(
+            intergenic,
+            np.nan,
+            np.where(same_strand, "Forward", "Reverse")
+        ),
+        index=annotated_df.index
+    )
 
 
 @logger.catch
@@ -302,18 +346,16 @@ def annotate_insertions(
         annotated_df["ParentalRegion_length"]
     )
 
-    # Calculate codon distances
-    codon_distances = annotated_df.apply(calculate_codon_distances, axis=1)
+    # Calculate codon distances (vectorized)
+    codon_distances = calculate_codon_distances_vectorized(annotated_df)
     annotated_df = pd.concat([annotated_df, codon_distances], axis=1)
 
-    # Calculate affected residues
-    residue_info = annotated_df.apply(calculate_affected_residue, axis=1)
+    # Calculate affected residues (vectorized)
+    residue_info = calculate_affected_residue_vectorized(annotated_df)
     annotated_df = pd.concat([annotated_df, residue_info], axis=1)
 
-    # Assign insertion direction
-    annotated_df["Insertion_direction"] = annotated_df.apply(
-        assign_insertion_direction, axis=1
-    )
+    # Assign insertion direction (vectorized)
+    annotated_df["Insertion_direction"] = assign_insertion_direction_vectorized(annotated_df)
 
     logger.info("Removing boundary duplicates...")
 
