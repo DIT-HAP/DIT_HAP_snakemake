@@ -75,6 +75,7 @@ wildcard_constraints:
     sample    = "|".join(samples),
     timepoint = "|".join(timepoints),
     condition = "|".join(conditions),
+    fragment  = "PBL|PBR",
 
 # ---------------------------------------------------------------------------
 # Target rule

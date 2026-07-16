@@ -73,7 +73,10 @@ rule multiqc_preprocessing:
 # -----------------------------------------------------
 rule mapping_filtering_statistics:
     input:
-        expand(rules.filter_aligned_reads.log, sample=samples, timepoint=timepoints, condition=conditions),
+        expand(
+            f"projects/{project_name}/logs/read_processing/filter_aligned_reads_combined/{{sample}}_{{timepoint}}_{{condition}}.log",
+            sample=samples, timepoint=timepoints, condition=conditions,
+        ),
     output:
         f"projects/{project_name}/reports/mapping_filtering_statistics/mapping_filtering_statistics.tsv",
     log:

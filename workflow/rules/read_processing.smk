@@ -110,16 +110,13 @@ rule fastqc_junction_classification:
     message:
         "*** Running FastQC for junction classified paired-end reads for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
     shell:
+        # One fastqc invocation over all four files: --threads N means "process N
+        # files concurrently", so a single call with 4 files uses all 4 threads,
+        # whereas the previous four separate calls left threads idle (each ran one
+        # file). Same outputs, ~4x faster.
         """
-        echo "*** Running FastQC for PBL R1 reads..." > {log}
-        fastqc --threads {threads} --noextract {input.PBL_r1} -o {params.output_dir} &>> {log}
-        echo "*** Running FastQC for PBL R2 reads..." >> {log}
-        fastqc --threads {threads} --noextract {input.PBL_r2} -o {params.output_dir} &>> {log}
-        echo "*** Running FastQC for PBR R1 reads..." >> {log}
-        fastqc --threads {threads} --noextract {input.PBR_r1} -o {params.output_dir} &>> {log}
-        echo "*** Running FastQC for PBR R2 reads..." >> {log}
-        fastqc --threads {threads} --noextract {input.PBR_r2} -o {params.output_dir} &>> {log}
-        echo "*** FastQC analysis completed for all reads" >> {log}
+        fastqc --threads {threads} --noextract -o {params.output_dir} \
+            {input.PBL_r1} {input.PBL_r2} {input.PBR_r1} {input.PBR_r2} &> {log}
         """
 
 
@@ -133,10 +130,11 @@ rule bwa_mem_mapping:
         PBL_fq2=rules.junction_classification.output.PBL_r2,
         PBR_fq1=rules.junction_classification.output.PBR_r1,
         PBR_fq2=rules.junction_classification.output.PBR_r2,
-        PBL_fastqc_r1=rules.fastqc_junction_classification.output.PBL_r1_html,
-        PBL_fastqc_r2=rules.fastqc_junction_classification.output.PBL_r2_html,
-        PBR_fastqc_r1=rules.fastqc_junction_classification.output.PBR_r1_html,
-        PBR_fastqc_r2=rules.fastqc_junction_classification.output.PBR_r2_html,
+        # FastQC was previously listed here as an artificial input, forcing QC to
+        # complete before mapping could start. Mapping does not need QC results, so
+        # the dependency is removed to let FastQC and bwa run in parallel. FastQC
+        # remains reachable via the `multiqc_preprocessing` rule (quality_control.smk),
+        # which consumes the fastqc zips; request that target (or its report) to run QC.
     output:
         PBL=temp(f"projects/{project_name}/results/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.PBL.name_sorted.bam"),
         PBR=temp(f"projects/{project_name}/results/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.PBR.name_sorted.bam"),
@@ -245,35 +243,30 @@ rule insert_size:
 # -----------------------------------------------------
 rule bam_to_tsv:
     input:
-        PBL=rules.bwa_mem_mapping.output.PBL,
-        PBR=rules.bwa_mem_mapping.output.PBR,
+        bam=f"projects/{project_name}/results/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.name_sorted.bam",
     output:
-        PBL_tsv=temp(f"projects/{project_name}/results/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.PBL.tsv"),
-        PBR_tsv=temp(f"projects/{project_name}/results/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.PBR.tsv"),
+        tsv=temp(f"projects/{project_name}/results/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.tsv"),
     log:
-        f"projects/{project_name}/logs/read_processing/bam_to_tsv/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/bam_to_tsv/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     conda:
         "../envs/pysam.yml"
     # parse_bam_to_tsv.py is a single-core Python streaming loop; pysam's
     # decompression threads give ~no throughput gain (measured: threads 1/4/8
-    # all ~99-102% CPU, ~175s, byte-identical output). Declaring 8 threads only
-    # throttled scheduling to floor(cores/8) concurrent jobs. threads: 1 lets all
-    # per-timepoint jobs run concurrently (floor(16/1)=16), which is the real win.
+    # all ~99-102% CPU, ~175s, byte-identical output). threads: 1 maximizes
+    # scheduling concurrency (floor(cores/1)). PBL and PBR are now independent
+    # jobs (fragment wildcard) so they run in parallel instead of serially.
     threads: 1
     resources:
         # Flat-memory streaming parser; real RSS is a few hundred MB. 4 GB is
-        # ample. (The previous 200000/200GB value only affects scheduling when
-        # snakemake is run with an explicit --resources mem_mb budget, which this
-        # project does not use, so it was never the concurrency limiter.)
+        # ample. (mem_mb only constrains scheduling under an explicit
+        # --resources mem_mb budget, which this project does not use.)
         mem_mb=4000,
     message:
-        "*** Transforming BAM to TSV for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+        "*** Transforming {wildcards.fragment} BAM to TSV for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
     shell:
         """
-        echo "*** Transforming PBL BAM to TSV..." > {log}
-        python workflow/scripts/read_processing/parse_bam_to_tsv.py -i {input.PBL} -o {output.PBL_tsv} -t {threads} &>> {log}
-        echo "*** Transforming PBR BAM to TSV..." >> {log}
-        python workflow/scripts/read_processing/parse_bam_to_tsv.py -i {input.PBR} -o {output.PBR_tsv} -t {threads} &>> {log}
+        python workflow/scripts/read_processing/parse_bam_to_tsv.py \
+            -i {input.bam} -o {output.tsv} -t {threads} &> {log}
         """
 
 
@@ -281,28 +274,44 @@ rule bam_to_tsv:
 # -----------------------------------------------------
 rule filter_aligned_reads:
     input:
-        PBL_tsv=rules.bam_to_tsv.output.PBL_tsv,
-        PBR_tsv=rules.bam_to_tsv.output.PBR_tsv,
+        tsv=rules.bam_to_tsv.output.tsv,
     output:
-        PBL_filtered=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBL.filtered.tsv",
-        PBR_filtered=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBR.filtered.tsv",
+        filtered=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.filtered.tsv",
     log:
-        f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     params:
         snakemake_config_file=config_file,
         chunk_size=config["chunk_size"],
     message:
-        "*** Filtering aligned read pairs for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+        "*** Filtering {wildcards.fragment} aligned read pairs for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
     shell:
         """
         python workflow/scripts/read_processing/filter_aligned_reads.py \
-            -i {input.PBL_tsv} -o {output.PBL_filtered} \
+            -i {input.tsv} -o {output.filtered} \
             -c {params.chunk_size} --config {params.snakemake_config_file} &> {log}
-        python workflow/scripts/read_processing/filter_aligned_reads.py \
-            -i {input.PBR_tsv} -o {output.PBR_filtered} \
-            -c {params.chunk_size} --config {params.snakemake_config_file} &>> {log}
+        """
+
+
+# Merge per-fragment filter logs back into one combined log
+# -----------------------------------------------------
+# filter_aligned_reads was split into independent PBL/PBR jobs (each writes its
+# own log). The QC parser (extract_mapping_filtering_statistics.py) keys the
+# sample name off the log file stem and expects a single log containing both the
+# PBL and PBR "FILTERING SUMMARY" blocks. This rule concatenates the two
+# per-fragment logs into that combined form so the QC contract is unchanged.
+rule merge_filter_logs:
+    input:
+        PBL=f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.PBL.log",
+        PBR=f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.PBR.log",
+    output:
+        f"projects/{project_name}/logs/read_processing/filter_aligned_reads_combined/{{sample}}_{{timepoint}}_{{condition}}.log",
+    message:
+        "*** Merging PBL/PBR filter logs for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+    shell:
+        """
+        cat {input.PBL} {input.PBR} > {output}
         """
 
 
@@ -310,27 +319,21 @@ rule filter_aligned_reads:
 # -----------------------------------------------------
 rule extract_insertion_sites:
     input:
-        PBL_filtered=rules.filter_aligned_reads.output.PBL_filtered,
-        PBR_filtered=rules.filter_aligned_reads.output.PBR_filtered,
+        filtered=rules.filter_aligned_reads.output.filtered,
     output:
-        PBL_insertions=f"projects/{project_name}/results/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBL.tsv",
-        PBR_insertions=f"projects/{project_name}/results/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBR.tsv",
+        insertions=f"projects/{project_name}/results/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.tsv",
     log:
-        f"projects/{project_name}/logs/read_processing/extract_insertion_sites/{{sample}}_{{timepoint}}_{{condition}}.log",
+        f"projects/{project_name}/logs/read_processing/extract_insertion_sites/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     params:
         chunk_size=config["chunk_size"],
     message:
-        "*** Extracting insertion sites for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+        "*** Extracting {wildcards.fragment} insertion sites for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
     shell:
         """
-        echo "*** Extracting PBL insertion sites..." > {log}
         python workflow/scripts/read_processing/extract_insertion_sites.py \
-            -i {input.PBL_filtered} -o {output.PBL_insertions} -c {params.chunk_size} &>> {log}
-        echo "*** Extracting PBR insertion sites..." >> {log}
-        python workflow/scripts/read_processing/extract_insertion_sites.py \
-            -i {input.PBR_filtered} -o {output.PBR_insertions} -c {params.chunk_size} &>> {log}
+            -i {input.filtered} -o {output.insertions} -c {params.chunk_size} &> {log}
         """
 
 
@@ -338,8 +341,8 @@ rule extract_insertion_sites:
 # -----------------------------------------------------
 rule merge_strand_insertions:
     input:
-        PBL_insertions=rules.extract_insertion_sites.output.PBL_insertions,
-        PBR_insertions=rules.extract_insertion_sites.output.PBR_insertions,
+        PBL_insertions=f"projects/{project_name}/results/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBL.tsv",
+        PBR_insertions=f"projects/{project_name}/results/7_insertions/{{sample}}_{{timepoint}}_{{condition}}.PBR.tsv",
     output:
         f"projects/{project_name}/results/8_merged/{{sample}}_{{timepoint}}_{{condition}}.tsv",
     log:
