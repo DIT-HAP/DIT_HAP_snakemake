@@ -59,14 +59,21 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-# Pin per-worker BLAS/OpenMP threads to 1 BEFORE numpy is imported. Curve
-# fitting is parallelised across datasets with joblib (process pool); letting
-# each worker's numpy/scipy spin up its own thread pool would oversubscribe the
-# cores. loky re-imports this module in every worker, so setdefault propagates.
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+# Force BLAS/OpenMP threads to 1 BEFORE numpy is imported. Curve fitting is
+# parallelised across datasets with joblib (process pool), so per-worker BLAS
+# threads add nothing but oversubscription. More importantly, multi-threaded
+# BLAS makes scipy.minimize non-deterministic on ill-conditioned fits: the same
+# input yields different local optima depending on thread count, so results
+# would vary with how the script is launched. Snakemake exports
+# OMP_NUM_THREADS/OPENBLAS_NUM_THREADS = the rule's `threads` (see snakemake
+# shell.py), so setdefault() would NOT override it and the pin would silently
+# fail under snakemake. Assign unconditionally to guarantee reproducible,
+# thread-count-independent output. loky re-imports this module in each worker.
+for _thr_var in (
+    "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "GOTO_NUM_THREADS",
+):
+    os.environ[_thr_var] = "1"
 
 # 2. Data Processing Imports
 import numpy as np

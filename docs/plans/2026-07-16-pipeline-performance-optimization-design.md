@@ -64,7 +64,21 @@
 - 现状: [curve_fitting.py:529-542](../../workflow/scripts/depletion_scoring/curve_fitting.py#L529-L542) 是逐行 `scipy.minimize`(maxiter=3000)的 Python for 循环,单核,112,987 条 → 1729s。
 - 每条 insertion 完全独立(embarrassingly parallel)。
 - 实现: 新增模块级 picklable worker `fit_and_augment`,串行循环换成 `joblib.Parallel(n_jobs=jobs)`(默认保序 → 输出与串行逐字节等价)。新增 `-j/--jobs` 参数,两个 curve_fitting rule 传 `-j {threads}`(`threads: 16`)。numpy import 前 `os.environ.setdefault("OMP/OPENBLAS/MKL/NUMEXPR_NUM_THREADS","1")` 防 worker 内 BLAS 过订阅。joblib 加进 env。移除了 tqdm 进度条(与并行不兼容)。
-- **实测: 1729s → 136s(-j 16),12.7× 加速**,RSS ~675MB。子集 3000 行 serial(-j 1)vs parallel(-j 8)三个输出文件全部 `diff` 一致,success rate 99.975% 与原版一致。
+- **实测: 1729s → 136s(-j 16),12.7× 加速**,RSS ~675MB。
+
+**端到端验证(2026-07-16,真实 snakemake --use-conda 路径):**
+- 强制重跑 step-15 rule(mtime 触发,隔离单 job),stats conda env 因新增 joblib 重建成功 → 验证了 joblib 在正式环境可解析、`-j {threads}` 正确传参(日志确认 "Fitting sigmoid curves with 16 worker(s)")。真实拟合耗时 **138s**,与手动实测一致。
+- **并行等价性(核心命题,已确认):** 固定线程环境下,全量 112,987 行 serial(-j 1)vs parallel(-j 16)输出**逐字节 `diff` 一致**(body md5 `92ef79…`),-j16 两次运行也一致。**joblib 并行本身精确、可复现、无损。**
+
+- **根因排查:一个我最初误判、最终查明的问题(诚实记录):**
+  - 现象: 通过 snakemake 跑的 -j16(body md5 `b1b322…`)与直接调脚本的 -j16(`92ef79…`)在 **1,588 行**上有真实 R² 差异(非舍入),其中数百行是 R²=0.83↔-2.3 的灾难性翻转。
+  - **我最初错误地归因为**"跨 conda 环境的 BLAS 构建不同"——错的,两者用的是同一个 env(`3fae…`)。我还一度误用了**编辑脚本前产生的陈旧输出**做基线,导致虚假的"13,188 行差异"警报。
+  - **实际根因(已证):** snakemake 的 `shell.py` 会把 `OMP_NUM_THREADS/OPENBLAS_NUM_THREADS` 等**设为该 rule 的 `threads` 值**(这里 16)并注入 shell。脚本原来的 `os.environ.setdefault(...)` **无法覆盖已设值** → 在 snakemake 下 BLAS 实际以 16 线程运行。多线程 BLAS 让 `scipy.minimize` 在病态拟合上收敛到不同局部最优。
+  - **验证:** 直接以 `OMP_NUM_THREADS=16` 跑脚本 → 精确复现 snakemake 的 `b1b322…`;`OMP=1` → `92ef79…`。
+  - **非本次并行化引入**(原串行版也在 snakemake 的 OMP=threads 下运行),但这是真实的**不可复现性 bug**。
+
+- **修复(已应用):** 把线程 env 变量从 `setdefault` 改为**无条件赋值 `=1`**(6 个变量含 VECLIB/GOTO),保证无论如何启动都单线程 BLAS、输出线程数无关且可复现。
+- **e2e 最终验证(已通过):** 修复后经真实 snakemake 路径,`--cores 16` 与 `--cores 1` 输出 body md5 **均为 `92ef79…`**,彼此一致且等于直接调用的 OMP=1 参考。**输出线程数无关、可复现、serial==parallel。** 买回的 12.7× 加速在正式环境成立且数值正确。
 
 **1.2 bam_to_tsv 内存声明 → 4000 —— ⚠️ 稳健性修正,非加速(更正:2026-07-16)**
 - **原判断有误。** 我最初声称 `mem_mb=200000`(200GB)导致 bam_to_tsv 被迫串行、修复后 53min→10min。**经实测推翻:** snakemake 的 `mem_mb` 只有在命令行显式传 `--resources mem_mb=<总量>` 时才约束调度;本项目实际用 `snakemake --use-conda --cores 16`(无 profile、无 `--resources`),该声明**从未**影响调度。用玩具 workflow 验证: `--cores 4` 下 4 个 200GB job 照样并行(span 3.0s),仅 `--cores 4 --resources mem_mb=200000` 时才串行(span 12s)。
