@@ -202,3 +202,24 @@
 
 数值精确加速取决于机器核数与 IO;以上为方向性估计,须以批 1 落地后的实测为准。
 
+
+---
+
+## 批 2 实施记录(2026-07-16,commit f731e42)
+
+**2.2 PBL/PBR 拆分 —— 已实现(用户决策:引入 fragment wildcard 拆成独立 job)**
+- `bam_to_tsv` / `filter_aligned_reads` / `extract_insertion_sites` 三个 rule 从"单 job 内串行跑 PBL 再 PBR"改为带 `{fragment}` 通配符(Snakefile 约束 `PBL|PBR`)的独立 job。job 数 8→16(每个 rule),两 fragment 并发。
+- `merge_strand_insertions` 改为直接引用 `7_insertions/*.PBL.tsv` 与 `*.PBR.tsv` 显式路径(原 named output 已不存在)。
+- **QC 契约保护(用户决策:三个都拆+日志合并规则):** filter 日志现在按 fragment 分开。新增 `merge_filter_logs` rule 把 PBL+PBR 两个日志 `cat` 回一个合并日志,保持 `extract_mapping_filtering_statistics.py` 的契约(用日志文件名 stem 做样本名、期望单文件含两块 FILTERING SUMMARY)。`mapping_filtering_statistics` 输入改指向合并日志。
+
+**2.3 FastQC 摘除关键路径 —— 已实现(用户决策:摘依赖+合并命令+走 QC 聚合)**
+- 从 `bwa_mem_mapping` 的 input 删掉 4 个 FastQC html 人为依赖 → mapping 不再被 QC 阻塞,二者并行。
+- FastQC 4 条串行命令合并成 1 条 `fastqc --threads 4 file1 file2 file3 file4`(FastQC 的 threads = 同时处理几个文件,原来形同虚设)→ ~4x。
+- FastQC 不孤儿:经 `multiqc_preprocessing` 可达(验证:对 multiqc target 用 `-F` 会调度 `fastqc_junction_classification` = 8 job)。
+
+**验证:**
+- `snakemake -n` 全量 clean parse;强制 QC target 时 `bam_to_tsv=16 / filter_aligned_reads=16 / merge_filter_logs=8`,符合预期。
+- 单 timepoint 经真实 snakemake 重跑拆分后的 extract + merge_strand:`7_insertions` PBL/PBR 与 `8_merged` 输出**逐字节一致**于拆分前。拆分只改调度,不改数值。
+- QC 解析器在合并日志上产出正确的单样本表(PBL/PBR 两列齐全、样本名无 fragment 后缀)。
+
+**待补(下一步):** 真实全流程端到端墙钟对比(拆分前 vs 后),确认 read-processing 阶段实际压缩幅度。2.4(samtools sort/index 拆分)收益小、未做。
