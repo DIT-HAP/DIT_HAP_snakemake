@@ -78,7 +78,7 @@ plt.style.use(SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle")
 AX_WIDTH, AX_HEIGHT = plt.rcParams['figure.figsize']
 COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-LAM_PENALTY = 6e-3
+DL_PENALTY = 6e-3
 TOL = 2e-6
 
 # =============================================================================
@@ -107,8 +107,8 @@ class FittingResult:
     ID: str
     Status: str
     A: float
-    um: float
-    lam: float
+    DR: float
+    DL: float
     R2: float
     RMSE: float
     normalized_RMSE: float
@@ -132,7 +132,7 @@ class SummaryStatistics:
     mean_R2: float | None = None
     mean_RMSE: float | None = None
     mean_A: float | None = None
-    mean_um: float | None = None
+    mean_DR: float | None = None
     mean_t10: float | None = None
     mean_t50: float | None = None
     mean_t90: float | None = None
@@ -160,62 +160,62 @@ def setup_logger(log_level: str = "INFO") -> None:
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
 @logger.catch
-def sigmoid_function(x: np.ndarray, A: float, um: float, lam: float) -> np.ndarray:
+def sigmoid_function(x: np.ndarray, A: float, DR: float, DL: float) -> np.ndarray:
     """Calculate sigmoid function values with numerical stability using gompertz function."""
     if A == 0:
         return np.zeros_like(x)
-    alpha = (um * np.e) / A
-    u = alpha * (lam - x) + 1
+    alpha = (DR * np.e) / A
+    u = alpha * (DL - x) + 1
     exponent = np.clip(u, -700, 700)
     return A * np.exp(-np.exp(exponent))
 
 
 @logger.catch
-def sigmoid_derivative(x: np.ndarray, A: float, um: float, lam: float) -> np.ndarray:
+def sigmoid_derivative(x: np.ndarray, A: float, DR: float, DL: float) -> np.ndarray:
     """Calculate derivative of sigmoid function using gompertz function."""
-    alpha = (um * np.e) / A
-    u = alpha * (lam - x) + 1
+    alpha = (DR * np.e) / A
+    u = alpha * (DL - x) + 1
     exponent = np.clip(u, -700, 700)
     return A * alpha * np.exp(exponent - np.exp(exponent))
 
 @logger.catch
-def time_at_p_effect(p: float, A: float, um: float, lam: float) -> float:
+def time_at_p_effect(p: float, A: float, DR: float, DL: float) -> float:
     """Calculate the time at which the function reaches p proportion of its maximum effect."""
-    return lam - (abs(A) / (abs(um) * np.e)) * (np.log(-np.log(p)) - 1)
+    return DL - (abs(A) / (abs(DR) * np.e)) * (np.log(-np.log(p)) - 1)
 
 
 @logger.catch
 def objective_function(params: list[float], x: np.ndarray, y: np.ndarray,
                       weight_values: np.ndarray) -> float:
     """Objective function for curve fitting using Huber loss."""
-    A, um, lam = params
-    y_fit = sigmoid_function(x, A, um, lam)
+    A, DR, DL = params
+    y_fit = sigmoid_function(x, A, DR, DL)
     residuals = y - y_fit
     z = (residuals * weight_values) ** 2
 
     # Huber loss for robustness to outliers
     rho_z = np.where(z <= 1, z, 2 * np.sqrt(z) - 1)
 
-    # Add L1 regularization to lam
-    lam_penalty = LAM_PENALTY * abs(lam)
-    return np.sum(rho_z) + lam_penalty
+    # Add L1 regularization to DL
+    dl_penalty = DL_PENALTY * abs(DL)
+    return np.sum(rho_z) + dl_penalty
 
 
 @logger.catch
 def constraint_function1(params: list[float], t_last: float) -> float:
     """Constraint to ensure reasonable parameter bounds."""
-    A, um, lam = params
-    return t_last + 3 - abs(A) / abs(um) - lam
+    A, DR, DL = params
+    return t_last + 3 - abs(A) / abs(DR) - DL
 
 
 @logger.catch
 def constraint_function2(params: list[float]) -> float:
     """Constraint to ensure smooth curve behavior."""
-    A, um, lam = params
-    x0 = lam + A / um / np.e
-    val1 = float(np.abs(sigmoid_derivative(np.array([x0 - 1]), A, um, lam))[0])
-    val2 = float(np.abs(sigmoid_derivative(np.array([x0 + 1]), A, um, lam))[0])
-    return (val1 + val2 - 1.8 * abs(um))
+    A, DR, DL = params
+    x0 = DL + A / DR / np.e
+    val1 = float(np.abs(sigmoid_derivative(np.array([x0 - 1]), A, DR, DL))[0])
+    val2 = float(np.abs(sigmoid_derivative(np.array([x0 + 1]), A, DR, DL))[0])
+    return (val1 + val2 - 1.8 * abs(DR))
 
 
 @logger.catch
@@ -239,32 +239,32 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
         )
 
         if result.success:
-            A, um, lam = result.x
-            residuals = y_values - sigmoid_function(x_values, A, um, lam)
+            A, DR, DL = result.x
+            residuals = y_values - sigmoid_function(x_values, A, DR, DL)
             ss_res = np.sum(residuals ** 2)
             ss_tot = np.sum((y_values - np.mean(y_values)) ** 2)
             r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
             rmse = np.sqrt(ss_res / len(y_values))
             normalized_rmse = rmse / (y_values.max() - y_values.min())
 
-            t_inflection = lam + abs(A) / (abs(um) * np.e)
+            t_inflection = DL + abs(A) / (abs(DR) * np.e)
             y_inflection = A / np.e
 
-            t10 = time_at_p_effect(0.1, A, um, lam)
-            t50 = time_at_p_effect(0.5, A, um, lam)
-            t90 = time_at_p_effect(0.9, A, um, lam)
+            t10 = time_at_p_effect(0.1, A, DR, DL)
+            t50 = time_at_p_effect(0.5, A, DR, DL)
+            t90 = time_at_p_effect(0.9, A, DR, DL)
             t_window = t90 - t10
 
             # Calculate area under the curve (AUC) between curve and x-axis
             # Use numerical integration over the data range
             x_min, x_max = x_values.min(), x_values.max()
             x_integration = np.linspace(x_min, x_max, 1000)
-            y_integration = sigmoid_function(x_integration, A, um, lam)
+            y_integration = sigmoid_function(x_integration, A, DR, DL)
             auc = np.trapezoid(y_integration, x_integration)
 
             # Calculate additional curve fitting metrics
             # Akaike Information Criterion (AIC)
-            n_params = 3  # A, um, lam
+            n_params = 3  # A, DR, DL
             n_points = len(y_values)
             aic = n_points * np.log(ss_res / n_points) + 2 * n_params
             # Bayesian Information Criterion (BIC)
@@ -273,7 +273,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
             return {
                 'ID': ID,
                 'Status': 'Success',
-                'A': A, 'um': um, 'lam': lam, 't10': t10, 't50': t50, 't90': t90, 't_window': t_window, 't_inflection': t_inflection, 'y_inflection': y_inflection, 'auc': auc, 'AIC': aic, 'BIC': bic,
+                'A': A, 'DR': DR, 'DL': DL, 't10': t10, 't50': t50, 't90': t90, 't_window': t_window, 't_inflection': t_inflection, 'y_inflection': y_inflection, 'auc': auc, 'AIC': aic, 'BIC': bic,
                 'R2': r_squared, 'RMSE': rmse, 'normalized_RMSE': normalized_rmse,
             }
         else:
@@ -281,7 +281,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
             return {
                 'ID': ID,
                 'Status': 'Optimization failed',
-                'A': np.nan, 'um': np.nan, 'lam': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
+                'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
                 'R2': np.nan, 'RMSE': np.nan, 'normalized_RMSE': np.nan,
             }
 
@@ -290,7 +290,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
         return {
             'ID': ID,
             'Status': 'Fitting error',
-            'A': np.nan, 'um': np.nan, 'lam': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
+            'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
             'R2': np.nan, 'RMSE': np.nan, 'normalized_RMSE': np.nan,
         }
 
@@ -302,7 +302,7 @@ def create_fitted_plot(ax: plt.Axes, x_values: np.ndarray, y_values: np.ndarray,
     ax.grid(True)
 
     if params['Status'] == 'Success':
-        A, um, lam, _, _, _, _, _, _, _, AIC, BIC = params['A'], params['um'], params['lam'], params['t10'], params['t50'], params['t90'], params['t_window'], params['t_inflection'], params['y_inflection'], params['auc'], params['AIC'], params['BIC'],
+        A, DR, DL, _, _, _, _, _, _, _, AIC, BIC = params['A'], params['DR'], params['DL'], params['t10'], params['t50'], params['t90'], params['t_window'], params['t_inflection'], params['y_inflection'], params['auc'], params['AIC'], params['BIC'],
 
         # Plot data points
         ax.scatter(x_values, y_values,
@@ -312,18 +312,18 @@ def create_fitted_plot(ax: plt.Axes, x_values: np.ndarray, y_values: np.ndarray,
 
         # Plot fitted curve
         x_smooth = np.linspace(min(x_values), max(x_values), 100)
-        y_fit = sigmoid_function(x_smooth, A, um, lam)
+        y_fit = sigmoid_function(x_smooth, A, DR, DL)
         ax.plot(x_smooth, y_fit,
                color=COLORS[2], label='Fitted')
 
         # Add constraint lines
         ax.axhline(y=A, color=COLORS[0],
                   linestyle='--', alpha=0.3)
-        ax.axvline(x=lam, color=COLORS[0],
+        ax.axvline(x=DL, color=COLORS[0],
                   linestyle='--', alpha=0.3)
 
         # Add parameter text
-        param_text = f'A={A:.2f}    R²={params["R2"]:.3f}\num={um:.2f}  RMSE={params["RMSE"]:.3f}\nlam={lam:.2f}    NRMSE={params["normalized_RMSE"]:.3f}\nAIC={AIC:.2f}    BIC={BIC:.2f}'
+        param_text = f'A={A:.2f}    R²={params["R2"]:.3f}\nDR={DR:.2f}  RMSE={params["RMSE"]:.3f}\nDL={DL:.2f}    NRMSE={params["normalized_RMSE"]:.3f}\nAIC={AIC:.2f}    BIC={BIC:.2f}'
         ax.text(0.05, 0.95, param_text,
                transform=ax.transAxes,
                verticalalignment='top')
@@ -431,7 +431,7 @@ def generate_summary_statistics(results_df: pd.DataFrame) -> SummaryStatistics:
             mean_R2=successful_fits['R2'].mean(),
             mean_RMSE=successful_fits['RMSE'].mean(),
             mean_A=successful_fits['A'].mean(),
-            mean_um=successful_fits['um'].mean(),
+            mean_DR=successful_fits['DR'].mean(),
             mean_t10=successful_fits['t10'].mean(),
             mean_t50=successful_fits['t50'].mean(),
             mean_t90=successful_fits['t90'].mean(),
@@ -534,7 +534,7 @@ def main() -> int:
                 for j, time_val in enumerate(x_values):
                     result[timepoint_columns[j]] = round(y_data[j], 3)
                 for j, time_val in enumerate(x_values):
-                    result[timepoint_columns[j] + '_fitted'] = round(sigmoid_function(time_val, result['A'], result['um'], result['lam']), 3)
+                    result[timepoint_columns[j] + '_fitted'] = round(sigmoid_function(time_val, result['A'], result['DR'], result['DL']), 3)
                 for j, time_val in enumerate(x_values):
                     result[timepoint_columns[j] + '_residual'] = round(result[timepoint_columns[j]] - result[timepoint_columns[j] + '_fitted'], 3)
 
@@ -547,7 +547,7 @@ def main() -> int:
 
         # Round numeric columns
         numeric_columns = {
-            'A':3, 'um':3, 'lam':3, 't10':3, 't50':3, 't90':3, 't_window':3, 't_inflection':3, 'y_inflection':3, 'auc':3, 'R2':6, 'RMSE':3, 'normalized_RMSE':6, 'AIC':3, 'BIC':3,
+            'A':3, 'DR':3, 'DL':3, 't10':3, 't50':3, 't90':3, 't_window':3, 't_inflection':3, 'y_inflection':3, 'auc':3, 'R2':6, 'RMSE':3, 'normalized_RMSE':6, 'AIC':3, 'BIC':3,
         }
         results_df[list(numeric_columns.keys())] = results_df[list(numeric_columns.keys())].round(numeric_columns)
 

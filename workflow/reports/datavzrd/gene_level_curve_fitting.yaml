@@ -17,7 +17,7 @@ views:
     dataset: gene_level_curve_fitting
     desc: |
       Sigmoid curve fit per gene, summarizing the full depletion time course into
-      a handful of parameters. `um` is the depletion rate and `R2` is fit quality
+      a handful of parameters. `DR` is the depletion rate and `R2` is fit quality
       (near 1 = good fit). Raw per-timepoint LFC values are shown alongside the
       fitted curve; `time_points` is redundant with the column headers and hidden.
     page-size: 50
@@ -45,7 +45,7 @@ views:
             heatmap:
               scale: ordinal
               color-scheme: category10
-        um:
+        DR:
           precision: 3
           plot:
             heatmap:
