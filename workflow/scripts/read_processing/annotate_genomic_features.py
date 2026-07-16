@@ -162,7 +162,6 @@ def load_genome_regions(region_path: Path) -> pd.DataFrame:
     return df
 
 
-@logger.catch
 def calculate_codon_distances_vectorized(annotated_df: pd.DataFrame) -> pd.DataFrame:
     """Compute strand-aware distances/fractions to start and stop codons using vectorized operations."""
     # Initialize output columns
@@ -213,7 +212,6 @@ def calculate_codon_distances_vectorized(annotated_df: pd.DataFrame) -> pd.DataF
     return codon_df
 
 
-@logger.catch
 def calculate_affected_residue_vectorized(annotated_df: pd.DataFrame) -> pd.DataFrame:
     """Compute the affected amino-acid residue index and reading frame using vectorized operations."""
     residue_df = pd.DataFrame(index=annotated_df.index)
@@ -221,8 +219,11 @@ def calculate_affected_residue_vectorized(annotated_df: pd.DataFrame) -> pd.Data
     # Mask for rows where calculation applies
     non_coding_mask = (annotated_df["Type"] == "Intergenic region") | (annotated_df["Type"] == "Non-coding gene")
 
-    # Get accumulated CDS base (default 0 if missing)
-    cds_base = annotated_df.get("Accumulated_CDS_bases", pd.Series(0.0, index=annotated_df.index)).fillna(0.0)
+    # Get accumulated CDS base (default 0 if missing), convert to float
+    cds_base = pd.to_numeric(
+        annotated_df.get("Accumulated_CDS_bases", pd.Series(0.0, index=annotated_df.index)),
+        errors='coerce'
+    ).fillna(0.0)
 
     # Add offset for CDS features
     is_cds = annotated_df["Feature"] == "CDS"
@@ -255,19 +256,20 @@ def calculate_affected_residue_vectorized(annotated_df: pd.DataFrame) -> pd.Data
     return residue_df
 
 
-@logger.catch
 def assign_insertion_direction_vectorized(annotated_df: pd.DataFrame) -> pd.Series:
     """Determine the insertion direction (Forward/Reverse/NaN) relative to the gene using vectorized operations."""
     intergenic = annotated_df["Type"] == "Intergenic region"
     same_strand = annotated_df["Strand"] == annotated_df["Strand_Interval"]
 
+    # Use None instead of np.nan to avoid dtype promotion error with str in numpy 2.x
     return pd.Series(
         np.where(
             intergenic,
-            np.nan,
+            None,
             np.where(same_strand, "Forward", "Reverse")
         ),
-        index=annotated_df.index
+        index=annotated_df.index,
+        dtype=object
     )
 
 
@@ -293,7 +295,6 @@ def drop_boundary_duplicates(sub_df: pd.DataFrame) -> pd.DataFrame:
     return sub_df
 
 
-@logger.catch
 def annotate_insertions(
     insertions_df: pd.DataFrame,
     regions_df: pd.DataFrame,
