@@ -66,31 +66,65 @@
 - 实现: 新增模块级 picklable worker `fit_and_augment`,串行循环换成 `joblib.Parallel(n_jobs=jobs)`(默认保序 → 输出与串行逐字节等价)。新增 `-j/--jobs` 参数,两个 curve_fitting rule 传 `-j {threads}`(`threads: 16`)。numpy import 前 `os.environ.setdefault("OMP/OPENBLAS/MKL/NUMEXPR_NUM_THREADS","1")` 防 worker 内 BLAS 过订阅。joblib 加进 env。移除了 tqdm 进度条(与并行不兼容)。
 - **实测: 1729s → 136s(-j 16),12.7× 加速**,RSS ~675MB。子集 3000 行 serial(-j 1)vs parallel(-j 8)三个输出文件全部 `diff` 一致,success rate 99.975% 与原版一致。
 
-**1.2 修正 bam_to_tsv 的内存声明 —— 最廉价的墙钟收益 ✅ 已实现(2026-07-16)**
-- 现状: [read_processing.smk:259](../../workflow/rules/read_processing.smk#L259) 声明 `mem_mb=200000`(200GB)。但该脚本是 flat-memory 流式解析(逐 read,不累积),实际只吃几百 MB–2GB。
-- 后果: Snakemake 以为每个 job 要 200GB,在 `--cores 16` 下**几乎无法同时跑两个** → 8 个 timepoint 被迫串行。
-- 实现: 改成 `mem_mb=4000`(留余量),附注释说明理由。
-- 预期: 8 路 bam_to_tsv 可并行 → 该阶段墙钟从 ~53 min 压到 ~10 min(受核数/IO限制)。
+**1.2 bam_to_tsv 内存声明 → 4000 —— ⚠️ 稳健性修正,非加速(更正:2026-07-16)**
+- **原判断有误。** 我最初声称 `mem_mb=200000`(200GB)导致 bam_to_tsv 被迫串行、修复后 53min→10min。**经实测推翻:** snakemake 的 `mem_mb` 只有在命令行显式传 `--resources mem_mb=<总量>` 时才约束调度;本项目实际用 `snakemake --use-conda --cores 16`(无 profile、无 `--resources`),该声明**从未**影响调度。用玩具 workflow 验证: `--cores 4` 下 4 个 200GB job 照样并行(span 3.0s),仅 `--cores 4 --resources mem_mb=200000` 时才串行(span 12s)。
+- **真正让 bam_to_tsv 看似串行的是 `threads: 8`**(见 §2.1):`--cores 16` 下并发度 = `floor(16/8)=2`。上一次真实运行的日志时间戳证实 8 个 timepoint 基本是 2 路并发跑完。
+- 保留 `mem_mb=4000` 改动: 无害且更稳健(将来若有人用 `--resources` 调度不会被 200GB 卡死),但**不计入任何加速**。
 
 **1.3 ~~给 `6_filtered` / `4_sorted` 加 `temp()`~~ —— 已决定不做(DP2)**
 - 保持现状,`6_filtered`(18GB)/`4_sorted`(8.3GB)保留供 debug / QC 复查。此项不纳入实施范围。
 
-### Tier 2 — 中收益、低风险、调度/依赖层(不改算法)
+### Tier 2 — read-processing 并发重设计(批 2 焦点)
 
-**2.1 拆分 PBL/PBR 为独立 job**
-- 现状: bam_to_tsv、filter_aligned_reads、extract_insertion_sites 三个 rule 都在**同一个 shell 块里串行跑 PBL 再跑 PBR**。
-- 方案: 引入 `fragment ∈ {PBL, PBR}` wildcard,拆成两个独立 job,让 Snakemake 并行调度。
-- 预期: 每个 rule ~2x(在有空闲核时)。风险低,但要改 rule 的 wildcard 结构与下游 input 引用。
+#### 调度模型(实测确立的正确前提)
+- 本项目用 `snakemake --use-conda --cores 16` 调用,**无 profile、无 `--resources`**。
+- 在此模式下,并发度**完全由 `rule.threads` 决定**: 同时运行的某 rule 实例数 = `floor(cores / rule.threads)`。`mem_mb` 不参与(见 §1.2 更正)。
+- 主机有 **64 核**,但 pipeline 只用 `--cores 16` —— 提高 `--cores` 本身就是一条免费杠杆(独立于代码改动)。
 
-**2.2 FastQC 从 mapping 关键路径摘除 + 合并调用**
+#### 当前各 read-processing rule 的 threads 与真实多核利用
+| rule | threads | 并发@16 | 工具/脚本真的用满 threads 吗? |
+|---|---|---|---|
+| fastp | 6 | 2 | ✅ fastp 多线程 |
+| junction_classification (cutadapt) | 6 | 2 | ✅ cutadapt `--cores` |
+| fastqc | 4 | 4 | ⚠️ threads=并发文件数,但 4 文件被拆成 **4 条串行命令**(见 2.3) |
+| bwa_mem_mapping | 8 | 2 | ✅ bwa-mem2;但 PBL/PBR 同 rule 串行 |
+| samtools sort/index | 2 | 8 | 部分;PBL/PBR 串行 |
+| **bam_to_tsv** | **8** | **2** | ❌ **解析循环单核 Python**,threads 只喂 pysam 解压 → 声明 8 但基本用不到,白白把并发压到 2 |
+| **filter_aligned_reads** | **(无)=1** | **16** | ❌ 单核 pandas |
+| **extract_insertion_sites** | **(无)=1** | **16** | ❌ 单核 pandas + `.apply` |
+
+关键错配: **bam_to_tsv 用 threads 换不到吞吐,却牺牲了并发**;而 filter/extract 是真单核却已能 16 路并发(受限于上游产物就绪节奏 + IO)。
+
+#### 2.1 bam_to_tsv `threads: 8 → 1` ✅ 已实现(2026-07-16,基于实测)
+- 实测 `parse_bam_to_tsv.py` 在同一 BAM(8.37M alignments)下:
+
+  | threads | CPU% | 墙钟 | 输出 md5 |
+  |---|---|---|---|
+  | 1 | 99% | 177s | 6a4a97… |
+  | 4 | 102% | 179s | 6a4a97…(相同) |
+  | 8 | 102% | 174s | 6a4a97…(相同) |
+
+- 结论: pysam 解压线程**零收益**(CPU% 始终 ~100% = 单核),瓶颈是单核 Python 解析循环。`threads: 8` 换不到吞吐却把并发压到 `floor(16/8)=2`。
+- 实现: 降到 `threads: 1` → 并发 `floor(16/1)=16`,8 个 timepoint 一次铺满。这是 bam_to_tsv 阶段的真实加速(约 2→8 路,受 IO 与上游就绪节奏限制)。输出三档 md5 一致,零数值风险。
+- 后续: 若要真正加速单个 bam_to_tsv 的解析吞吐(而非靠并发),属 Tier 4.2 解析循环重写。
+
+#### 2.2 拆分 PBL/PBR 为独立 job
+- 现状: bam_to_tsv、filter_aligned_reads、extract_insertion_sites 三个 rule 都在**同一 shell 块里串行跑 PBL 再跑 PBR**。
+- 方案: 引入 `fragment ∈ {PBL, PBR}` wildcard,拆成独立 job → job 数翻倍,配合合理的 threads 让 snakemake 铺满核。
+- 注意: bwa mapping 已在同 rule 串行 PBL/PBR;拆分需同步改下游 input 引用。风险低但触及 wildcard 结构,须 `-n` 验证 DAG。
+
+**2.3 FastQC 从 mapping 关键路径摘除 + 合并调用**
 - 现状 A: [read_processing.smk:136-139](../../workflow/rules/read_processing.smk#L136-L139) 让 `bwa_mem_mapping` 把 4 个 FastQC html 当输入 —— 人为依赖,mapping 根本不需要 QC 结果。
 - 方案 A: 从 bwa mapping 的 input 里删掉 4 个 fastqc 依赖,让 FastQC 与 mapping 并行(FastQC 只需汇入 MultiQC)。
 - 现状 B: [read_processing.smk:113-122](../../workflow/rules/read_processing.smk#L113-L122) 把 4 个文件拆成 4 条串行 `fastqc` 命令,`--threads 4` 形同虚设(FastQC 的 threads = 同时处理几个文件)。
 - 方案 B: 合并成一条 `fastqc --threads 4 f1 f2 f3 f4` → ~4x。
 - 预期: 把 FastQC 移出关键路径,mapping 提前开跑。
 
-**2.3 samtools sort/index PBL/PBR 串行 → 拆分**
+**2.4 samtools sort/index PBL/PBR 串行 → 拆分**
 - [read_processing.smk:181-190](../../workflow/rules/read_processing.smk#L181-L190) PBL/PBR 串行且仅 2 线程。可拆分或提高线程。收益小(只喂 QC,不在 insertion 关键路径)。
+
+#### 免费杠杆: 提高 `--cores`
+- 主机 64 核,当前只用 16。把 `--cores` 提到 32/48 无需任何代码改动即可放大所有 rule 的并发度。文档记录,由用户按机器负载决定。
 
 ### Tier 3 — 中收益、中风险、脚本内向量化(改实现,需回归验证)
 

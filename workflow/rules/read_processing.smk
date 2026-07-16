@@ -254,12 +254,17 @@ rule bam_to_tsv:
         f"projects/{project_name}/logs/read_processing/bam_to_tsv/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
         "../envs/pysam.yml"
-    threads: 8
+    # parse_bam_to_tsv.py is a single-core Python streaming loop; pysam's
+    # decompression threads give ~no throughput gain (measured: threads 1/4/8
+    # all ~99-102% CPU, ~175s, byte-identical output). Declaring 8 threads only
+    # throttled scheduling to floor(cores/8) concurrent jobs. threads: 1 lets all
+    # per-timepoint jobs run concurrently (floor(16/1)=16), which is the real win.
+    threads: 1
     resources:
-        # parse_bam_to_tsv.py is a flat-memory streaming parser (one read pair
-        # at a time), so real RSS is a few hundred MB. The previous 200000 (200 GB)
-        # declaration made Snakemake schedule these jobs one at a time, forcing the
-        # per-timepoint bam_to_tsv steps to run serially. 4 GB leaves ample headroom.
+        # Flat-memory streaming parser; real RSS is a few hundred MB. 4 GB is
+        # ample. (The previous 200000/200GB value only affects scheduling when
+        # snakemake is run with an explicit --resources mem_mb budget, which this
+        # project does not use, so it was never the concurrency limiter.)
         mem_mb=4000,
     message:
         "*** Transforming BAM to TSV for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
