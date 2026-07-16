@@ -256,7 +256,11 @@ rule bam_to_tsv:
         "../envs/pysam.yml"
     threads: 8
     resources:
-        mem_mb=200000,
+        # parse_bam_to_tsv.py is a flat-memory streaming parser (one read pair
+        # at a time), so real RSS is a few hundred MB. The previous 200000 (200 GB)
+        # declaration made Snakemake schedule these jobs one at a time, forcing the
+        # per-timepoint bam_to_tsv steps to run serially. 4 GB leaves ample headroom.
+        mem_mb=4000,
     message:
         "*** Transforming BAM to TSV for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
     shell:

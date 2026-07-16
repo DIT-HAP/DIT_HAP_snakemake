@@ -60,17 +60,16 @@
 
 ### Tier 1 — 高收益、低风险、不改数值(优先做)
 
-**1.1 curve_fitting 脚本内并行化 —— 最大单点收益**
+**1.1 curve_fitting 脚本内并行化 —— 最大单点收益 ✅ 已实现(2026-07-16)**
 - 现状: [curve_fitting.py:529-542](../../workflow/scripts/depletion_scoring/curve_fitting.py#L529-L542) 是逐行 `scipy.minimize`(maxiter=3000)的 Python for 循环,单核,112,987 条 → 1729s。
 - 每条 insertion 完全独立(embarrassingly parallel)。
-- 方案: 用 `joblib.Parallel` / `concurrent.futures.ProcessPoolExecutor` 把 `fit_single_curve` 的循环分发到多核。新增 `-t/--threads` 参数,rule 里传 `threads`。
-- 预期: 16 核 ≈ 10–14x → **29 min 降到 ~2–3 min**。数值完全不变(每条独立求解)。
-- 注意: `fit_single_curve` 内已通过 `@logger.catch` 捕获异常,进程池要保证 worker 内 numpy/scipy 不再各自开多线程(设 `OMP_NUM_THREADS=1` 避免过订阅)。
+- 实现: 新增模块级 picklable worker `fit_and_augment`,串行循环换成 `joblib.Parallel(n_jobs=jobs)`(默认保序 → 输出与串行逐字节等价)。新增 `-j/--jobs` 参数,两个 curve_fitting rule 传 `-j {threads}`(`threads: 16`)。numpy import 前 `os.environ.setdefault("OMP/OPENBLAS/MKL/NUMEXPR_NUM_THREADS","1")` 防 worker 内 BLAS 过订阅。joblib 加进 env。移除了 tqdm 进度条(与并行不兼容)。
+- **实测: 1729s → 136s(-j 16),12.7× 加速**,RSS ~675MB。子集 3000 行 serial(-j 1)vs parallel(-j 8)三个输出文件全部 `diff` 一致,success rate 99.975% 与原版一致。
 
-**1.2 修正 bam_to_tsv 的内存声明 —— 最廉价的墙钟收益**
+**1.2 修正 bam_to_tsv 的内存声明 —— 最廉价的墙钟收益 ✅ 已实现(2026-07-16)**
 - 现状: [read_processing.smk:259](../../workflow/rules/read_processing.smk#L259) 声明 `mem_mb=200000`(200GB)。但该脚本是 flat-memory 流式解析(逐 read,不累积),实际只吃几百 MB–2GB。
 - 后果: Snakemake 以为每个 job 要 200GB,在 `--cores 16` 下**几乎无法同时跑两个** → 8 个 timepoint 被迫串行。
-- 方案: 改成真实值(建议 `mem_mb=4000`,留余量)。一行改动。
+- 实现: 改成 `mem_mb=4000`(留余量),附注释说明理由。
 - 预期: 8 路 bam_to_tsv 可并行 → 该阶段墙钟从 ~53 min 压到 ~10 min(受核数/IO限制)。
 
 **1.3 ~~给 `6_filtered` / `4_sorted` 加 `temp()`~~ —— 已决定不做(DP2)**

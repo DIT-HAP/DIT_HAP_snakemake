@@ -11,6 +11,7 @@ dependencies:
   - pandas>=3.0.3
   - scipy>=1.18
   - scikit-learn>=1.9
+  - joblib>=1.4
   - pyyaml
   - openpyxl
   - tqdm

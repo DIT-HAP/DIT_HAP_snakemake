@@ -5,12 +5,12 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
+#     "joblib",
 #     "loguru",
 #     "matplotlib",
 #     "numpy",
 #     "pandas",
 #     "scipy",
-#     "tqdm",
 # ]
 # ///
 
@@ -53,21 +53,31 @@ Version:  1.0.0
 # =============================================================================
 # 1. Standard Library Imports
 import argparse
+import os
 import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+# Pin per-worker BLAS/OpenMP threads to 1 BEFORE numpy is imported. Curve
+# fitting is parallelised across datasets with joblib (process pool); letting
+# each worker's numpy/scipy spin up its own thread pool would oversubscribe the
+# cores. loky re-imports this module in every worker, so setdefault propagates.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
+from joblib import Parallel, delayed
 from loguru import logger
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.optimize import minimize
-from tqdm import tqdm
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -91,6 +101,7 @@ class CurveFittingConfig:
     output_file: Path
     time_points: list[float]
     weight_file: Path | None = None
+    jobs: int = 1
     verbose: bool = False
 
     def __post_init__(self) -> None:
@@ -99,6 +110,8 @@ class CurveFittingConfig:
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
         if len(self.time_points) < 3:
             raise ValueError("At least 3 time points are required")
+        if self.jobs == 0 or self.jobs < -1:
+            raise ValueError(f"jobs must be -1 or a positive integer, got {self.jobs}")
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -295,6 +308,32 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
         }
 
 
+def fit_and_augment(x_values: np.ndarray, y_data: np.ndarray,
+                    weight_row: np.ndarray, ID: str, t_last: float,
+                    timepoint_columns: list[str]) -> dict[str, str | float]:
+    """Fit one dataset and attach its per-timepoint observed/fitted/residual columns.
+
+    Module-level (picklable) worker so joblib's process pool can distribute it.
+    Each dataset is independent, so results are identical to serial execution;
+    joblib preserves input order, keeping the assembled DataFrame byte-for-byte
+    equivalent to the previous single-core loop.
+    """
+    result = fit_single_curve(x_values, y_data, weight_row, ID, t_last)
+
+    for j, _ in enumerate(x_values):
+        result[timepoint_columns[j]] = round(y_data[j], 3)
+    for j, time_val in enumerate(x_values):
+        result[timepoint_columns[j] + '_fitted'] = round(
+            sigmoid_function(time_val, result['A'], result['DR'], result['DL']), 3
+        )
+    for j, _ in enumerate(x_values):
+        result[timepoint_columns[j] + '_residual'] = round(
+            result[timepoint_columns[j]] - result[timepoint_columns[j] + '_fitted'], 3
+        )
+
+    return result
+
+
 @logger.catch
 def create_fitted_plot(ax: plt.Axes, x_values: np.ndarray, y_values: np.ndarray,
                       params: dict[str, str | float], ID: str) -> None:
@@ -484,6 +523,9 @@ def parse_args() -> argparse.Namespace:
                        type=float, help="Time points for the experiment")
     parser.add_argument("-o", "--output", type=Path, required=True,
                        help="Path to output TSV file for fitted parameters")
+    parser.add_argument("-j", "--jobs", type=int, default=1,
+                       help="Parallel worker processes for curve fitting "
+                            "(1 = serial, -1 = all cores; default: 1)")
     parser.add_argument("-v", "--verbose", action="store_true",
                        help="Enable verbose logging")
 
@@ -505,6 +547,7 @@ def main() -> int:
             output_file=args.output,
             time_points=args.time_points,
             weight_file=args.weight,
+            jobs=args.jobs,
             verbose=args.verbose
         )
     except ValueError as e:
@@ -522,24 +565,16 @@ def main() -> int:
         )
         t_last = x_values[-1]
 
-        # Fit curves with progress tracking
-        logger.info("Fitting sigmoid curves...")
-        all_results = []
-
-        with tqdm(total=len(y_values), desc="Fitting progress") as pbar:
-            for i, (y_data, ID) in enumerate(zip(y_values, IDs)):
-                result = fit_single_curve(x_values, y_data, weight_values[i], ID, t_last)
-
-                # Add time series data to result
-                for j, time_val in enumerate(x_values):
-                    result[timepoint_columns[j]] = round(y_data[j], 3)
-                for j, time_val in enumerate(x_values):
-                    result[timepoint_columns[j] + '_fitted'] = round(sigmoid_function(time_val, result['A'], result['DR'], result['DL']), 3)
-                for j, time_val in enumerate(x_values):
-                    result[timepoint_columns[j] + '_residual'] = round(result[timepoint_columns[j]] - result[timepoint_columns[j] + '_fitted'], 3)
-
-                all_results.append(result)
-                pbar.update(1)
+        # Fit curves in parallel across datasets. Each dataset is independent;
+        # joblib preserves input order so `all_results` matches the previous
+        # serial loop element-for-element.
+        logger.info(f"Fitting sigmoid curves with {config.jobs} worker(s)...")
+        all_results = Parallel(n_jobs=config.jobs)(
+            delayed(fit_and_augment)(
+                x_values, y_data, weight_values[i], ID, t_last, timepoint_columns
+            )
+            for i, (y_data, ID) in enumerate(zip(y_values, IDs))
+        )
 
         # Create results DataFrame
         results_df = pd.DataFrame(all_results)

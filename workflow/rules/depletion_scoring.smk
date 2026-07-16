@@ -146,6 +146,7 @@ rule insertion_level_curve_fitting:
         "projects/{project_name}/logs/depletion_scoring/insertion_level_curve_fitting.log",
     params:
         time_points=lambda wildcards: " ".join(map(str, config["time_points"])),
+    threads: 16
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -155,6 +156,7 @@ rule insertion_level_curve_fitting:
         python workflow/scripts/depletion_scoring/curve_fitting.py \
             -i {input} \
             -t {params.time_points} \
+            -j {threads} \
             -o {output} &> {log}
         """
 
@@ -271,6 +273,7 @@ rule gene_level_curve_fitting:
         "projects/{project_name}/logs/depletion_scoring/gene_level_curve_fitting.log",
     params:
         time_points=lambda wildcards: " ".join(map(str, config["time_points"])),
+    threads: 16
     conda:
         "../envs/statistics_and_figure_plotting.yml"
     message:
@@ -280,6 +283,7 @@ rule gene_level_curve_fitting:
         python workflow/scripts/depletion_scoring/curve_fitting.py \
             -i {input.LFC} \
             -t {params.time_points} \
+            -j {threads} \
             -o {output} &> {log}
         """
 
