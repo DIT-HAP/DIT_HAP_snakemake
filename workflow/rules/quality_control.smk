@@ -3,6 +3,127 @@
 # =============================================================================
 
 
+# FastQC on junction-classified reads
+# -----------------------------------------------------
+rule fastqc_junction_classification:
+    input:
+        PBL_r1=rules.junction_classification.output.PBL_r1,
+        PBL_r2=rules.junction_classification.output.PBL_r2,
+        PBR_r1=rules.junction_classification.output.PBR_r1,
+        PBR_r2=rules.junction_classification.output.PBR_r2,
+    output:
+        PBL_r1_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_1_fastqc.html",
+        PBL_r1_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_1_fastqc.zip",
+        PBL_r2_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_2_fastqc.html",
+        PBL_r2_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBL_2_fastqc.zip",
+        PBR_r1_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_1_fastqc.html",
+        PBR_r1_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_1_fastqc.zip",
+        PBR_r2_html=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_2_fastqc.html",
+        PBR_r2_zip=f"projects/{project_name}/reports/fastqc/{{sample}}_{{timepoint}}_{{condition}}.PBR_2_fastqc.zip",
+    log:
+        f"projects/{project_name}/logs/quality_control/fastqc/{{sample}}_{{timepoint}}_{{condition}}_fastqc_demultiplexed.log",
+    conda:
+        "../envs/fastqc.yml"
+    params:
+        output_dir=f"projects/{project_name}/reports/fastqc",
+    threads: 4
+    message:
+        "*** Running FastQC for junction classified paired-end reads for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+    shell:
+        # One fastqc invocation over all four files: --threads N means "process N
+        # files concurrently", so a single call with 4 files uses all 4 threads,
+        # whereas the previous four separate calls left threads idle (each ran one
+        # file). Same outputs, ~4x faster.
+        """
+        fastqc --threads {threads} --noextract -o {params.output_dir} \
+            {input.PBL_r1} {input.PBL_r2} {input.PBR_r1} {input.PBR_r2} &> {log}
+        """
+
+
+# Coordinate-sort and index BAMs (QC-only: feeds samtools/picard stats below,
+# not the core bam_to_tsv path, which reads the name-sorted BAM directly)
+# -----------------------------------------------------
+rule samtools_sorting_and_indexing:
+    input:
+        PBL=rules.bwa_mem_mapping.output.PBL,
+        PBR=rules.bwa_mem_mapping.output.PBR,
+        ref_index=rules.samtools_faidx.output[0].format(release_version=config["Pombase_release_version"]),
+    output:
+        PBL_sorted=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBL.sorted.bam",
+        PBR_sorted=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBR.sorted.bam",
+        PBL_index=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBL.sorted.bam.bai",
+        PBR_index=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBR.sorted.bam.bai",
+    log:
+        f"projects/{project_name}/logs/quality_control/samtools_sorting_and_indexing/{{sample}}_{{timepoint}}_{{condition}}.log",
+    conda:
+        "../envs/bwa_mapping.yml"
+    threads: 2
+    message:
+        "*** Sorting and indexing {input.PBL} and {input.PBR}..."
+    shell:
+        """
+        echo "*** Sorting PBL reads..." > {log}
+        samtools sort -@ {threads} {input.PBL} -O BAM -o {output.PBL_sorted} &>> {log}
+        echo "*** Indexing PBL reads..." >> {log}
+        samtools index -@ {threads} {output.PBL_sorted} &>> {log}
+        echo "*** Sorting PBR reads..." >> {log}
+        samtools sort -@ {threads} {input.PBR} -O BAM -o {output.PBR_sorted} &>> {log}
+        echo "*** Indexing PBR reads..." >> {log}
+        samtools index -@ {threads} {output.PBR_sorted} &>> {log}
+        """
+
+
+# Samtools mapping statistics
+# -----------------------------------------------------
+rule samtools_mapping_statistics:
+    input:
+        PBL=rules.samtools_sorting_and_indexing.output.PBL_sorted,
+        PBR=rules.samtools_sorting_and_indexing.output.PBR_sorted,
+    output:
+        PBL_stats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.stats.txt",
+        PBR_stats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.stats.txt",
+        PBL_flagstat=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.flagstat.txt",
+        PBR_flagstat=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.flagstat.txt",
+        PBL_idxstats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBL.idxstats.txt",
+        PBR_idxstats=f"projects/{project_name}/reports/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.PBR.idxstats.txt",
+    log:
+        f"projects/{project_name}/logs/quality_control/samtools_mapping_statistics/{{sample}}_{{timepoint}}_{{condition}}.log",
+    conda:
+        "../envs/bwa_mapping.yml"
+    threads: 2
+    message:
+        "*** Running Samtools mapping statistics for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+    shell:
+        """
+        echo "*** Samtools stats/flagstat/idxstats for PBL..." > {log}
+        samtools stats    {input.PBL} > {output.PBL_stats}    2>> {log}
+        samtools flagstat {input.PBL} > {output.PBL_flagstat} 2>> {log}
+        samtools idxstats {input.PBL} > {output.PBL_idxstats} 2>> {log}
+        echo "*** Samtools stats/flagstat/idxstats for PBR..." >> {log}
+        samtools stats    {input.PBR} > {output.PBR_stats}    2>> {log}
+        samtools flagstat {input.PBR} > {output.PBR_flagstat} 2>> {log}
+        samtools idxstats {input.PBR} > {output.PBR_idxstats} 2>> {log}
+        """
+
+
+# Picard insert-size metrics
+# -----------------------------------------------------
+rule insert_size:
+    input:
+        f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.sorted.bam",
+    output:
+        txt=f"projects/{project_name}/reports/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.txt",
+        pdf=f"projects/{project_name}/reports/picard_insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.pdf",
+    log:
+        f"projects/{project_name}/logs/quality_control/insert_size/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
+    params:
+        extra="--VALIDATION_STRINGENCY LENIENT --METRIC_ACCUMULATION_LEVEL null --METRIC_ACCUMULATION_LEVEL SAMPLE",
+    resources:
+        mem_mb=1024,
+    wrapper:
+        f"{snakemake_wrapper_version}/bio/picard/collectinsertsizemetrics"
+
+
 # MultiQC for preprocessing reports
 # -----------------------------------------------------
 rule multiqc_preprocessing:
@@ -66,6 +187,27 @@ rule multiqc_preprocessing:
             {input.bam_stats} \
             {input.picard_metrics} \
             &> {log}
+        """
+
+
+# Merge per-fragment filter logs back into one combined log
+# -----------------------------------------------------
+# filter_aligned_reads was split into independent PBL/PBR jobs (each writes its
+# own log). The QC parser (extract_mapping_filtering_statistics.py) keys the
+# sample name off the log file stem and expects a single log containing both the
+# PBL and PBR "FILTERING SUMMARY" blocks. This rule concatenates the two
+# per-fragment logs into that combined form so the QC contract is unchanged.
+rule merge_filter_logs:
+    input:
+        PBL=f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.PBL.log",
+        PBR=f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.PBR.log",
+    output:
+        f"projects/{project_name}/logs/read_processing/filter_aligned_reads_combined/{{sample}}_{{timepoint}}_{{condition}}.log",
+    message:
+        "*** Merging PBL/PBR filter logs for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+    shell:
+        """
+        cat {input.PBL} {input.PBR} > {output}
         """
 
 
