@@ -38,11 +38,16 @@ Input
 
 Output
 ------
-- A Parquet file with one row per read pair, all columns stored as strings
-  (matching the in-memory representation used while formatting each row, "N/A"
-  included) so this stage makes no data-type decisions. Columns: ``QueryName``,
-  the ten R1 fields, the R1 tag columns, the ten R2 fields, the R2 tag columns,
-  and ``Is_Proper_Pair``. Tags are emitted in sorted order.
+- A Parquet file with one row per read pair. The 14 base numeric fields
+  (``MAPQ``, ``LEN``, ``NCIGAR``, ``Pos``, ``Ref_Start``, ``Ref_End``, ``Flag``
+  for both reads) are stored as ``int64`` (nullable: a missing value is a real
+  null, not the ``"N/A"`` sentinel). Every other column -- ``QueryName``, CIGAR,
+  strand, chrom, the SAM tag columns, and ``Is_Proper_Pair`` -- is stored as a
+  string, since tags can be non-numeric and are consumed as strings downstream.
+  Typing the base numeric columns natively (rather than as strings) is markedly
+  cheaper to encode into Parquet and is verified to leave the downstream
+  ``filter_aligned_reads`` output byte- and dtype-identical. Tags are emitted in
+  sorted order.
 
 Usage
 -----
@@ -82,12 +87,24 @@ PAIR_PROGRESS_INTERVAL = 500000
 # Read pairs buffered in memory before each Parquet row-group flush
 PARQUET_BATCH_SIZE = 500000
 
+# Base (non-tag) numeric columns emitted by format_output_line as native ints.
+# These are always integers straight from pysam (mapq/n_cigar/flag default to 0;
+# length/pos/ref_start/ref_end are nullable -> stored as int64 with real nulls).
+# SAM tag columns are NOT here: a tag can be non-numeric, so tags stay strings.
+# Names must match build_header exactly (note R1_Flag vs R2_FLAG).
+INT64_COLUMNS = frozenset(
+    {
+        "R1_MAPQ", "R1_LEN", "R1_NCIGAR", "R1_Pos", "R1_Ref_Start", "R1_Ref_End", "R1_Flag",
+        "R2_MAPQ", "R2_LEN", "R2_NCIGAR", "R2_Pos", "R2_Ref_Start", "R2_Ref_End", "R2_FLAG",
+    }
+)
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class InputOutputConfig:
-    """Input/output paths and processing parameters for BAM to TSV conversion."""
+    """Input/output paths and processing parameters for BAM to Parquet conversion."""
     input_bam: Path
     output_file: Path
     threads: int = 4
@@ -114,9 +131,9 @@ class ReadInfo:
     strand: str = "N/A"
     n_cigar: int = 0
     chrom: str = "N/A"
-    pos: str = "N/A"
-    ref_start: str = "N/A"
-    ref_end: str = "N/A"
+    pos: int | None = None
+    ref_start: int | None = None
+    ref_end: int | None = None
     flag: int = 0
     tags: dict[str, str] = field(default_factory=dict)
 
@@ -133,7 +150,7 @@ class ReadPairInfo:
 # LOGGING SETUP
 # =============================================================================
 def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for BAM to TSV conversion."""
+    """Configure loguru for BAM to Parquet conversion."""
     logger.remove()
     logger.add(
         sys.stdout,
@@ -147,7 +164,13 @@ setup_logger()
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
-@logger.catch
+# NOTE: the per-read-pair functions below are intentionally NOT decorated with
+# @logger.catch. It is called ~4x per read pair (~24M times on a full lane), and
+# its wrapper overhead is measurable; more importantly, on a computation function
+# @logger.catch swallows exceptions and returns None instead of propagating,
+# which silently corrupts downstream output (see the batch-3 annotation fix in
+# docs/optimization_plan.md). @logger.catch stays only on the I/O-boundary
+# process_bam_file, where a real error should be logged and abort the run.
 def extract_read_info(read: pysam.AlignedSegment | None, tag_list: list[str]) -> ReadInfo:
     """Extract alignment information from a pysam AlignedSegment (or a placeholder if None)."""
     if read is None:
@@ -185,19 +208,16 @@ def extract_read_info(read: pysam.AlignedSegment | None, tag_list: list[str]) ->
         strand=strand,
         n_cigar=n_cigar,
         chrom=read.reference_name if read.reference_name is not None else "N/A",
-        pos=str(read.reference_start)
+        pos=read.reference_start
         if read.reference_start is not None and read.reference_start != -1
-        else "N/A",
-        ref_start=str(read.reference_start)
-        if read.reference_start is not None
-        else "N/A",
-        ref_end=str(read.reference_end) if read.reference_end is not None else "N/A",
+        else None,
+        ref_start=read.reference_start if read.reference_start is not None else None,
+        ref_end=read.reference_end if read.reference_end is not None else None,
         flag=read.flag if read.flag is not None else 0,
         tags=formatted_tags,
     )
 
 
-@logger.catch
 def determine_proper_pair_status(
     read1: pysam.AlignedSegment | None, read2: pysam.AlignedSegment | None
 ) -> str:
@@ -211,7 +231,6 @@ def determine_proper_pair_status(
     return "N/A"
 
 
-@logger.catch
 def process_read_pair(
     qname: str,
     read1: pysam.AlignedSegment | None,
@@ -229,24 +248,26 @@ def process_read_pair(
     )
 
 
-def format_output_line(pair_info: ReadPairInfo, tag_list: list[str]) -> list[str]:
-    """Format ReadPairInfo into an ordered list of output fields."""
+def format_output_line(pair_info: ReadPairInfo, tag_list: list[str]) -> list:
+    """Format ReadPairInfo into an ordered list of output fields (native int for numeric base fields, str/None otherwise)."""
     output_line = [pair_info.qname]
 
-    # Read 1 information
+    # Read 1 information. Numeric base fields are emitted as native int (or None
+    # for the nullable ones) so the Parquet writer can encode them as int64
+    # directly; strings/tags stay as-is. build_schema declares the matching type.
     r1 = pair_info.read1 or ReadInfo(tags={tag: "N/A" for tag in tag_list})
     output_line.extend(
         [
-            str(r1.mapq),
-            str(r1.length) if r1.length is not None else "N/A",
+            r1.mapq,
+            r1.length,
             r1.cigar,
             r1.strand,
-            str(r1.n_cigar),
+            r1.n_cigar,
             r1.chrom,
             r1.pos,
             r1.ref_start,
             r1.ref_end,
-            str(r1.flag),
+            r1.flag,
         ]
     )
     for tag in tag_list:
@@ -256,16 +277,16 @@ def format_output_line(pair_info: ReadPairInfo, tag_list: list[str]) -> list[str
     r2 = pair_info.read2 or ReadInfo(tags={tag: "N/A" for tag in tag_list})
     output_line.extend(
         [
-            str(r2.mapq),
-            str(r2.length) if r2.length is not None else "N/A",
+            r2.mapq,
+            r2.length,
             r2.cigar,
             r2.strand,
-            str(r2.n_cigar),
+            r2.n_cigar,
             r2.chrom,
             r2.pos,
             r2.ref_start,
             r2.ref_end,
-            str(r2.flag),
+            r2.flag,
         ]
     )
     for tag in tag_list:
@@ -276,7 +297,7 @@ def format_output_line(pair_info: ReadPairInfo, tag_list: list[str]) -> list[str
 
 
 def build_header(tag_list: list[str]) -> list[str]:
-    """Build the header row for the output TSV file."""
+    """Build the ordered list of output column names."""
     header_fields = [
         "QueryName",
         "R1_MAPQ",
@@ -317,16 +338,24 @@ def build_header(tag_list: list[str]) -> list[str]:
 
 
 def build_schema(header_fields: list[str]) -> pa.Schema:
-    """Build a Parquet schema with every column typed as a string, matching the in-memory row representation."""
-    return pa.schema([(name, pa.string()) for name in header_fields])
+    """Build a Parquet schema: base numeric fields as int64, all other columns as string."""
+    return pa.schema(
+        [
+            (name, pa.int64() if name in INT64_COLUMNS else pa.string())
+            for name in header_fields
+        ]
+    )
 
 
 def flush_batch(
-    writer: pq.ParquetWriter, buffered_rows: list[list[str]], schema: pa.Schema
+    writer: pq.ParquetWriter, buffered_rows: list[list], schema: pa.Schema
 ) -> None:
-    """Write a batch of buffered rows to the Parquet file as one row group."""
+    """Write a batch of buffered rows to the Parquet file as one row group, typing each column per the schema."""
     columns = list(zip(*buffered_rows))
-    arrays = [pa.array(column, type=pa.string()) for column in columns]
+    arrays = [
+        pa.array(column, type=schema.field(index).type)
+        for index, column in enumerate(columns)
+    ]
     table = pa.Table.from_arrays(arrays, schema=schema)
     writer.write_table(table)
 
@@ -352,7 +381,7 @@ def process_bam_file(config: InputOutputConfig) -> None:
     current_r2 = None
     processed_qname_count = 0
     read_count = 0
-    buffered_rows: list[list[str]] = []
+    buffered_rows: list[list] = []
 
     # Open BAM/SAM file
     mode = "rb" if str(config.input_bam).endswith(".bam") else "r"
@@ -465,7 +494,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    """Main orchestrator for BAM to TSV conversion."""
+    """Main orchestrator for BAM to Parquet conversion."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
 
