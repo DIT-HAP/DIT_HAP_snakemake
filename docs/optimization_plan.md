@@ -57,3 +57,70 @@
 - **外部数据列的 dtype 不可信**:即使 schema 定义为 float,实际文件可能混入字符串;运算前用 `pd.to_numeric(errors='coerce')` 统一。
 
 最终验证:✅ 两个脚本独立测试,输出均**字节一致**于原版。
+
+---
+
+## 批 4 — bam_to_tsv + filter_aligned_reads 迁移到 Parquet(已实现,已验证)
+
+范围收窄自最初提议的 9 脚本全链路迁移:用户选择只做 `5_tabulated`(`bam_to_tsv`)+ `6_filtered`(`filter_aligned_reads`)这两步,因为 `6_filtered` 单文件 18GB,是全链路里收益最大的一段。
+
+**改动**
+
+### workflow/envs/pysam.yml, workflow/envs/statistics_and_figure_plotting.yml
+新增 `pyarrow=24.0.0`(pin 版本,两个环境都需要读/写 Parquet)。
+
+### parse_bam_to_tsv.py(5_tabulated 输出方)
+- 旧: 逐行 `outfile.write(format_output_line(...) + "\n")` 写 tab 分隔文本
+- 新: 每 `PARQUET_BATCH_SIZE=500000` 对读缓冲一批 `list[list[str]]`,`flush_batch()` 里 zip 转置 + `pa.array()` 逐列转换,`pq.ParquetWriter.write_table()` 写一个 row group
+- 所有列固定为 `pa.string()`(与原来逐行输出的字符串,包括 `"N/A"` 哨兵值,保持完全一致,不做类型推断)
+- `ParquetWriter` 加 `write_statistics=False, use_dictionary=False`:该文件是 `temp()`,唯一读者 `filter_aligned_reads.py` 顺序全读一次、无谓词下推,统计信息和字典编码纯粹是写入开销
+
+### filter_aligned_reads.py(5_tabulated 读入方 + 6_filtered 输出方)
+- 读: `pd.read_csv(chunksize=...)` → `pq.ParquetFile(...).iter_batches(batch_size=...)` + `record_batch.to_pandas()`
+- 新增 `coerce_column_dtypes()`:因为 Parquet 端全部列都是字符串类型,读入后需要还原 `pd.read_csv` 原本会推断出的 dtype,否则 `build_filter_mask()` 里的数值比较/`.isna()` 判断会出错
+  - `ALWAYS_INT_FIELDS`(MAPQ/NCIGAR/Flag/FLAG,源头从不为 "N/A")→ `int64`
+  - `NULLABLE_NUMERIC_FIELDS`(LEN/Pos/Ref_Start/Ref_End + AS/MQ/NM/XS 数值 tag)→ `pd.to_numeric(errors="coerce")` → `float64`(用 coerce 而不是先替换哨兵值再 astype,因为 to_numeric 本身就会把解析不了的 "N/A"/"NA"/"" 转成 NaN)
+  - 只对 `build_filter_mask` 实际用 `.isna()` 判断的 4 列(R1_SA/R1_XA/R2_SA/R2_XA)显式替换 "N/A"/"NA"/"" 为 `np.nan`,其余字符串列不动
+  - 依据: SAM 可选字段类型码('i'/'f' vs 'Z'),不是猜的
+- 写: `pa.Schema.from_pandas()` 从第一个过滤后的 chunk 派生固定 schema,复用给后续所有 `write_table()` 调用
+- `6_filtered` 输出**没有**加 `write_statistics=False`/`use_dictionary=False`(该文件按设计文档 DP2 保留为非 `temp()`,供人工调试/QC 查看 —— 但从 TSV 换成二进制 Parquet 后 DP2"人工可读"的原意是否还成立,这里先不动,留给用户后续决定)
+
+### extract_insertion_sites.py(6_filtered 读入方)
+- 读: `pd.read_csv(..., na_values=[...])` → `pq.ParquetFile(...).iter_batches()`,不再需要 na_values 哨兵参数(Parquet 里 dtype 是 native 的)
+- 计算逻辑(`create_validation_mask`/`calculate_insertion_coordinates_vectorized`/...)完全不动,批 3 向量化后本来就已经能正确处理 nullable float64
+
+### extract_mapping_filtering_statistics.py(QC 脚本,读 filter_aligned_reads 的日志文本)
+排查改动影响范围时发现的隐藏依赖:该脚本用正则解析 `filter_aligned_reads.py` 日志里 "Output written to: ...filtered.tsv" 这一行来提取统计数字,`SUMMARY_PATTERN` 硬编码了 `.filtered.tsv` 后缀。改成 `.filtered.parquet` 后缀,否则会静默失效(返回空字典,只报个 "No filtering summary sections found" 警告,不会报错)。
+
+### workflow/rules/read_processing.smk
+`rule bam_to_tsv` / `rule filter_aligned_reads` 的 output 路径后缀从 `.tsv`/`.filtered.tsv` 改为 `.parquet`/`.filtered.parquet`。output dict 的 key 名(`tsv=`)不变,因为下游规则是按 key 引用(`rules.filter_aligned_reads.output.filtered`),不是按文件名猜测,不受影响。
+
+**验证状态(真实生产规模数据,非合成数据)**
+- ✅ `parse_bam_to_tsv.py`: NEW(Parquet)vs OLD(TSV)—— 6,015,396 行 × 38 列,逐列内容完全一致,0 处不匹配
+- ✅ `filter_aligned_reads.py`: NEW vs OLD —— 保留率完全一致(5,548,736/6,015,396 = 92.24%,逐行匹配),38 列/dtype 全部一致(NaN==NaN 按数值列处理,字符串列哨兵值归一化后比较)
+- ✅ `extract_insertion_sites.py`: NEW(读 Parquet)vs OLD(读 TSV)—— 输出**逐字节一致**(`cmp -s` 通过),76,572 个 unique insertion site,5,548,736 次插入,plus/minus strand 计数完全一致
+- ✅ `extract_mapping_filtering_statistics.py` 正则修复验证:用新脚本产出 snakemake 命名规范的 `.filtered.parquet`,跑一遍拿到日志,QC parser 能正确提取全部统计字段,无警告
+- ✅ 文件体积:`5_tabulated` 单文件 1.17GB(TSV)→ 375MB(Parquet+snappy),↓68%;`6_filtered` 单文件 1.12GB(TSV)→ 288MB(Parquet+snappy),↓74%
+
+**墙钟时间:上游一步变慢,下游两步大幅变快,全链路净赢**
+
+| 阶段 | OLD 墙钟 | NEW 墙钟 | 变化 |
+|---|---|---|---|
+| bam_to_tsv | 192.75s | 261.43s | ↑36%(**回归**) |
+| filter_aligned_reads | 137.57s | 78.54s | ↓43% |
+| extract_insertion_sites | 28.5s | 5.9s | ↓79% |
+| **三步合计** | **358.82s** | **345.87s** | **↓3.6%** |
+
+`bam_to_tsv` 回归排查过程(cProfile 定位到 `flush_batch()` 里的行缓冲 + zip 转置 + `pa.array()` 转换是唯一的新增开销,核心的 `extract_read_info`/`format_output_line` 耗时在 OLD/NEW 两版里完全一样):
+1. 加 `write_statistics=False, use_dictionary=False` —— 隔离微基准测试显示写入开销降 34%,但真实全量数据重跑后**无可测量的改善**(4:21→4:22,反而略慢),微基准与真实场景不一致
+2. 扫 `PARQUET_BATCH_SIZE`(25000/50000/100000/250000/500000/1000000)—— 结果在 28.8s~34.7s 之间无单调趋势(50000 反而比 25000 快,100000 又比 50000 慢),判定为运行噪声,不是真实信号
+
+两次调优尝试均未拿到干净的收益,按"失败两次就要换思路而不是继续微调"的原则停止在这个方向继续深挖。当前状态是:接受 `bam_to_tsv` 单步的回归,因为全链路是净赢的(↓3.6%),且 `6_filtered`(本次收益目标,18GB→更小)的体积和速度收益都完全达成。若之后想进一步优化 `bam_to_tsv`,大概方向是重新设计 `flush_batch` 避免逐行缓冲(比如逐列累积代替行缓冲再转置),但目前证据不足以支撑动这块代码。
+
+**经验教训**
+- **微基准测试的结果不能直接迁移到真实数据规模**:`write_statistics=False`/`use_dictionary=False` 在 50万行合成数据上测得 34% 提升,但在 600万行真实数据的完整脚本运行里完全没体现出来 —— 微基准隔离掉的上下文(GC 压力、内存分配模式、与其他阶段的调度交互)可能才是真正的决定因素,调优前先在真实规模上量,不要只信合成微基准。
+- **Parquet 没有 append 模式**,增量写入必须用 `ParquetWriter.write_table()` 分批调用,`iter_batches()` 是 `read_csv(chunksize=)` 的对应替代。
+- **全部列存字符串类型再手动 coerce dtype 是一种可行的简单策略**:牺牲了 schema 层面的类型安全,换来 upstream 脚本(`parse_bam_to_tsv.py`)不需要处理"这一列到底该是 int 还是 float 还是字符串"的推断逻辑,把 dtype 决策留到下游第一次真正需要用到数值语义的地方(`filter_aligned_reads.py`)集中处理,新脚本只要照抄原来字符串格式化逻辑即可,不引入新的数值 bug 风险。
+- **改文件格式的爆炸半径不止直接读写这个文件的脚本**:QC 脚本 `extract_mapping_filtering_statistics.py` 解析的是别的脚本的**日志文本**,里面硬编码了文件后缀,这种依赖不会被 import 关系体现出来,只能靠 grep 全文搜索文件名字符串才能发现。
+
+最终验证:✅ 三个脚本链路独立测试 + QC 正则修复验证,全部通过,数值结果与原版完全一致;全链路墙钟时间净减 3.6%。
