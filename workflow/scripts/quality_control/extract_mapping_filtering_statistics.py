@@ -31,13 +31,13 @@ The parser matches summary blocks of the following shape (one per read type)::
     Filtered read pairs: 1,123,456
     Removed read pairs: 111,111
     Overall retention rate: 91.05%
-    Output written to: sample_name.PBL.filtered.tsv
+    Output written to: sample_name.PBL.filtered.parquet
 
 Input
 -----
 - One or more filtering log files, each containing "FILTERING SUMMARY"
-  sections whose "Output written to" line ends in ``.PBL.filtered.tsv`` or
-  ``.PBR.filtered.tsv``. The sample name is taken from each log file's stem.
+  sections whose "Output written to" line ends in ``.PBL.filtered.parquet`` or
+  ``.PBR.filtered.parquet``. The sample name is taken from each log file's stem.
 
 Output
 ------
@@ -84,7 +84,7 @@ SUMMARY_PATTERN = re.compile(
     r".*\| Filtered read pairs: ([\d,]+)\s*\n"
     r".*\| Removed read pairs: ([\d,]+)\s*\n"
     r".*\| Overall retention rate: ([\d.]+)%\s*\n"
-    r".*\| Output written to: (.+?\.(?:PBL|PBR)\.filtered\.tsv)"
+    r".*\| Output written to: (.+?\.(?:PBL|PBR)\.filtered\.parquet)"
 )
 
 # =============================================================================
@@ -183,9 +183,9 @@ def parse_log_file(log_file: Path) -> dict[str, FilteringStatistics]:
         output_path = match[5]
 
         # Determine if this is PBL or PBR based on output path
-        if ".PBL.filtered.tsv" in output_path:
+        if ".PBL.filtered.parquet" in output_path:
             suffix = "pbl"
-        elif ".PBR.filtered.tsv" in output_path:
+        elif ".PBR.filtered.parquet" in output_path:
             suffix = "pbr"
         else:
             logger.warning(f"Could not determine PBL/PBR from output path: {output_path}")

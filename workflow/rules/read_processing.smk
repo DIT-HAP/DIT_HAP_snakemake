@@ -245,7 +245,7 @@ rule bam_to_tsv:
     input:
         bam=f"projects/{project_name}/results/3_mapped/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.name_sorted.bam",
     output:
-        tsv=temp(f"projects/{project_name}/results/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.tsv"),
+        tsv=temp(f"projects/{project_name}/results/5_tabulated/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.parquet"),
     log:
         f"projects/{project_name}/logs/read_processing/bam_to_tsv/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     conda:
@@ -262,7 +262,7 @@ rule bam_to_tsv:
         # --resources mem_mb budget, which this project does not use.)
         mem_mb=4000,
     message:
-        "*** Transforming {wildcards.fragment} BAM to TSV for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
+        "*** Transforming {wildcards.fragment} BAM to Parquet for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
     shell:
         """
         python workflow/scripts/read_processing/parse_bam_to_tsv.py \
@@ -276,7 +276,7 @@ rule filter_aligned_reads:
     input:
         tsv=rules.bam_to_tsv.output.tsv,
     output:
-        filtered=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.filtered.tsv",
+        filtered=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.filtered.parquet",
     log:
         f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     conda:

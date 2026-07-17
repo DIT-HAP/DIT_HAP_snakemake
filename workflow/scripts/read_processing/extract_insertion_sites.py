@@ -8,6 +8,7 @@
 # dependencies = [
 #     "pandas",
 #     "loguru",
+#     "pyarrow",
 # ]
 # ///
 
@@ -15,24 +16,24 @@
 Extract Transposon Insertion Sites
 ===================================
 
-Identify and count transposon insertion sites from the tab-separated read
+Identify and count transposon insertion sites from the columnar read
 alignment table produced by BAM parsing. Each aligned read carries a genomic
 chromosome, reference start/end coordinates, and a strand orientation; the
 insertion coordinate is derived from the strand-specific position of the TTAA
 target motif.
 
-The core algorithm streams the input in row chunks (bounded memory), keeps rows
-with a valid ``+``/``-`` strand and complete coordinates, and computes the
-insertion coordinate per row: for the ``+`` strand the site is ``R1_Ref_Start + 4``
-(the position immediately after ``TTAA``), and for the ``-`` strand it is
-``R1_Ref_End``. Rows are then grouped by ``(chromosome, coordinate, strand)`` and
-counted, aggregating per-strand tallies across all chunks into a single table.
+The core algorithm streams the input in row-group batches (bounded memory),
+keeps rows with a valid ``+``/``-`` strand and complete coordinates, and
+computes the insertion coordinate per row: for the ``+`` strand the site is
+``R1_Ref_Start + 4`` (the position immediately after ``TTAA``), and for the
+``-`` strand it is ``R1_Ref_End``. Rows are then grouped by
+``(chromosome, coordinate, strand)`` and counted, aggregating per-strand
+tallies across all chunks into a single table.
 
 Input
 -----
-- A tab-separated TSV of aligned reads with columns ``R1_Strand``, ``R1_Chrom``,
-  ``R1_Ref_Start``, and ``R1_Ref_End`` (``N/A``, ``NA``, and empty are treated as
-  missing values).
+- A Parquet file of aligned reads with columns ``R1_Strand``, ``R1_Chrom``,
+  ``R1_Ref_Start``, and ``R1_Ref_End``.
 
 Output
 ------
@@ -63,6 +64,7 @@ from pathlib import Path
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 # 3. Third-party Imports
 from loguru import logger
@@ -239,14 +241,10 @@ def process_chunks(config: InputOutputConfig) -> tuple[InsertionCounts, int, int
 
     logger.info("Starting chunked processing...")
 
-    chunk_iterator = pd.read_csv(
-        config.input_file,
-        sep='\t',
-        chunksize=config.chunk_size,
-        na_values=['N/A', 'NA', '']
-    )
+    parquet_file = pq.ParquetFile(config.input_file)
 
-    for chunk_df in chunk_iterator:
+    for record_batch in parquet_file.iter_batches(batch_size=config.chunk_size):
+        chunk_df = record_batch.to_pandas()
         chunk_count += 1
         total_rows += len(chunk_df)
 

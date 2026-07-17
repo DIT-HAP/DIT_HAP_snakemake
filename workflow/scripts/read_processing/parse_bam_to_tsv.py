@@ -8,15 +8,16 @@
 # dependencies = [
 #     "loguru",
 #     "pysam",
+#     "pyarrow",
 # ]
 # ///
 
 """
-BAM to TSV Read-Pair Parser
-===========================
+BAM to Parquet Read-Pair Parser
+================================
 
 Extract per-read-pair alignment summaries from a QNAME-sorted BAM/SAM file and
-write them as a tab-delimited table. For each query template the parser records
+write them as a columnar table. For each query template the parser records
 read 1 and read 2 mapping quality, alignment length, CIGAR string, strand,
 number of CIGAR operations, reference name, position, reference start/end,
 SAM flag, a configurable set of alignment tags, and the proper-pair status.
@@ -25,9 +26,10 @@ The core algorithm is a single streaming pass over the alignment file: it relies
 on the input being QNAME-sorted so that all alignments sharing a query name are
 adjacent. Unmapped, secondary, and supplementary alignments are skipped; the
 first primary read 1 and read 2 seen for a query name are retained. When a new
-query name is encountered the previous pair is formatted and written, keeping
-memory usage flat regardless of file size. Multi-threaded BAM decompression is
-supported via pysam.
+query name is encountered the previous pair is formatted and buffered, keeping
+memory usage bounded regardless of file size (rows are flushed to disk every
+``PARQUET_BATCH_SIZE`` pairs). Multi-threaded BAM decompression is supported
+via pysam.
 
 Input
 -----
@@ -36,15 +38,16 @@ Input
 
 Output
 ------
-- A tab-delimited file with a header row followed by one line per read pair.
-  Columns: ``QueryName``, the ten R1 fields, the R1 tag columns, the ten R2
-  fields, the R2 tag columns, and ``Is_Proper_Pair``. Tags are emitted in
-  sorted order.
+- A Parquet file with one row per read pair, all columns stored as strings
+  (matching the in-memory representation used while formatting each row, "N/A"
+  included) so this stage makes no data-type decisions. Columns: ``QueryName``,
+  the ten R1 fields, the R1 tag columns, the ten R2 fields, the R2 tag columns,
+  and ``Is_Proper_Pair``. Tags are emitted in sorted order.
 
 Usage
 -----
-    python parse_bam_to_tsv.py -i input.bam -o output.tsv -t 8
-    python parse_bam_to_tsv.py --input input.bam --output output.tsv --threads 8 --verbose
+    python parse_bam_to_tsv.py -i input.bam -o output.parquet -t 8
+    python parse_bam_to_tsv.py --input input.bam --output output.parquet --threads 8 --verbose
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
@@ -62,6 +65,8 @@ from pathlib import Path
 
 # 2. Third-party Imports
 from loguru import logger
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pysam
 
 # =============================================================================
@@ -73,6 +78,9 @@ DEFAULT_TAGS = ["AS", "MC", "MD", "MQ", "NM", "SA", "XA", "XS"]
 # Progress reporting intervals
 READ_PROGRESS_INTERVAL = 2000000
 PAIR_PROGRESS_INTERVAL = 500000
+
+# Read pairs buffered in memory before each Parquet row-group flush
+PARQUET_BATCH_SIZE = 500000
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -308,9 +316,24 @@ def build_header(tag_list: list[str]) -> list[str]:
     return header_fields
 
 
+def build_schema(header_fields: list[str]) -> pa.Schema:
+    """Build a Parquet schema with every column typed as a string, matching the in-memory row representation."""
+    return pa.schema([(name, pa.string()) for name in header_fields])
+
+
+def flush_batch(
+    writer: pq.ParquetWriter, buffered_rows: list[list[str]], schema: pa.Schema
+) -> None:
+    """Write a batch of buffered rows to the Parquet file as one row group."""
+    columns = list(zip(*buffered_rows))
+    arrays = [pa.array(column, type=pa.string()) for column in columns]
+    table = pa.Table.from_arrays(arrays, schema=schema)
+    writer.write_table(table)
+
+
 @logger.catch
 def process_bam_file(config: InputOutputConfig) -> None:
-    """Process a QNAME-sorted BAM/SAM file and write the read-pair TSV output."""
+    """Process a QNAME-sorted BAM/SAM file and write the read-pair Parquet output."""
     logger.info(f"Starting BAM processing with {config.threads} threads")
     logger.info(f"Input: {config.input_bam}")
     logger.info(f"Output: {config.output_file}")
@@ -319,31 +342,35 @@ def process_bam_file(config: InputOutputConfig) -> None:
     # Ensure tags are sorted for consistent output
     sorted_tags = sorted(config.tag_list)
 
-    # Build header
+    # Build header and schema
     header_fields = build_header(sorted_tags)
+    schema = build_schema(header_fields)
 
-    # Process BAM file
-    with config.output_file.open("w") as outfile:
-        # Write header
-        outfile.write("\t".join(header_fields) + "\n")
+    # Initialize tracking variables
+    current_qname = None
+    current_r1 = None
+    current_r2 = None
+    processed_qname_count = 0
+    read_count = 0
+    buffered_rows: list[list[str]] = []
 
-        # Initialize tracking variables
-        current_qname = None
-        current_r1 = None
-        current_r2 = None
-        processed_qname_count = 0
-        read_count = 0
+    # Open BAM/SAM file
+    mode = "rb" if str(config.input_bam).endswith(".bam") else "r"
+    samfile = pysam.AlignmentFile(
+        str(config.input_bam), mode, threads=config.threads
+    )
 
-        # Open BAM/SAM file
-        mode = "rb" if str(config.input_bam).endswith(".bam") else "r"
-        samfile = pysam.AlignmentFile(
-            str(config.input_bam), mode, threads=config.threads
-        )
+    logger.info(
+        "Processing reads in streaming mode (requires qname-sorted input)"
+    )
 
-        logger.info(
-            "Processing reads in streaming mode (requires qname-sorted input)"
-        )
-
+    # Statistics/dictionary encoding buy nothing here: the output is read once,
+    # sequentially, in full by filter_aligned_reads.py (no predicate pushdown),
+    # and is temp()-deleted immediately after. Disabling both cuts writer
+    # overhead with zero effect on the decoded values.
+    with pq.ParquetWriter(
+        config.output_file, schema, write_statistics=False, use_dictionary=False
+    ) as writer:
         for read in samfile:
             read_count += 1
 
@@ -362,12 +389,14 @@ def process_bam_file(config: InputOutputConfig) -> None:
                     pair_info = process_read_pair(
                         current_qname, current_r1, current_r2, sorted_tags
                     )
-                    output_line = format_output_line(pair_info, sorted_tags)
-                    outfile.write("\t".join(output_line) + "\n")
+                    buffered_rows.append(format_output_line(pair_info, sorted_tags))
 
                     processed_qname_count += 1
                     if processed_qname_count % PAIR_PROGRESS_INTERVAL == 0:
                         logger.info(f"Written {processed_qname_count} read pairs")
+                    if len(buffered_rows) >= PARQUET_BATCH_SIZE:
+                        flush_batch(writer, buffered_rows, schema)
+                        buffered_rows = []
 
                 # Reset for new qname
                 current_qname = qname
@@ -387,9 +416,11 @@ def process_bam_file(config: InputOutputConfig) -> None:
             pair_info = process_read_pair(
                 current_qname, current_r1, current_r2, sorted_tags
             )
-            output_line = format_output_line(pair_info, sorted_tags)
-            outfile.write("\t".join(output_line) + "\n")
+            buffered_rows.append(format_output_line(pair_info, sorted_tags))
             processed_qname_count += 1
+
+        if buffered_rows:
+            flush_batch(writer, buffered_rows, schema)
 
         samfile.close()
 
@@ -416,7 +447,7 @@ def parse_args() -> argparse.Namespace:
         "-o", "--output",
         type=Path,
         required=True,
-        help="Path to the output tab-delimited file",
+        help="Path to the output Parquet file",
     )
     parser.add_argument(
         "-t", "--threads",

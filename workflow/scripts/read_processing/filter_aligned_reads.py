@@ -9,6 +9,7 @@
 #     "pandas",
 #     "loguru",
 #     "pyyaml",
+#     "pyarrow",
 # ]
 # ///
 
@@ -16,20 +17,20 @@
 Filter Aligned Read Pairs Using YAML Configuration
 ==================================================
 
-Filter aligned read pairs from BAM-derived TSV files using thresholds loaded
-from a YAML configuration file. R1 and R2 reads are filtered independently with
-separate MAPQ, NCIGAR, and NM thresholds, plus optional rejection of reads that
-carry supplementary (SA) or secondary (XA) alignments and an optional
-proper-pair requirement.
+Filter aligned read pairs from BAM-derived Parquet files using thresholds
+loaded from a YAML configuration file. R1 and R2 reads are filtered
+independently with separate MAPQ, NCIGAR, and NM thresholds, plus optional
+rejection of reads that carry supplementary (SA) or secondary (XA) alignments
+and an optional proper-pair requirement.
 
 All filtering criteria are read from the ``aligned_read_filtering`` section of
-the config so runs stay consistent and reproducible. The input TSV is streamed
-in row chunks and each chunk is filtered then appended to the output, keeping
-memory use bounded for large files.
+the config so runs stay consistent and reproducible. The input Parquet file is
+streamed in row-group batches and each batch is filtered then written to the
+output as its own row group, keeping memory use bounded for large files.
 
 Input
 -----
-- TSV file with read-pair data from BAM parsing. Expected columns include
+- Parquet file with read-pair data from BAM parsing. Expected columns include
   ``R1_MAPQ``, ``R2_MAPQ``, ``R1_NCIGAR``, ``R2_NCIGAR``, ``R1_NM``, ``R2_NM``,
   ``R1_SA``, ``R2_SA``, ``R1_XA``, ``R2_XA``, and ``Is_Proper_Pair``.
 - YAML config with an ``aligned_read_filtering`` section containing
@@ -37,13 +38,13 @@ Input
 
 Output
 ------
-- Filtered TSV file (tab-separated, no index) containing only the read pairs
-  that pass every configured criterion.
+- Filtered Parquet file containing only the read pairs that pass every
+  configured criterion.
 
 Usage
 -----
-    python filter_aligned_reads.py -i input.tsv -o filtered.tsv --config config.yaml
-    python filter_aligned_reads.py -i input.tsv -o filtered.tsv --config config.yaml -c 3000000
+    python filter_aligned_reads.py -i input.parquet -o filtered.parquet --config config.yaml
+    python filter_aligned_reads.py -i input.parquet -o filtered.parquet --config config.yaml -c 3000000
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
@@ -60,7 +61,10 @@ from pathlib import Path
 from typing import Any
 
 # 2. Data Processing Imports
+import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 # 3. Third-party Imports
 from loguru import logger
@@ -71,6 +75,25 @@ import yaml
 # =============================================================================
 NA_VALUES = ["N/A", "NA", ""]
 DEFAULT_CHUNK_SIZE = 50000
+
+# SAM optional-field type codes: these tags are numeric ('i'/'f') per the SAM
+# spec (MC/MD/SA/XA are strings and need no dtype coercion below).
+NUMERIC_TAGS = frozenset({"AS", "MQ", "NM", "XS"})
+
+# Base (non-tag) fields that are always populated by parse_bam_to_tsv.py and
+# never carry "N/A" (mapq/n_cigar/flag default to 0, never "N/A" -- see
+# ReadInfo).
+ALWAYS_INT_FIELDS = frozenset({"MAPQ", "NCIGAR", "Flag", "FLAG"})
+
+# Base fields plus numeric tags that CAN be "N/A" -- coerced to nullable float
+# to match the dtype pd.read_csv would infer for a column containing NaN.
+NULLABLE_NUMERIC_FIELDS = frozenset({"LEN", "Pos", "Ref_Start", "Ref_End"}) | NUMERIC_TAGS
+
+# Columns checked via .isna() in build_filter_mask -- need the "N/A"/"NA"/""
+# string sentinels turned into real NaN. Every other string column is left
+# untouched: pd.to_numeric(errors="coerce") already treats those sentinels as
+# unparseable on its own, and no other string column is null-checked.
+ISNA_CHECKED_COLUMNS = ("R1_SA", "R1_XA", "R2_SA", "R2_XA")
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -161,6 +184,27 @@ def load_config_from_yaml(config_file: Path) -> dict[str, Any]:
     return internal_config
 
 
+def strip_read_prefix(column: str) -> str:
+    """Strip a leading R1_/R2_ prefix from a column name, if present."""
+    if column.startswith("R1_") or column.startswith("R2_"):
+        return column[3:]
+    return column
+
+
+def coerce_column_dtypes(chunk: pd.DataFrame) -> pd.DataFrame:
+    """Coerce an all-string Parquet chunk to the dtypes pd.read_csv would infer from the equivalent TSV."""
+    for column in ISNA_CHECKED_COLUMNS:
+        if column in chunk.columns:
+            chunk[column] = chunk[column].replace(NA_VALUES, np.nan)
+    for column in chunk.columns:
+        field = strip_read_prefix(column)
+        if field in ALWAYS_INT_FIELDS:
+            chunk[column] = chunk[column].astype("int64")
+        elif field in NULLABLE_NUMERIC_FIELDS:
+            chunk[column] = pd.to_numeric(chunk[column], errors="coerce").astype("float64")
+    return chunk
+
+
 @logger.catch
 def build_filter_mask(
     chunk: pd.DataFrame,
@@ -217,6 +261,7 @@ def process_chunk(
     first_chunk: bool,
 ) -> tuple[pd.DataFrame, bool]:
     """Filter a single chunk and log first-chunk diagnostics and periodic progress."""
+    chunk = coerce_column_dtypes(chunk)
     chunk_rows_before = len(chunk)
 
     # Display info for first chunk
@@ -256,7 +301,7 @@ def process_chunk(
 
 @logger.catch
 def filter_read_pairs(config: InputOutputConfig) -> AnalysisResult:
-    """Stream the input TSV in chunks, filter each, append to output, and return run statistics."""
+    """Stream the input Parquet file in batches, filter each, write to output, and return run statistics."""
     logger.info(f"Loading data from: {config.input_file}")
 
     # Initialize counters
@@ -264,42 +309,40 @@ def filter_read_pairs(config: InputOutputConfig) -> AnalysisResult:
     filtered_rows = 0
     chunk_count = 0
     first_chunk = True
+    writer: pq.ParquetWriter | None = None
+    output_schema: pa.Schema | None = None
 
     logger.info(f"Processing file in chunks of {config.chunk_size:,} rows...")
 
-    # Create chunk iterator
-    chunk_iterator = pd.read_csv(
-        config.input_file,
-        sep="\t",
-        na_values=NA_VALUES,
-        chunksize=config.chunk_size,
-    )
+    parquet_file = pq.ParquetFile(config.input_file)
 
-    # Process each chunk
-    for chunk_df in chunk_iterator:
-        chunk_count += 1
-        total_rows += len(chunk_df)
+    try:
+        # Process each chunk
+        for record_batch in parquet_file.iter_batches(batch_size=config.chunk_size):
+            chunk_df = record_batch.to_pandas()
+            chunk_count += 1
+            total_rows += len(chunk_df)
 
-        if chunk_count % 10 == 0:
-            logger.info(f"Processing chunk {chunk_count}, total rows: {total_rows:,}")
+            if chunk_count % 10 == 0:
+                logger.info(f"Processing chunk {chunk_count}, total rows: {total_rows:,}")
 
-        # Process chunk
-        filtered_chunk, first_chunk = process_chunk(
-            chunk_df, chunk_count, config.config_data, first_chunk
-        )
-        filtered_rows += len(filtered_chunk)
-
-        # Write filtered chunk
-        if chunk_count == 1:
-            filtered_chunk.to_csv(
-                config.output_file, sep="\t", index=False, mode="w"
+            # Process chunk
+            filtered_chunk, first_chunk = process_chunk(
+                chunk_df, chunk_count, config.config_data, first_chunk
             )
-            logger.info(f"Created output file: {config.output_file}")
-        else:
-            filtered_chunk.to_csv(
-                config.output_file, sep="\t", index=False,
-                mode="a", header=False
-            )
+            filtered_rows += len(filtered_chunk)
+
+            # Write filtered chunk as its own row group
+            if writer is None:
+                output_schema = pa.Schema.from_pandas(filtered_chunk, preserve_index=False)
+                writer = pq.ParquetWriter(config.output_file, output_schema)
+                logger.info(f"Created output file: {config.output_file}")
+
+            table = pa.Table.from_pandas(filtered_chunk, schema=output_schema, preserve_index=False)
+            writer.write_table(table)
+    finally:
+        if writer is not None:
+            writer.close()
 
     logger.info(f"Completed processing {chunk_count} chunks")
 
@@ -329,7 +372,7 @@ def filter_read_pairs(config: InputOutputConfig) -> AnalysisResult:
     # Display sample of filtered data
     if filtered_rows > 0:
         try:
-            sample_df = pd.read_csv(config.output_file, sep="\t", nrows=5)
+            sample_df = pq.ParquetFile(config.output_file).read_row_group(0).to_pandas().head(5)
             logger.debug("Sample of filtered data (first 5 rows):")
             logger.debug(f"Shape: {sample_df.shape}")
         except Exception as e:
@@ -351,12 +394,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-i", "--input",
         required=True,
-        help="Input TSV file with read pair data",
+        help="Input Parquet file with read pair data",
     )
     parser.add_argument(
         "-o", "--output",
         required=True,
-        help="Output TSV file for filtered data",
+        help="Output Parquet file for filtered data",
     )
     parser.add_argument(
         "--config",

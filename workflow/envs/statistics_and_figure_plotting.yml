@@ -17,3 +17,4 @@ dependencies:
   - tqdm
   - loguru
   - tabulate
+  - pyarrow=24.0.0
