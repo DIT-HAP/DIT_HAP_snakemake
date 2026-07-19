@@ -1,6 +1,6 @@
 snakemake_wrapper_version: v9.13.0
 
-workdir: /data/c/yangyusheng_optimized/DIT_HAP
+workdir: /data/c/yangyusheng_optimized/DIT_HAP_snakemake
 
 project_name: HD_DIT_HAP
 
@@ -15,6 +15,7 @@ Pombase_release_version: "2026-06-01"
 # Preprocessing configuration
 # -----------------------------------------------------
 sample_sheet: projects/HD_DIT_HAP/config/sample_sheet.tsv
+use_DEseq2_for_biological_replicates: True
 
 # Adapter sequences and PBL/PBR sequences for adapter trimming and demultiplexing
 # -----------------------------------------------------

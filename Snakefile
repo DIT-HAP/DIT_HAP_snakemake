@@ -15,13 +15,13 @@ min_version("9.0")
 # Each project lives under projects/{project}/ with its own config/ and outputs.
 # project = "HD_DIT_HAP_generationRAW"
 # project = "HD_DIT_HAP_generationPLUS1"
-# project = "HD_DIT_HAP"
+project = "HD_DIT_HAP"
 # project = "LD_DIT_HAP_generationRAW"
 # project = "LD_DIT_HAP_generationPLUS1"
 # project = "HD_diploid"
 # project = "LD_haploid"
 # project = "Spikein"
-project = "Spore2YES6_1328"
+# project = "Spore2YES6_1328"
 config_file = f"projects/{project}/config/config.yaml"
 configfile: config_file
 validate(config, "workflow/schemas/config.schema.yaml")
