@@ -117,6 +117,20 @@ def load_data(config: AnalysisConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.Da
             "(Type != 'Intergenic region') and (Distance_to_stop_codon > 4)"
         ).index
 
+        # PomBase releases may leave DeletionLibrary_essentiality blank for genes that were
+        # previously annotated as "Not_determined".  A bare NaN causes pandas groupby to
+        # silently drop those genes (default dropna=True).  Treat missing values the same
+        # way as the explicit "Not_determined" label so no gene is lost.
+        na_ess = annotations_df["DeletionLibrary_essentiality"].isna().sum()
+        if na_ess > 0:
+            logger.warning(
+                f"Found {na_ess} insertions with missing DeletionLibrary_essentiality; "
+                "filling with 'Not_determined' to prevent silent gene loss in groupby"
+            )
+            annotations_df["DeletionLibrary_essentiality"] = (
+                annotations_df["DeletionLibrary_essentiality"].fillna("Not_determined")
+            )
+
         # transform weights
         transformed_weights_df = -np.log10(weights_df.fillna(1).clip(lower=1e-6, upper=1-1e-6))
 
