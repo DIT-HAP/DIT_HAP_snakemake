@@ -11,12 +11,13 @@
 # aggregate target. package_reference stays standalone too, since it archives
 # reference data shared across projects, not any single project's results.
 #
-# IMPORTANT — side-outputs: several source files (baseMean.tsv, fitting_*.tsv,
-# transformed_weights.tsv, imputation_statistics.tsv) are written by scripts
-# NEXT TO a rule's declared output but are NOT themselves declared in any
-# rule's `output:`. Snakemake cannot build an undeclared file on demand, so
-# each release target depends on its rule's DECLARED sibling ("anchor") to
-# drive the DAG, then copies the real source ("src") in the shell.
+# IMPORTANT — side-outputs: several source files (baseMean.tsv, normed_counts.tsv,
+# insertion_level_statistics.tsv, fitting_*.tsv, transformed_weights.tsv,
+# imputation_statistics.tsv) are written by scripts NEXT TO a rule's declared
+# output but are NOT themselves declared in any rule's `output:`. Snakemake
+# cannot build an undeclared file on demand, so each release target depends on
+# its rule's DECLARED sibling ("anchor") to drive the DAG, then copies the
+# real source ("src") in the shell.
 # =============================================================================
 
 import re
@@ -28,6 +29,10 @@ _RELEASE = f"projects/{project_name}/release"
 # relative. anchor == src when the source is itself a declared rule output.
 # Always available (insertion-level depletion doesn't need time_points).
 RELEASE_MAP = {
+    "insertion_level/raw_reads.tsv": (
+        "12_concatenated/raw_reads.tsv",
+        "12_concatenated/raw_reads.tsv",
+    ),
     "insertion_level/LFC.tsv": (
         "14_insertion_level_depletion_analysis/LFC.tsv",
         "14_insertion_level_depletion_analysis/LFC.tsv",
@@ -36,7 +41,31 @@ RELEASE_MAP = {
         "14_insertion_level_depletion_analysis/LFC.tsv",
         "14_insertion_level_depletion_analysis/baseMean.tsv",
     ),
+    "insertion_level/normed_counts.tsv": (
+        "14_insertion_level_depletion_analysis/LFC.tsv",
+        "14_insertion_level_depletion_analysis/normed_counts.tsv",
+    ),
 }
+
+# DESeq2-replicates branch only: imputed raw reads (declared output of
+# impute_missing_values_using_FR) and the padj / combined-statistics
+# side-outputs that only insertion_level_depletion_analysis_has_replicates
+# writes (the no-replicates branch never produces them).
+if config.get("use_DEseq2_for_biological_replicates", False):
+    RELEASE_MAP |= {
+        "insertion_level/imputed_raw_reads.tsv": (
+            "13_filtered/imputed_raw_reads.tsv",
+            "13_filtered/imputed_raw_reads.tsv",
+        ),
+        "insertion_level/padj.tsv": (
+            "14_insertion_level_depletion_analysis/padj.tsv",
+            "14_insertion_level_depletion_analysis/padj.tsv",
+        ),
+        "insertion_level/insertion_level_statistics.tsv": (
+            "14_insertion_level_depletion_analysis/padj.tsv",
+            "14_insertion_level_depletion_analysis/insertion_level_statistics.tsv",
+        ),
+    }
 
 # Curve-fitting / gene-level outputs (15-17) need config["time_points"] — see
 # insertion_level_curve_fitting and gene_level_depletion_analysis's weights_path
@@ -44,6 +73,10 @@ RELEASE_MAP = {
 # absent (e.g. Spikein, run QC-only).
 if config.get("time_points"):
     RELEASE_MAP |= {
+        "insertion_level/insertion_level_fitting_statistics.tsv": (
+            "15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
+            "15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
+        ),
         "insertion_level/fitting_LFCs.tsv": (
             "15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
             "15_insertion_level_curve_fitting/fitting_LFCs.tsv",
@@ -59,6 +92,10 @@ if config.get("time_points"):
         "gene_level/LFC.tsv": (
             "16_gene_level_depletion_analysis/LFC.tsv",
             "16_gene_level_depletion_analysis/LFC.tsv",
+        ),
+        "gene_level/gene_level_fitting_statistics.tsv": (
+            "17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
+            "17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
         ),
         "gene_level/fitting_LFCs.tsv": (
             "17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
