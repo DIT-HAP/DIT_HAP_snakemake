@@ -40,6 +40,7 @@
 #   │   └── Schizosaccharomyces_pombe_all_chromosomes.gff3
 #   ├── Gene_metadata/                   # Gene information and viability data
 #   │   ├── gene_IDs_names_products.tsv
+#   │   ├── gene_ids_and_details.parquet
 #   │   └── gene_viability.tsv
 #   ├── RNA_metadata/                    # Expression datasets
 #   │   ├── qualitative_gene_expression.tsv
@@ -352,6 +353,13 @@ download_gene_metadata() {
         "${base_url}/gene_names_and_identifiers/gene_IDs_names_products.tsv" \
         "${metadata_dir}" \
         "gene IDs and names" || return 1
+
+    # Download gene IDs and details (Parquet format)
+    log_info "Downloading gene IDs and details (Parquet)..."
+    download_file \
+        "${base_url}/gene_names_and_identifiers/gene_ids_and_details.parquet" \
+        "${metadata_dir}" \
+        "gene IDs and details" || return 1
 
     # Download gene viability phenotype data
     log_info "Downloading gene viability data..."
