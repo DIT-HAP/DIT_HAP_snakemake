@@ -224,7 +224,7 @@ rule mapping_filtering_statistics:
     log:
         f"projects/{project_name}/logs/quality_control/mapping_filtering_statistics.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Generating mapping filtering statistics..."
     shell:
@@ -279,7 +279,7 @@ rule PBL_PBR_correlation_analysis:
     log:
         f"projects/{project_name}/logs/quality_control/PBL_PBR_correlation_analysis.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Performing PBL-PBR correlation analysis..."
     shell:
@@ -311,7 +311,7 @@ rule read_count_distribution_analysis:
     log:
         f"projects/{project_name}/logs/quality_control/read_count_distribution_analysis.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Performing read count distribution analysis..."
     params:
@@ -346,7 +346,7 @@ rule insertion_orientation_analysis:
     log:
         f"projects/{project_name}/logs/quality_control/insertion_orientation_analysis.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Performing insertion orientation analysis..."
     shell:
@@ -376,7 +376,7 @@ rule insertion_density_analysis:
     log:
         f"projects/{project_name}/logs/quality_control/insertion_density_analysis.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Performing insertion density analysis..."
     params:
@@ -438,7 +438,7 @@ rule gene_coverage_analysis:
     log:
         f"projects/{project_name}/logs/quality_control/gene_coverage_analysis.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Performing gene coverage analysis..."
     params:

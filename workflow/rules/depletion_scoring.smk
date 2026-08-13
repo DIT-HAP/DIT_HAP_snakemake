@@ -14,7 +14,7 @@ rule control_insertion_selection:
     log:
         "projects/{project_name}/logs/depletion_scoring/control_insertion_selection.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Selecting control insertions..."
     shell:
@@ -40,7 +40,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
         log:
             "projects/{project_name}/logs/depletion_scoring/impute_missing_values_using_FR.log",
         conda:
-            "../envs/statistics_and_figure_plotting.yml"
+            "../envs/statistics_and_computation.yml"
         message:
             "*** Imputing missing values using FR..."
         shell:
@@ -114,7 +114,7 @@ else:
         params:
             initial_time_point=config["initial_time_point"],
         conda:
-            "../envs/statistics_and_figure_plotting.yml"
+            "../envs/statistics_and_computation.yml"
         message:
             "*** Running insertion-level depletion analysis (no replicates)..."
         shell:
@@ -148,7 +148,7 @@ rule insertion_level_curve_fitting:
         time_points=lambda wildcards: " ".join(map(str, config["time_points"])),
     threads: 16
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Running insertion-level curve fitting..."
     shell:
@@ -181,7 +181,7 @@ if not config.get("use_DEseq2_for_biological_replicates", False):
         log:
             "projects/{project_name}/logs/depletion_scoring/r_square_as_weights.log",
         conda:
-            "../envs/statistics_and_figure_plotting.yml"
+            "../envs/statistics_and_computation.yml"
         message:
             "*** Computing R-square as weights..."
         shell:
@@ -216,7 +216,7 @@ rule gene_level_depletion_analysis:
     log:
         "projects/{project_name}/logs/depletion_scoring/gene_level_depletion_analysis.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Running gene-level depletion analysis..."
     shell:
@@ -275,7 +275,7 @@ rule gene_level_curve_fitting:
         time_points=lambda wildcards: " ".join(map(str, config["time_points"])),
     threads: 16
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Running gene-level curve fitting..."
     shell:
