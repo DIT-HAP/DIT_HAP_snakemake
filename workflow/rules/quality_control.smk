@@ -382,11 +382,29 @@ rule plot_read_count_distribution:
 
 # Insertion orientation analysis
 # -----------------------------------------------------
-rule insertion_orientation_analysis:
+rule strand_pairs:
     input:
         rules.hard_filtering.output,
     output:
-        report(
+        f"projects/{project_name}/results/18_figure_data/strand_pairs.tsv",
+    log:
+        f"projects/{project_name}/logs/quality_control/strand_pairs.log",
+    conda:
+        "../envs/statistics_and_computation.yml"
+    message:
+        "*** Extracting insertion orientation strand pairs..."
+    shell:
+        """
+        python workflow/scripts/quality_control/insertion_orientation_analysis.py \
+            -i {input} -o {output} &> {log}
+        """
+
+
+rule plot_insertion_orientation:
+    input:
+        rules.strand_pairs.output,
+    output:
+        journal=report(
             f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
             caption="../reports/captions/insertion_orientation_analysis.rst",
             category="Quality Control",
@@ -396,15 +414,20 @@ rule insertion_orientation_analysis:
                 "format": "PDF",
             },
         ),
+        review=f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/insertion_orientation_analysis.log",
+        f"projects/{project_name}/logs/quality_control/plot_insertion_orientation.log",
+    params:
+        stem=f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis",
     conda:
-        "../envs/statistics_and_computation.yml"
+        "../envs/cnsplots.yml"
     message:
-        "*** Performing insertion orientation analysis..."
+        "*** Rendering insertion orientation figure..."
     shell:
         """
-        python workflow/scripts/quality_control/insertion_orientation_analysis.py -i {input} -o {output} &> {log}
+        python workflow/scripts/figures/plot_insertion_orientation.py \
+            -i {input} \
+            -o {params.stem} &> {log}
         """
 
 
