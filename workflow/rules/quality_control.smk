@@ -313,7 +313,7 @@ rule plot_pbl_pbr_correlation:
 
 # Read count distribution analysis
 # -----------------------------------------------------
-rule read_count_distribution_analysis:
+rule read_count_distribution_data:
     input:
         branch(
             config["merge_similar_timepoints"],
@@ -321,22 +321,14 @@ rule read_count_distribution_analysis:
             expand(rules.concat_timepoints.output.Reads, sample=samples, condition=conditions),
         ),
     output:
-        report(
-            f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
-            caption="../reports/captions/read_count_distribution_analysis.rst",
-            category="Quality Control",
-            labels={
-                "name": "4. Read Count Distribution Analysis",
-                "type": "Distribution Plot",
-                "format": "PDF",
-            },
-        ),
+        distribution=f"projects/{project_name}/results/18_figure_data/read_count_distribution.tsv",
+        stats=f"projects/{project_name}/results/18_figure_data/read_count_cutoff_stats.tsv",
     log:
-        f"projects/{project_name}/logs/quality_control/read_count_distribution_analysis.log",
+        f"projects/{project_name}/logs/quality_control/read_count_distribution_data.log",
     conda:
         "../envs/statistics_and_computation.yml"
     message:
-        "*** Performing read count distribution analysis..."
+        "*** Computing read count distributions..."
     params:
         initial_time_point=config["initial_time_point"],
         hard_filtering_cutoff=config["hard_filtering_cutoff"],
@@ -346,7 +338,45 @@ rule read_count_distribution_analysis:
             -i {input} \
             -t {params.initial_time_point} \
             -c {params.hard_filtering_cutoff} \
-            -o {output} &> {log}
+            -o {output.distribution} \
+            -s {output.stats} &> {log}
+        """
+
+
+rule plot_read_count_distribution:
+    input:
+        distribution=rules.read_count_distribution_data.output.distribution,
+        stats=rules.read_count_distribution_data.output.stats,
+    output:
+        journal=report(
+            f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
+            caption="../reports/captions/read_count_distribution_analysis.rst",
+            category="Quality Control",
+            labels={
+                "name": "4. Read Count Distribution Analysis",
+                "type": "Distribution Plot",
+                "format": "PDF",
+            },
+        ),
+        review=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.review.png",
+    log:
+        f"projects/{project_name}/logs/quality_control/plot_read_count_distribution.log",
+    params:
+        stem=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis",
+        initial_time_point=config["initial_time_point"],
+        hard_filtering_cutoff=config["hard_filtering_cutoff"],
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** Rendering read count distribution figure..."
+    shell:
+        """
+        python workflow/scripts/figures/plot_read_count_distribution.py \
+            -i {input.distribution} \
+            -s {input.stats} \
+            -t {params.initial_time_point} \
+            -c {params.hard_filtering_cutoff} \
+            -o {params.stem} &> {log}
         """
 
 
