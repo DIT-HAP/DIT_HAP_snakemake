@@ -262,11 +262,29 @@ rule datavzrd_mapping_filtering_statistics:
 
 # PBL-PBR correlation analysis
 # -----------------------------------------------------
-rule PBL_PBR_correlation_analysis:
+rule pbl_pbr_pairs:
     input:
         expand(rules.merge_strand_insertions.output, sample=samples, timepoint=timepoints, condition=conditions),
     output:
-        report(
+        f"projects/{project_name}/results/18_figure_data/pbl_pbr_pairs.tsv",
+    log:
+        f"projects/{project_name}/logs/quality_control/pbl_pbr_pairs.log",
+    conda:
+        "../envs/statistics_and_computation.yml"
+    message:
+        "*** Extracting PBL-PBR pairs..."
+    shell:
+        """
+        python workflow/scripts/quality_control/PBL_PBR_correlation_analysis.py \
+            -i {input} -o {output} &> {log}
+        """
+
+
+rule plot_pbl_pbr_correlation:
+    input:
+        rules.pbl_pbr_pairs.output,
+    output:
+        journal=report(
             f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
             caption="../reports/captions/PBL_PBR_correlation_analysis.rst",
             category="Quality Control",
@@ -276,15 +294,20 @@ rule PBL_PBR_correlation_analysis:
                 "format": "PDF",
             },
         ),
+        review=f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/PBL_PBR_correlation_analysis.log",
+        f"projects/{project_name}/logs/quality_control/plot_pbl_pbr_correlation.log",
+    params:
+        stem=f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis",
     conda:
-        "../envs/statistics_and_computation.yml"
+        "../envs/cnsplots.yml"
     message:
-        "*** Performing PBL-PBR correlation analysis..."
+        "*** Rendering PBL-PBR correlation figure..."
     shell:
         """
-        python workflow/scripts/quality_control/PBL_PBR_correlation_analysis.py -i {input} -o {output} &> {log}
+        python workflow/scripts/figures/plot_pbl_pbr_correlation.py \
+            -i {input} \
+            -o {params.stem} &> {log}
         """
 
 

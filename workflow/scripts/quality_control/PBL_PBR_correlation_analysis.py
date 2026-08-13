@@ -7,83 +7,57 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "pandas",
-#     "numpy",
-#     "matplotlib",
 #     "loguru",
 # ]
 # ///
 
 """
-PBL-PBR Correlation Analysis
-============================
+PBL-PBR Pairs Extraction
+========================
 
-Analyse the correlation between PBL and PBR counts across one or more TSV
-files produced by the DIT-HAP pipeline. Each input file is read with a
-three-level row index, filtered to strictly positive PBL/PBR pairs (so the
-values are valid on a log axis), and rendered as a log-log scatter plot with
-a regression/diagonal reference line via ``create_scatter_correlation_plot``.
-
-Files are processed in alphabetical order by filename, and one plot per file
-is written as a separate page into a single multi-page PDF. A short run
-summary (total data points, files processed) is logged at the end.
+Extract PBL-PBR pairs from DIT-HAP pipeline TSV files for downstream rendering.
+Each input file is read with a three-level row index, filtered to strictly
+positive PBL/PBR pairs, and written to a long-format TSV with sample/timepoint/
+condition metadata derived from the filename.
 
 Input
 -----
 - One or more TSV files (``-i``/``--input``), tab-separated, with a
   three-column MultiIndex (``index_col=[0, 1, 2]``) and ``PBL`` and ``PBR``
-  data columns.
+  data columns. Filenames must follow the pattern ``{sample}_{timepoint}_{condition}.tsv``.
 
 Output
 ------
-- A single PDF file (``-o``/``--output``) with one correlation plot per
-  valid input file, rasterised scatter points on log-log axes.
+- A single long-format TSV file (``-o``/``--output``) with columns:
+  ``sample``, ``timepoint``, ``condition``, ``pbl``, ``pbr``.
 
 Usage
 -----
-    python PBL_PBR_correlation_analysis.py -i file1.tsv file2.tsv -o results.pdf
-    python PBL_PBR_correlation_analysis.py -i file1.tsv -o results.pdf --verbose
+    python PBL_PBR_correlation_analysis.py -i file1.tsv file2.tsv -o pairs.tsv
+    python PBL_PBR_correlation_analysis.py -i file1.tsv -o pairs.tsv --verbose
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-07-09
-Version:  1.0.0
+Date:     2026-08-13
+Version:  2.0.0
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
-# 1. Standard Library Imports
 import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# 2. Data Processing Imports
 import pandas as pd
-
-# 3. Third-party Imports
 from loguru import logger
-from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-
-# 4. Local module import (requires runtime injection of workflow/src on sys.path)
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from plot import create_scatter_correlation_plot  # noqa: E402
-
-# =============================================================================
-# GLOBAL CONSTANTS & ENUMS
-# =============================================================================
-STYLE_PATH = str((SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle").resolve())
-plt.style.use(STYLE_PATH)
-AX_WIDTH, AX_HEIGHT = plt.rcParams['figure.figsize']
-COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PBLPBRCorrelationConfig:
-    """Immutable config holding validated input TSV paths and the output PDF path."""
+    """Immutable config holding validated input TSV paths and the output TSV path."""
     input_files: list[Path]
     output_path: Path
 
@@ -137,39 +111,34 @@ def read_tsv_file(file_path: Path) -> pd.DataFrame | None:
 
     return df_clean
 
+
 @logger.catch
-def create_correlation_plot(filename: str, df: pd.DataFrame) -> plt.Figure:
-    """Create a single log-log PBL-vs-PBR correlation figure for one file."""
-    fig, ax = plt.subplots(figsize=(AX_WIDTH, AX_HEIGHT))
+def parse_filename(file_path: Path) -> tuple[str, str, str] | None:
+    """Parse filename stem into sample, timepoint, condition. Return None if format is invalid."""
+    stem = file_path.stem
+    parts = stem.split('_')
 
-    ax = create_scatter_correlation_plot(
-        x=df['PBL'],
-        y=df['PBR'],
-        ax=ax,
-        xscale='log',
-        yscale='log'
-    )
+    if len(parts) != 3:
+        logger.warning(f"Filename {file_path.name} does not match expected pattern {{sample}}_{{timepoint}}_{{condition}}.tsv (got {len(parts)} parts)")
+        return None
 
-    # Customize the plot
-    ax.set_xlabel('PBL (log scale)')
-    ax.set_ylabel('PBR (log scale)')
-    ax.set_title(f'PBL vs PBR Correlation Analysis\n{filename}')
-
-    return fig
+    sample, timepoint, condition = parts
+    return sample, timepoint, condition
 
 # =============================================================================
 # MAIN EXECUTION
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Analyze correlation between PBL and PBR from multiple TSV files")
+    parser = argparse.ArgumentParser(description="Extract PBL-PBR pairs from multiple TSV files")
     parser.add_argument("-i", "--input", nargs='+', type=Path, required=True, help="Input TSV files (space-separated)")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Output PDF file path")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="Output TSV file path")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
+
 def main() -> int:
-    """Read PBL/PBR TSVs, build per-file correlation plots, and write them to a multi-page PDF."""
+    """Read PBL/PBR TSVs, extract positive pairs with metadata, and write to long-format TSV."""
     args = parse_args()
     setup_logger("DEBUG" if args.verbose else "INFO")
 
@@ -183,52 +152,57 @@ def main() -> int:
         logger.error(f"Error: {e}")
         return 1
 
-    logger.info("=== PBL-PBR Correlation Analysis ===")
+    logger.info("=== PBL-PBR Pairs Extraction ===")
     logger.info(f"Processing {len(config.input_files)} input files...")
 
     # Sort files by name
     sorted_files = sorted(config.input_files, key=lambda x: x.name)
     logger.info(f"Processing files in order: {[f.name for f in sorted_files]}")
 
-    # Read and process files
-    data_dict: dict[str, pd.DataFrame] = {}
+    # Read and process files using vectorized pandas
+    all_dataframes: list[pd.DataFrame] = []
+
     for file_path in sorted_files:
         filename = file_path.name
         logger.info(f"Reading {filename}...")
 
-        df = read_tsv_file(file_path)
-        if df is not None:
-            data_dict[filename] = df
+        # Parse filename to extract metadata
+        metadata = parse_filename(file_path)
+        if metadata is None:
+            continue
 
-    if not data_dict:
+        sample, timepoint, condition = metadata
+
+        # Read and filter data
+        df = read_tsv_file(file_path)
+        if df is None:
+            continue
+
+        # Create long-format dataframe with vectorized operations
+        pairs_df = df[['PBL', 'PBR']].rename(columns={'PBL': 'pbl', 'PBR': 'pbr'})
+        pairs_df = pairs_df.assign(sample=sample, timepoint=timepoint, condition=condition)
+
+        # Reorder columns to match spec: sample, timepoint, condition, pbl, pbr
+        pairs_df = pairs_df[['sample', 'timepoint', 'condition', 'pbl', 'pbr']]
+
+        all_dataframes.append(pairs_df)
+        logger.info(f"  - Extracted {len(pairs_df)} pairs from {filename}")
+
+    if not all_dataframes:
         logger.error("Error: No valid data found in any input file!")
         return 1
 
-    # Create and save plots
-    logger.info("Creating correlation plots...")
+    # Concatenate all dataframes
+    logger.info("Concatenating all pairs...")
+    combined_df = pd.concat(all_dataframes, ignore_index=True)
 
-    # Save to PDF with rasterization
-    logger.info(f"Saving plots to {config.output_path}...")
-    try:
-        with PdfPages(config.output_path) as pdf:
-            for filename, df in data_dict.items():
-                logger.info(f"  - Processing {filename}...")
-                fig = create_correlation_plot(filename, df)
-                pdf.savefig(fig)
-                plt.close(fig)  # Close figure to free memory
+    # Write to TSV
+    logger.info(f"Writing {len(combined_df)} pairs to {config.output_path}...")
+    combined_df.to_csv(config.output_path, sep='\t', index=False, float_format='%.4f')
 
-        logger.success(f"Analysis complete! Output saved to: {config.output_path}")
-        logger.info(f"Generated {len(data_dict)} correlation plots in PDF")
-
-        # Print summary statistics
-        logger.info("\n=== Summary Statistics ===")
-        total_points = sum(len(df) for df in data_dict.values())
-        logger.info(f"Total data points analyzed: {total_points}")
-        logger.info(f"Files processed: {len(data_dict)}")
-
-    except Exception as e:
-        logger.error(f"Error saving plots: {str(e)}")
-        return 1
+    logger.success(f"Extraction complete! Output saved to: {config.output_path}")
+    logger.info(f"Total pairs extracted: {len(combined_df)}")
+    logger.info(f"Files processed: {len(all_dataframes)}")
 
     return 0
 
