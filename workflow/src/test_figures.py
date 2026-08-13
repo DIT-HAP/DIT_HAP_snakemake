@@ -49,3 +49,20 @@ def test_save_dual_creates_both_artifacts(tmp_path):
     assert (tmp_path / "test_fig.review.png").exists()
     assert (tmp_path / "test_fig.pdf").stat().st_size > 1000
     assert (tmp_path / "test_fig.review.png").stat().st_size > 1000
+
+
+def test_save_dual_preserves_dots_in_stem(tmp_path):
+    """A stem containing dots must not be truncated: sample names here carry dots."""
+    import cnsplots as cns
+    from figures import apply_house_style, save_dual
+
+    apply_house_style()
+    cns.figure(width=90, height=90)
+    plt.plot([1, 2], [1, 2])
+
+    save_dual(tmp_path / "HD1328-4.YES0_corr")
+
+    # with_suffix()/.stem would have collapsed these to "HD1328-4.*"
+    assert (tmp_path / "HD1328-4.YES0_corr.pdf").exists()
+    assert (tmp_path / "HD1328-4.YES0_corr.review.png").exists()
+    assert not (tmp_path / "HD1328-4.pdf").exists()

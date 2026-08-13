@@ -43,9 +43,12 @@ def apply_house_style() -> None:
 
 
 def save_dual(stem: Path | str) -> None:
-    """Save the current figure as a journal PDF plus a review PNG (suffix .review.png)."""
+    """Save the current figure as a journal PDF plus a review PNG, given a stem with no extension."""
+    # Append rather than replace suffixes: Path.with_suffix()/.stem would truncate
+    # at the first dot, so a stem like "HD1328-4.YES0_corr" would silently collapse
+    # to "HD1328-4" and two samples would overwrite each other's figures.
     stem = Path(stem)
     stem.parent.mkdir(parents=True, exist_ok=True)
 
-    cns.savefig(stem.with_suffix(".pdf"))
-    cns.savefig(stem.parent / f"{stem.stem}.review.png")
+    cns.savefig(stem.parent / f"{stem.name}.pdf")
+    cns.savefig(stem.parent / f"{stem.name}.review.png")
