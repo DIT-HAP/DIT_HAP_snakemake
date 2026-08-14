@@ -158,6 +158,34 @@ def calculate_MA_values(
 
 
 @logger.catch
+def write_ma_values_tsv(M_values: pd.DataFrame, A_values: pd.DataFrame, output_path: Path) -> None:
+    """Write M and A values to a long-format TSV for the rendering layer."""
+    # M_values and A_values have MultiIndex columns (Sample, Timepoint)
+    # We need the timepoint level only
+    timepoints = M_values.columns.get_level_values(1).unique().tolist()
+
+    rows = []
+    for timepoint in timepoints:
+        # Select all columns with this timepoint
+        M_cols = [col for col in M_values.columns if col[1] == timepoint]
+        A_cols = [col for col in A_values.columns if col[1] == timepoint]
+
+        for M_col, A_col in zip(M_cols, A_cols):
+            M_data = M_values[M_col].values
+            A_data = A_values[A_col].values
+
+            for m_val, a_val in zip(M_data, A_data):
+                rows.append({
+                    'timepoint': timepoint,
+                    'M': m_val,
+                    'A': a_val,
+                })
+
+    df = pd.DataFrame(rows)
+    df.to_csv(output_path, sep='\t', index=False, float_format='%.3f')
+
+
+@logger.catch
 def generate_MA_plots(M_values: pd.DataFrame, A_values: pd.DataFrame, output_path: Path):
     """Generate MA plots for each timepoint and save as PDF."""
     timepoints = M_values.columns.tolist()
@@ -239,12 +267,12 @@ def main() -> int:
         baseMean.to_csv(config.output_LFC_file.parent / "baseMean.tsv", sep="\t", index=True, float_format="%.3f")
         logger.info(f"Base mean saved to {config.output_LFC_file.parent / 'baseMean.tsv'}")
 
-        MA_plot_path = config.output_LFC_file.parent / "MA_plot.pdf"
-        generate_MA_plots(M_values, A_values, MA_plot_path)
-        logger.info(f"MA plots saved to {MA_plot_path}")
+        # Write MA values TSV for rendering layer
+        ma_values_path = config.output_LFC_file.parent / "ma_values.tsv"
+        write_ma_values_tsv(M_values, A_values, ma_values_path)
+        logger.info(f"MA values saved to {ma_values_path}")
 
         logger.success(f"Analysis complete. Results saved to {config.output_LFC_file}")
-        logger.success(f"MA plots saved to {MA_plot_path}")
 
     except ValueError as e:
         logger.error(f"Error: {e}")
