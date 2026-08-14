@@ -63,16 +63,12 @@ import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
-import matplotlib.pyplot as plt
 from loguru import logger
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
 SCRIPT_DIR = Path(__file__).parent.resolve()
-plt.style.use(SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle")
-AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
-COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES

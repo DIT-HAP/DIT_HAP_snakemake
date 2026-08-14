@@ -82,8 +82,6 @@ import pandas as pd
 # 3. Third-party Imports
 from joblib import Parallel, delayed
 from loguru import logger
-from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 from scipy.optimize import minimize
 
 # =============================================================================
@@ -91,9 +89,6 @@ from scipy.optimize import minimize
 # =============================================================================
 # Configure matplotlib for publication quality
 SCRIPT_DIR = Path(__file__).parent.resolve()
-plt.style.use(SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle")
-AX_WIDTH, AX_HEIGHT = plt.rcParams['figure.figsize']
-COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 DL_PENALTY = 6e-3
 TOL = 2e-6

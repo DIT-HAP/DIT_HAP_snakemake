@@ -1,20 +1,12 @@
 # workflow/envs/statistics_and_computation.yml
 # Computation environment: numerical analysis, depletion scoring, curve fitting.
-#
-# NOTE: matplotlib/seaborn/altair are retained here only until the rendering
-# layer (workflow/src/figures.py + workflow/scripts/figures/) is in place and
-# all 8 plotting rules are rewired to cnsplots.yml. They are removed in the
-# final cleanup task, not before — removing them earlier breaks those rules
-# at import time.
+# NO plotting libraries — those live in cnsplots.yml.
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
   - python=3.12
-  - matplotlib>=3.11
-  - seaborn>=0.13.2
-  - altair>=6.2.2
   - numpy>=2.5.0
   - pandas>=3.0.3
   - scipy>=1.18
