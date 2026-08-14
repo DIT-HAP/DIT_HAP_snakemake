@@ -609,9 +609,7 @@ def main() -> int:
         # fitted_results
         results_df[list(numeric_columns.keys())].to_csv(config.output_file.parent/"fitting_results.tsv", index=True, sep="\t")
 
-        # Generate plots
-        output_plot = config.output_file.with_suffix('.pdf').with_name(config.output_file.stem + '_fitted_curves.pdf')
-        # generate_fitting_plots(results_df, x_values, y_values, output_plot)
+        # Plotting moved to separate rendering script (plot_curve_fitting.py)
 
         # Calculate and display statistics
         stats = generate_summary_statistics(results_df)
@@ -621,7 +619,6 @@ def main() -> int:
         elapsed_time = time.time() - start_time
         logger.success(f"Analysis completed in {elapsed_time:.1f} seconds")
         logger.success(f"Results saved to: {config.output_file}")
-        logger.success(f"Plots saved to: {output_plot}")
     except Exception as e:
         logger.exception(f"An unexpected error occurred: {e}")
         return 1
