@@ -43,7 +43,9 @@ Output
 - Alongside it in the same directory: ``insertion_level_statistics.tsv``,
   ``baseMean.tsv``, ``lfcSE.tsv``, ``stat.tsv``, ``pvalue.tsv``, ``padj.tsv``,
   ``normed_counts.tsv``, ``count_X.tsv``, ``cooks.tsv``.
-- Plots: ``dispersions.png`` and ``MA_<timepoint>.png``.
+- Figure-data TSVs for the rendering layer: ``dispersion_data.tsv`` (per-insertion
+  normed mean and genewise/MAP/fitted dispersions) and ``ma_values_replicates.tsv``
+  (long-format baseMean/log2FoldChange/padj per timepoint, pre-negation).
 
 Usage
 -----
@@ -212,14 +214,41 @@ def perform_differential_analysis(dds: DeseqDataSet, timepoints: list[str], init
 
 
 @logger.catch
-def plot_ma(stat_res: dict[str, DeseqStats], output_dir: Path) -> None:
-    """Generate MA plots for all timepoint comparisons."""
-    logger.info("Generating MA plots")
+def write_dispersion_data_tsv(dds: DeseqDataSet, output_path: Path) -> None:
+    """Write per-insertion normed means and dispersion estimates for the rendering layer."""
+    logger.info("Writing dispersion data")
 
+    index_tuples = [tuple(idx.split("=")) for idx in dds.var.index.tolist()]
+    new_index = [
+        (chr_name, int(coordinate) if coordinate.isdigit() else coordinate, strand, target)
+        for chr_name, coordinate, strand, target in index_tuples
+    ]
+
+    dispersion_df = pd.DataFrame(
+        {
+            "normed_mean": dds.varm["_normed_means"],
+            "genewise_dispersion": dds.varm["genewise_dispersions"],
+            "MAP_dispersion": dds.varm["dispersions"],
+            "fitted_dispersion": dds.varm["fitted_dispersions"],
+        },
+        index=pd.MultiIndex.from_tuples(new_index, names=["Chr", "Coordinate", "Strand", "Target"]),
+    )
+    dispersion_df.to_csv(output_path, sep="\t", index=True)
+
+
+@logger.catch
+def write_ma_values_tsv(stat_res: dict[str, DeseqStats], output_path: Path) -> None:
+    """Write pre-negation baseMean/log2FoldChange/padj per timepoint for the rendering layer."""
+    logger.info("Writing MA values")
+
+    frames = []
     for tp, res in stat_res.items():
-        output_path = output_dir / f"MA_{tp}.png"
-        res.plot_MA(save_path=output_path)
-        logger.debug(f"Saved MA plot for {tp} to {output_path}")
+        tp_df = res.results_df[["baseMean", "log2FoldChange", "padj"]].copy()
+        tp_df["timepoint"] = tp
+        frames.append(tp_df)
+
+    ma_values_df = pd.concat(frames, ignore_index=True)[["timepoint", "baseMean", "log2FoldChange", "padj"]]
+    ma_values_df.to_csv(output_path, sep="\t", index=False)
 
 
 @logger.catch
@@ -326,10 +355,18 @@ def main() -> int:
         logger.info(f"Control timepoint: {config.initial_timepoint}")
         logger.info(f"Timepoints for analysis: {timepoints}")
 
+        # Figure-data TSVs for the rendering layer live under results/18_figure_data/,
+        # a sibling of the 14_insertion_level_depletion_analysis/ directory used for
+        # the primary statistic tables.
+        figure_data_dir = config.output_file.parent.parent / "18_figure_data"
+        figure_data_dir.mkdir(parents=True, exist_ok=True)
+
         # Create DESeq2 dataset
         dds = create_deseq_dataset(counts_df, metadata, control_insertions, config.initial_timepoint)
-        logger.info("Plotting dispersions...")
-        dds.plot_dispersions(save_path=config.output_file.parent / "dispersions.png")
+        logger.info("Writing dispersion data for the rendering layer...")
+        dispersion_data_path = figure_data_dir / "dispersion_data.tsv"
+        write_dispersion_data_tsv(dds, dispersion_data_path)
+        logger.info(f"Dispersion data saved to {dispersion_data_path}")
 
         # Transform normalized counts
         logger.info("Transforming normalized counts to multi-index...")
@@ -353,7 +390,10 @@ def main() -> int:
         # Perform differential analysis
         logger.info("Performing differential analysis...")
         stat_res = perform_differential_analysis(dds, timepoints, config.initial_timepoint)
-        plot_ma(stat_res, config.output_file.parent)
+        logger.info("Writing MA values for the rendering layer...")
+        ma_values_path = figure_data_dir / "ma_values_replicates.tsv"
+        write_ma_values_tsv(stat_res, ma_values_path)
+        logger.info(f"MA values saved to {ma_values_path}")
 
         # Concatenate results
         logger.info("Concatenating results...")

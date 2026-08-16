@@ -75,6 +75,8 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                     "format": "TSV",
                 },
             ),
+            dispersion_data="projects/{project_name}/results/18_figure_data/dispersion_data.tsv",
+            ma_values="projects/{project_name}/results/18_figure_data/ma_values_replicates.tsv",
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_has_replicates.log",
         params:
