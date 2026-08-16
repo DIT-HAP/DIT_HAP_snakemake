@@ -30,7 +30,14 @@ import pytest
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str(SCRIPT_DIR.resolve()))
+
+# The script under test imports pydeseq2 at module scope, which only the
+# computation env provides. Skip cleanly elsewhere so collection errors do not
+# abort the whole suite in the rendering env.
+pytest.importorskip("pydeseq2", reason="requires the pydeseq2 computation env")
+
 from insertion_level_depletion_analysis_has_replicates import (  # noqa: E402
+    concatenate_results,
     write_dispersion_data_tsv,
     write_ma_values_tsv,
 )
@@ -63,6 +70,7 @@ def fake_stat_res() -> dict[str, SimpleNamespace]:
                 {
                     "baseMean": [10.0, 20.0, 30.0],
                     "log2FoldChange": [0.5 + offset, -0.3 + offset, 0.0 + offset],
+                    "stat": [2.0 + offset, -1.5 + offset, 0.0 + offset],
                     "padj": [0.01, 0.5, 0.99],
                 },
                 index=index,
@@ -84,8 +92,8 @@ def test_write_dispersion_data_tsv_builds_multiindex_and_columns(fake_dds: Simpl
     assert list(df.index.names) == ["Chr", "Coordinate", "Strand", "Target"]
     assert list(df.columns) == ["normed_mean", "genewise_dispersion", "MAP_dispersion", "fitted_dispersion"]
     assert len(df) == 3
-    assert df.loc[("chr1", 100, "+", "geneA"), "normed_mean"] == 10.0
-    assert df.loc[("chr2", 50, "+", "geneC"), "MAP_dispersion"] == 0.35
+    assert df.loc[("chr1", 100, "+", "geneA"), "normed_mean"] == pytest.approx(10.0)
+    assert df.loc[("chr2", 50, "+", "geneC"), "MAP_dispersion"] == pytest.approx(0.35)
 
 
 def test_write_ma_values_tsv_concatenates_timepoints_without_negation(
@@ -107,9 +115,22 @@ def test_write_ma_values_tsv_concatenates_timepoints_without_negation(
 
 
 def test_write_ma_values_tsv_excludes_initial_timepoint(fake_stat_res: dict[str, SimpleNamespace], tmp_path: Path) -> None:
-    """Assert only timepoints present in stat_res appear (no initial-timepoint row)."""
+    """Assert exactly the timepoints present in stat_res appear (no initial-timepoint row)."""
     output_path = tmp_path / "ma_values_replicates.tsv"
     write_ma_values_tsv(fake_stat_res, output_path)
 
     df = pd.read_csv(output_path, sep="\t")
-    assert "YES0" not in set(df["timepoint"].unique())
+    assert set(df["timepoint"]) == set(fake_stat_res)
+
+
+def test_ma_values_exported_before_depletion_negation(
+    fake_stat_res: dict[str, SimpleNamespace], tmp_path: Path
+) -> None:
+    """Assert the export runs before concatenate_results negates results_df in place."""
+    output_path = tmp_path / "ma_values_replicates.tsv"
+    write_ma_values_tsv(fake_stat_res, output_path)
+    final = concatenate_results(fake_stat_res, ["YES1", "YES2"])
+
+    exported = pd.read_csv(output_path, sep="\t")
+    got = exported[exported["timepoint"] == "YES1"]["log2FoldChange"].to_numpy()
+    assert got == pytest.approx(-final[("YES1", "log2FoldChange")].to_numpy())

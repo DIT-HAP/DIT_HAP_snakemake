@@ -9,3 +9,4 @@ dependencies:
   - pydeseq2>=0.5.4
   - openpyxl
   - loguru
+  - pytest>=9.0

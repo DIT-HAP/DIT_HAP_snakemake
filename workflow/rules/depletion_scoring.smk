@@ -91,7 +91,9 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 -i {input.counts_df} \
                 -c {input.control_insertions_df} \
                 -t {params.initial_time_point} \
-                -o {output.LFC} &> {log}
+                -o {output.LFC} \
+                --dispersion_data {output.dispersion_data} \
+                --ma_values {output.ma_values} &> {log}
             """
 
 else:
