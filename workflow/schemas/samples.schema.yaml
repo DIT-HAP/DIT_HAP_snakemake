@@ -1,4 +1,4 @@
-$schema: "http://json-schema.org/draft-07/schema#"
+$schema: "https://json-schema.org/draft/2020-12/schema"
 description: >
   Row schema for the DIT-HAP sample sheet TSV. Applied per row by
   snakemake.utils.validate(df, schema). The sheet must be read with dtype=str so
