@@ -3,7 +3,6 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "loguru",
-#     "matplotlib",
 #     "numpy",
 #     "pandas",
 # ]
@@ -26,8 +25,11 @@ For each gene it derives insertion-site density per kilobase at the initial
 and final timepoint (and their difference / log2 fold-change), gap-distribution
 metrics (including a Gini coefficient of insertion location), read-depth
 inequality (Gini coefficient of depth) at both timepoints, and strand-preference
-measures. A multi-page PDF of histogram distributions and initial-vs-final
-scatter plots is produced alongside the density statistics table.
+measures.
+
+This is the computation layer: it writes only the density statistics table.
+Rendering (histograms, initial-vs-final scatter panels) lives in
+``workflow/scripts/figures/plot_insertion_density.py``.
 
 Input
 -----
@@ -42,8 +44,18 @@ Input
 Output
 ------
 - Density statistics table (``-o``): tab-separated, one row per gene.
-- Histogram/scatter distribution report: multi-page PDF written next to the
-  table as ``<output_stem>_histograms.pdf``.
+  Columns: Systematic ID (index), Name, Chr, Start, End, Length, Strand,
+  FYPOviability, total_insertions, unique_sites_initial, unique_sites_final,
+  gene_length, insertion_density_per_kb_initial, insertion_density_per_kb_final,
+  insertion_density_change, insertion_density_log2fc, num_gaps, largest_gap,
+  largest_gap_fraction, smallest_gap, smallest_gap_fraction, mean_gap_length,
+  mean_gap_length_fraction, median_gap_length, median_gap_length_fraction,
+  gap_length_sd, gap_length_sd_fraction, all_gap_lengths, all_gap_lengths_fraction,
+  gini_coefficient_of_location, total_reads_initial, total_reads_final,
+  mean_reads_per_insertion_initial, mean_reads_per_insertion_final,
+  gini_coefficient_of_depth_initial, gini_coefficient_of_depth_final,
+  total_reads_log2fc, forward_insertions, reverse_insertions, forward_preference,
+  reverse_preference, strand_bias, paired_sites, paired_sites_fraction.
 
 Usage
 -----
@@ -51,7 +63,7 @@ Usage
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
-Version:  2.0.0
+Version:  3.0.0
 """
 
 # =============================================================================
@@ -63,7 +75,6 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-from datetime import datetime
 from pathlib import Path
 
 # 2. Data Processing Imports
@@ -72,18 +83,6 @@ import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
-from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-
-
-# =============================================================================
-# GLOBAL CONSTANTS & ENUMS
-# =============================================================================
-# The following is for plotting
-SCRIPT_DIR = Path(__file__).parent.resolve()
-plt.style.use(SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle")
-AX_WIDTH, AX_HEIGHT = plt.rcParams['figure.figsize']
-COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 
 # =============================================================================
@@ -498,416 +497,6 @@ def generate_summary_statistics(results_df: pd.DataFrame) -> dict[str, int | flo
     return stats
 
 
-def plot_initial_vs_final_scatter(
-    results_df: pd.DataFrame, initial_timepoint: str, final_timepoint: str, pdf: PdfPages
-) -> None:
-    """Plot initial-vs-final insertion density scatter panels — the classic phenotyping view."""
-    fig, axes = plt.subplots(2, 2, figsize=(AX_WIDTH * 2, AX_HEIGHT * 2))
-
-    essentiality = None
-    if 'FYPOviability' in results_df.columns:
-        essentiality = results_df['FYPOviability']
-
-    def scatter_by_essentiality(ax, x, y, xlabel, ylabel, title):
-        """Draw a scatter plot, colored by FYPOviability when available."""
-        if essentiality is not None:
-            for label, color in [('viable', COLORS[0]), ('inviable', COLORS[3])]:
-                mask = essentiality == label
-                ax.scatter(x[mask], y[mask], s=6, alpha=0.4, color=color,
-                           edgecolors='none', label=label, rasterized=True)
-            ax.legend(fontsize=8, loc='best')
-        else:
-            ax.scatter(x, y, s=6, alpha=0.4, color=COLORS[0], edgecolors='none', rasterized=True)
-
-        ax.set_xlabel(xlabel, fontsize=10)
-        ax.set_ylabel(ylabel, fontsize=10)
-        ax.set_title(title, fontsize=11, fontweight='semibold')
-        ax.grid(True, alpha=0.3)
-
-    # Panel 1: initial vs. final density, with the y = x reference line
-    density_initial = results_df['insertion_density_per_kb_initial']
-    density_final = results_df['insertion_density_per_kb_final']
-    scatter_by_essentiality(
-        axes[0, 0], density_initial, density_final,
-        f'Insertion density per kb ({initial_timepoint})',
-        f'Insertion density per kb ({final_timepoint})',
-        'Initial vs. Final Insertion Density',
-    )
-    max_val = max(density_initial.max(), density_final.max(), 1)
-    axes[0, 0].plot([0, max_val], [0, max_val], color='red', linestyle='--', alpha=0.6, linewidth=1)
-
-    # Panel 2: initial density vs. log2 fold-change, with the y = 0 reference line
-    log2fc = results_df['insertion_density_log2fc']
-    scatter_by_essentiality(
-        axes[0, 1], density_initial, log2fc,
-        f'Insertion density per kb ({initial_timepoint})',
-        f'log2FC density ({final_timepoint} / {initial_timepoint})',
-        'Density Depletion vs. Initial Coverage',
-    )
-    axes[0, 1].axhline(0, color='red', linestyle='--', alpha=0.6, linewidth=1)
-
-    # Panel 3: initial vs. final total reads (log scale)
-    reads_initial = results_df['total_reads_initial']
-    reads_final = results_df['total_reads_final']
-    scatter_by_essentiality(
-        axes[1, 0], reads_initial, reads_final,
-        f'Total reads ({initial_timepoint})',
-        f'Total reads ({final_timepoint})',
-        'Initial vs. Final Read Depth',
-    )
-    axes[1, 0].set_xscale('symlog')
-    axes[1, 0].set_yscale('symlog')
-
-    # Panel 4: initial vs. final Gini coefficient of read depth
-    gini_initial = results_df['gini_coefficient_of_depth_initial']
-    gini_final = results_df['gini_coefficient_of_depth_final']
-    scatter_by_essentiality(
-        axes[1, 1], gini_initial, gini_final,
-        f'Gini coefficient of depth ({initial_timepoint})',
-        f'Gini coefficient of depth ({final_timepoint})',
-        'Initial vs. Final Depth Inequality',
-    )
-    axes[1, 1].plot([0, 1], [0, 1], color='red', linestyle='--', alpha=0.6, linewidth=1)
-
-    fig.suptitle('Initial vs. Final Timepoint Comparison', fontsize=16, fontweight='bold', y=0.98)
-    plt.tight_layout()
-    pdf.savefig(fig, bbox_inches='tight')
-    plt.close(fig)
-
-
-def plot_numeric_distributions_to_pdf(
-    results_df: pd.DataFrame, output_path: Path, initial_timepoint: str, final_timepoint: str
-) -> None:
-    """Generate histograms and scatter comparisons and save to a multi-page PDF."""
-    logger.info("Generating histograms for numeric columns in PDF format")
-
-    # Identify numeric columns (excluding string columns like gene names)
-    numeric_columns = results_df.select_dtypes(include=[np.number]).columns.tolist()
-
-    # Remove columns that are identifiers or coordinates
-    exclude_patterns = ['Start', 'End', 'Length', 'Chr']
-    numeric_columns = [col for col in numeric_columns
-                      if not any(pattern in col for pattern in exclude_patterns)]
-
-    if not numeric_columns:
-        logger.warning("No numeric columns found for plotting")
-        return
-
-    # Group columns by category for better organization
-    column_groups = {
-        'Density Metrics': [col for col in numeric_columns if 'density' in col.lower()],
-        'Gap Statistics': [col for col in numeric_columns if 'gap' in col.lower()],
-        'Read Statistics': [col for col in numeric_columns if any(term in col.lower()
-                           for term in ['reads', 'gini_coefficient_of_depth'])],
-        'Strand Statistics': [col for col in numeric_columns if any(term in col.lower()
-                             for term in ['forward', 'reverse', 'strand', 'paired'])],
-        'Location Statistics': [col for col in numeric_columns if 'gini_coefficient_of_location' in col.lower()],
-        'Count Statistics': [col for col in numeric_columns if any(term in col.lower()
-                            for term in ['total_insertions', 'unique_sites', 'num_gaps'])]
-    }
-
-    # Add any remaining columns to a general category
-    all_categorized = set()
-    for group_cols in column_groups.values():
-        all_categorized.update(group_cols)
-
-    remaining_cols = [col for col in numeric_columns if col not in all_categorized]
-    if remaining_cols:
-        column_groups['Other Statistics'] = remaining_cols
-
-    # Create PDF file
-    pdf_path = output_path.parent / f"{output_path.stem}_histograms.pdf"
-
-    COLOR_PALETTE = COLORS
-
-    with PdfPages(pdf_path) as pdf:
-        # Create title page
-        create_title_page(pdf, results_df)
-
-        # Create summary plot with key metrics first
-        create_summary_histogram_plot_pdf(results_df, pdf)
-
-        # Initial-vs-final scatter comparison — the classic phenotyping view
-        plot_initial_vs_final_scatter(results_df, initial_timepoint, final_timepoint, pdf)
-
-        # Generate plots for each group
-        for group_name, group_columns in column_groups.items():
-            if not group_columns:
-                continue
-
-            logger.info(f"Plotting {group_name}: {len(group_columns)} columns")
-
-            # Calculate subplot layout
-            n_cols = min(3, len(group_columns))
-            n_rows = int(np.ceil(len(group_columns) / n_cols))
-
-            fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 4*n_rows))
-            if n_rows == 1 and n_cols == 1:
-                axes = [axes]
-            elif n_rows == 1 or n_cols == 1:
-                axes = axes.flatten()
-            else:
-                axes = axes.flatten()
-
-            for idx, column in enumerate(group_columns):
-                ax = axes[idx] if len(group_columns) > 1 else axes[0]
-
-                # Get data and remove NaN values
-                data = results_df[column].dropna()
-
-                if len(data) == 0:
-                    ax.text(0.5, 0.5, 'No Data', transform=ax.transAxes,
-                           ha='center', va='center', fontsize=12)
-                    ax.set_title(column, fontsize=11, fontweight='semibold')
-                    continue
-
-                # Choose color based on column type
-                if 'density' in column.lower():
-                    color = COLOR_PALETTE[0]
-                elif 'gap' in column.lower():
-                    color = COLOR_PALETTE[1]
-                elif any(term in column.lower() for term in ['reads', 'gini']):
-                    color = COLOR_PALETTE[2]
-                else:
-                    color = COLOR_PALETTE[3]
-
-                # Check if this is a count/density metric that should be log transformed
-                # Include: reads, counts, insertion sites, insertion density
-                # Exclude: gini coefficients (bounded [0,1]), percentages, ratios
-                is_count_metric = any(term in column.lower() for term in
-                                     ['reads', 'basemean', 'count', 'sites', 'density'])
-                is_bounded_metric = any(term in column.lower() for term in
-                                       ['gini', 'percent', 'fraction', 'bias'])
-                # log2fc / change columns are already on a difference scale — never log-transform those
-                is_diff_metric = any(term in column.lower() for term in ['log2fc', '_change'])
-
-                # Transform data if it's count-like but not bounded or a difference metric
-                # Always use log10(data + 1) to handle zeros consistently across initial/final pairs
-                if is_count_metric and not is_bounded_metric and not is_diff_metric:
-                    # Log transform with +1 pseudo-count (handles zeros consistently)
-                    plot_data = np.log10(data + 1)
-                    xlabel = 'log10(Value + 1)'
-
-                    # Calculate statistics on original data for annotation
-                    mean_val = data.mean()
-                    median_val = data.median()
-
-                    # Calculate mean and median of transformed data for reference lines
-                    plot_mean = plot_data.mean()
-                    plot_median = plot_data.median()
-                else:
-                    # Use original data for bounded metrics, percentages, and difference metrics
-                    plot_data = data
-                    xlabel = 'Value'
-                    mean_val = data.mean()
-                    median_val = data.median()
-                    plot_mean = mean_val
-                    plot_median = median_val
-
-                # Create histogram
-                n_bins = min(30, max(10, int(np.sqrt(len(plot_data)))))
-                ax.hist(plot_data, bins=n_bins, color=color, alpha=0.7,
-                       edgecolor='white', linewidth=0.5)
-
-                # Add statistics text (always show original data statistics)
-                stats_text = f'Mean: {mean_val:.3f}\nMedian: {median_val:.3f}\nN: {len(data)}'
-
-                ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-                       fontsize=8, verticalalignment='top',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
-
-                # Formatting
-                ax.set_title(column.replace('_', ' ').title(), fontsize=11, fontweight='semibold')
-                ax.set_xlabel(xlabel, fontsize=10)
-                ax.set_ylabel('Frequency', fontsize=10)
-                ax.grid(True, alpha=0.3)
-
-                # Add vertical lines for mean and median (on transformed scale if applicable)
-                ax.axvline(plot_mean, color='red', linestyle='--', alpha=0.7, linewidth=1)
-                ax.axvline(plot_median, color='orange', linestyle=':', alpha=0.7, linewidth=1)
-
-            # Hide unused subplots
-            for idx in range(len(group_columns), len(axes)):
-                axes[idx].set_visible(False)
-
-            # Add group title
-            fig.suptitle(f'{group_name} - Distribution Analysis',
-                        fontsize=16, fontweight='bold', y=0.98)
-            plt.tight_layout()
-
-            # Save page to PDF
-            pdf.savefig(fig, bbox_inches='tight')
-            plt.close(fig)
-
-    logger.info(f"Multi-page histogram PDF saved to {pdf_path}")
-
-
-def create_title_page(pdf: PdfPages, results_df: pd.DataFrame) -> None:
-    """Create a title page for the PDF with analysis summary."""
-    fig, ax = plt.subplots(figsize=(8.5, 11))
-    ax.axis('off')
-
-    # Title
-    ax.text(0.5, 0.9, 'Insertion Density Analysis',
-           transform=ax.transAxes, fontsize=24, fontweight='bold',
-           ha='center', va='center')
-
-    ax.text(0.5, 0.85, 'Initial vs. Final Timepoint Comparison Report',
-           transform=ax.transAxes, fontsize=16,
-           ha='center', va='center', style='italic')
-
-    # Analysis summary
-    summary_text = f"""
-Analysis Summary:
-• Total genes analyzed: {len(results_df):,}
-• Numeric metrics calculated: {len(results_df.select_dtypes(include=[np.number]).columns)}
-• Analysis includes: initial/final insertion density, gap statistics, read
-  distribution, and strand preferences
-
-Report Contents:
-1. Key Metrics Summary (6 most important measures)
-2. Initial vs. Final Scatter Comparison (density, reads, depth inequality)
-3. Density Metrics (initial/final density per kb and log2 fold-change)
-4. Gap Statistics (gap lengths, counts, and distributions)
-5. Read Statistics (read counts and depth inequality, initial/final)
-6. Strand Statistics (forward/reverse preferences and pairing)
-7. Location Statistics (spatial inequality measures)
-8. Count Statistics (total insertions, unique sites, gap counts)
-
-Statistical Annotations:
-• Red dashed line: Mean value / y=x or y=0 reference (scatter panels)
-• Orange dotted line: Median value
-• Text box: Mean, Median, and sample size (N)
-• Bin count optimized using square root rule
-• Read depth metrics: log10 transformed for better visualization
-• Statistics shown: Original data values (not transformed)
-"""
-
-    ax.text(0.1, 0.7, summary_text, transform=ax.transAxes, fontsize=12,
-           va='top', ha='left', linespacing=1.5)
-
-    # Footer
-    ax.text(0.5, 0.1, f'Generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
-           transform=ax.transAxes, fontsize=10, ha='center', va='center',
-           style='italic', color='gray')
-
-    pdf.savefig(fig, bbox_inches='tight')
-    plt.close(fig)
-
-
-def create_summary_histogram_plot_pdf(results_df: pd.DataFrame, pdf: PdfPages) -> None:
-    """Create a summary plot with the most important metrics for PDF."""
-    # Select key metrics for summary plot
-    key_metrics = [
-        'insertion_density_per_kb_initial',
-        'insertion_density_per_kb_final',
-        'insertion_density_log2fc',
-        'gini_coefficient_of_depth_initial',
-        'gini_coefficient_of_location',
-        'strand_bias',
-    ]
-
-    COLOR_PALETTE = COLORS
-
-    # Filter to only include columns that exist in the data
-    available_metrics = [col for col in key_metrics if col in results_df.columns]
-
-    if not available_metrics:
-        logger.warning("No key metrics available for summary plot")
-        return
-
-    # Create summary plot
-    n_cols = 3
-    n_rows = int(np.ceil(len(available_metrics) / n_cols))
-
-    plot_width, plot_height = plt.rcParams['figure.figsize']
-    fig_width = plot_width * n_cols
-    fig_height = plot_height * n_rows
-
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(fig_width, fig_height))
-    if n_rows == 1:
-        axes = axes.flatten() if n_cols > 1 else [axes]
-    else:
-        axes = axes.flatten()
-
-    colors = [COLOR_PALETTE[0], COLOR_PALETTE[1],
-              COLOR_PALETTE[2], COLOR_PALETTE[3]] * 2
-
-    for idx, metric in enumerate(available_metrics):
-        ax = axes[idx]
-        data = results_df[metric].dropna()
-
-        if len(data) == 0:
-            ax.text(0.5, 0.5, 'No Data', transform=ax.transAxes,
-                   ha='center', va='center')
-            ax.set_title(metric.replace('_', ' ').title())
-            continue
-
-        # Check if this is a read depth related metric that should be log transformed
-        is_read_depth = any(term in metric.lower() for term in
-                          ['reads', 'basemean', 'count', 'depth', 'gini_coefficient_of_depth'])
-        is_diff_metric = any(term in metric.lower() for term in ['log2fc', '_change'])
-
-        # Transform data if it's read depth related
-        if is_read_depth and not is_diff_metric and data.min() > 0:
-            # Log transform the data values (add small constant to handle zeros)
-            plot_data = np.log10(data + 1)
-            xlabel = 'log10(Value + 1)'
-
-            # Calculate statistics on original data for annotation
-            mean_val = data.mean()
-            median_val = data.median()
-            std_val = data.std()
-
-            # Calculate mean and median of transformed data for reference lines
-            plot_mean = plot_data.mean()
-            plot_median = plot_data.median()
-        else:
-            # Use original data for other metrics
-            plot_data = data
-            xlabel = 'Value'
-            mean_val = data.mean()
-            median_val = data.median()
-            std_val = data.std()
-            plot_mean = mean_val
-            plot_median = median_val
-
-        # Create histogram
-        n_bins = min(25, max(10, int(np.sqrt(len(plot_data)))))
-        ax.hist(plot_data, bins=n_bins, color=colors[idx], alpha=0.7,
-               edgecolor='white', linewidth=0.5)
-
-        # Add statistics (always show original data statistics)
-        stats_text = f'Mean: {mean_val:.3f}\nMedian: {median_val:.3f}\nStd: {std_val:.3f}'
-        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top')
-
-        # Formatting
-        title = metric.replace('_', ' ').replace('per kb', '(per kb)').title()
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel('Number of Genes')
-        ax.grid(True, alpha=0.3)
-
-        # Add reference lines (on transformed scale if applicable)
-        ax.axvline(plot_mean, color='red', linestyle='--', alpha=0.8, linewidth=1.5, label='Mean')
-        ax.axvline(plot_median, color='orange', linestyle=':', alpha=0.8, linewidth=1.5, label='Median')
-
-        # Add legend for first plot
-        if idx == 0:
-            ax.legend()
-
-    # Hide unused subplots
-    for idx in range(len(available_metrics), len(axes)):
-        axes[idx].set_visible(False)
-
-    plt.suptitle('Key Insertion Density Metrics Distribution',
-                y=0.98)
-
-    # Save to PDF
-    pdf.savefig(fig, bbox_inches='tight')
-    plt.close(fig)
-
-
 # =============================================================================
 # MAIN EXECUTION
 # =============================================================================
@@ -959,26 +548,16 @@ def main() -> int:
 
         # Filter for in-gene insertions
         in_gene_insertions = filter_in_gene_insertions(insertion_data, annotations)
+        logger.info(f"Analyzing {in_gene_insertions['Systematic ID'].nunique()} genes")
 
-        # valid genes
-        valid_genes = in_gene_insertions["Systematic ID"].unique().tolist()
-        logger.info(f"Analyzing {len(valid_genes)} genes")
-
-        # Analyze each gene
-        gene_results = []
-
-        for gene_id in valid_genes:
-            gene_insertions = in_gene_insertions[
-                in_gene_insertions['Systematic ID'] == gene_id
-            ]
-
-            if len(gene_insertions) > 0:
-                gene_analysis = analyze_gene_insertions(gene_id, gene_insertions)
-                gene_results.append(gene_analysis)
-
-        # Create results DataFrame
-        results_df = pd.DataFrame(gene_results)
-        results_df = results_df.set_index('Systematic ID')
+        # Analyze each gene via a single grouped pass (avoids re-filtering the full
+        # frame once per gene, which was quadratic in the number of genes)
+        results_df = in_gene_insertions.groupby('Systematic ID', sort=False).apply(
+            lambda group: pd.Series(analyze_gene_insertions(group.name, group)),
+            include_groups=False,
+        )
+        results_df = results_df.drop(columns='Systematic ID')
+        results_df.index.name = 'Systematic ID'
 
         # Generate summary statistics
         stats = generate_summary_statistics(results_df)
@@ -997,18 +576,12 @@ def main() -> int:
             mean_strand_bias=stats['mean_strand_bias'],
         )
 
-        # Generate histogram plots in PDF format
-        plot_numeric_distributions_to_pdf(
-            results_df, config.output_path, config.initial_timepoint, config.final_timepoint
-        )
-
         # Save results
         results_df.to_csv(config.output_path, index=True, sep="\t")
 
         # Final summary
         logger.success("Analysis completed successfully")
         logger.success(f"Results saved to {config.output_path}")
-        logger.success(f"Histogram PDF saved to {config.output_path.parent / f'{config.output_path.stem}_histograms.pdf'}")
         logger.success(f"Analyzed {len(results_df)} genes with insertion data")
 
         # Log summary statistics

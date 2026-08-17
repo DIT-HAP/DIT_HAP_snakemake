@@ -6,7 +6,6 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "pandas",
-#     "matplotlib",
 #     "loguru",
 # ]
 # ///
@@ -31,6 +30,10 @@ insertion sits in) on the (Chr, Coordinate, Strand, Target) key. Each gene is
 labelled with its PomBase viability category, and coverage is tallied per
 category.
 
+This is the computation layer: it writes only the coverage statistics table.
+Rendering (bar chart + donut charts) lives in
+``workflow/scripts/figures/plot_gene_coverage.py``.
+
 Input
 -----
 - ``-i`` insertion-level LFC TSV, row MultiIndex (Chr, Coordinate, Strand, Target).
@@ -41,17 +44,17 @@ Input
 
 Output
 ------
-- ``-o`` a multi-page PDF: page 1 is a grouped bar chart of coverage percentage
-  per viability category; each following page is a donut chart of covered vs
-  not-covered genes for one category.
+- ``-o`` a TSV with one row per viability category, in PomBase display order
+  (viable, inviable, condition-dependent, unknown, then any unlisted labels).
+  Columns: category, covered, not_covered, total, coverage_pct.
 
 Usage
 -----
-    python gene_coverage_analysis.py -i LFC.tsv -a annotations.tsv -v gene_viability.tsv -o gene_coverage_analysis.pdf
+    python gene_coverage_analysis.py -i LFC.tsv -a annotations.tsv -v gene_viability.tsv -o gene_coverage_stats.tsv
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
-Version:  1.0.0
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -68,23 +71,15 @@ from pathlib import Path
 import pandas as pd
 
 # 3. Third-party Imports
-import matplotlib.pyplot as plt
 from loguru import logger
-from matplotlib.backends.backend_pdf import PdfPages
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
-SCRIPT_DIR = Path(__file__).parent.resolve()
-STYLE_PATH = SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle"
-
 INSERTION_KEY = ["Chr", "Coordinate", "Strand", "Target"]
 
 # Fixed display order for viability categories; any unlisted label is appended.
 VIABILITY_ORDER = ["viable", "inviable", "condition-dependent", "unknown"]
-
-COVERED_COLOR = "#962955"      # deep pink-purple
-NOT_COVERED_COLOR = "#7fb775"  # medium green
 
 
 class ViabilityCol(StrEnum):
@@ -196,53 +191,22 @@ def compute_coverage_stats(viability: pd.DataFrame, covered_genes: set[str]) -> 
 
 
 @logger.catch
-def plot_coverage_bar(stats: list[CoverageStat], ax: plt.Axes) -> None:
-    """Draw a grouped bar chart of coverage percentage per viability category."""
-    categories = [s.category for s in stats]
-    percentages = [s.coverage_pct for s in stats]
-
-    ax.bar(categories, percentages, color=COVERED_COLOR)
-    ax.set_ylabel("Coverage (%)")
-    ax.set_xlabel("Gene viability")
-    ax.set_title("Gene coverage by viability")
-    ax.set_ylim(0, 100)
-    for idx, stat in enumerate(stats):
-        ax.text(idx, stat.coverage_pct, f"{stat.coverage_pct:.1f}%", ha="center", va="bottom")
-
-
-@logger.catch
-def plot_coverage_donut(stat: CoverageStat, ax: plt.Axes) -> None:
-    """Draw a donut chart of covered vs not-covered genes for one category."""
-    ax.pie(
-        [stat.covered, stat.not_covered],
-        labels=["Covered", "Not covered"],
-        colors=[COVERED_COLOR, NOT_COVERED_COLOR],
-        autopct=lambda pct: f"{pct:.1f}%",
-        wedgeprops={"width": 0.4},
-        startangle=90,
+def write_coverage_table(stats: list[CoverageStat], output_file: Path) -> None:
+    """Write the per-category coverage tally to a TSV."""
+    table = pd.DataFrame(
+        [
+            {
+                "category": stat.category,
+                "covered": stat.covered,
+                "not_covered": stat.not_covered,
+                "total": stat.total,
+                "coverage_pct": round(stat.coverage_pct, 3),
+            }
+            for stat in stats
+        ]
     )
-    ax.set_title(f"{stat.category}\n({stat.covered:,}/{stat.total:,} genes)")
-
-
-@logger.catch
-def write_report(stats: list[CoverageStat], output_file: Path) -> None:
-    """Write the multi-page coverage PDF: bar-chart overview then per-category donuts."""
-    plt.style.use(STYLE_PATH)
-    ax_width, ax_height = plt.rcParams["figure.figsize"]
-
-    with PdfPages(output_file) as pdf:
-        fig, ax = plt.subplots(figsize=(ax_width, ax_height))
-        plot_coverage_bar(stats, ax)
-        pdf.savefig(fig, bbox_inches="tight")
-        plt.close(fig)
-
-        for stat in stats:
-            fig, ax = plt.subplots(figsize=(ax_width, ax_height))
-            plot_coverage_donut(stat, ax)
-            pdf.savefig(fig, bbox_inches="tight")
-            plt.close(fig)
-
-    logger.success(f"Wrote coverage report with {len(stats) + 1} pages to {output_file}")
+    table.to_csv(output_file, sep="\t", index=False)
+    logger.success(f"Wrote coverage statistics for {len(stats)} categories to {output_file}")
 
 # =============================================================================
 # MAIN EXECUTION
@@ -254,7 +218,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python gene_coverage_analysis.py -i LFC.tsv -a annotations.tsv -v gene_viability.tsv -o gene_coverage_analysis.pdf
+  python gene_coverage_analysis.py -i LFC.tsv -a annotations.tsv -v gene_viability.tsv -o gene_coverage_stats.tsv
         """,
     )
     parser.add_argument("-i", "--input", type=Path, required=True,
@@ -264,14 +228,14 @@ Examples:
     parser.add_argument("-v", "--gene-viability", type=Path, required=True,
                         help="PomBase gene viability TSV (headerless: id, viability)")
     parser.add_argument("-o", "--output", type=Path, required=True,
-                        help="Output PDF path")
+                        help="Output coverage statistics TSV path")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Main orchestrator: load coverage, tally by viability, write the PDF report."""
+    """Main orchestrator: load coverage, tally by viability, write the statistics TSV."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
 
@@ -286,7 +250,7 @@ def main() -> int:
         covered_genes = load_covered_genes(config.lfc_file, config.annotation_file)
         viability = load_gene_viability(config.viability_file)
         stats = compute_coverage_stats(viability, covered_genes)
-        write_report(stats, config.output_file)
+        write_coverage_table(stats, config.output_file)
 
     except ValueError as exc:
         logger.error(f"Analysis failed: {exc}")

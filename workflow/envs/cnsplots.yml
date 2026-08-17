@@ -1,0 +1,30 @@
+# workflow/envs/cnsplots.yml
+# Rendering environment: cnsplots figure generation only.
+#
+# The matplotlib 3.10 pin is required by cnsplots 0.6.0, which declares
+# matplotlib<3.11,>=3.10. The pandas 2.3 pin is ours: cnsplots does not
+# constrain pandas, but its transitive stack is exercised against pandas 2.x.
+# Both are deliberate downgrades relative to the computation env, isolated
+# here so that env can stay on matplotlib 3.11 / pandas 3.
+#
+# Pinned in the conda section rather than left to pip so the solver sees the
+# real bounds; otherwise conda resolves matplotlib freely and pip silently
+# downgrades it afterwards, leaving on-disk state that diverges from the
+# recorded conda state in a way Snakemake's env hashing cannot detect.
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - numpy>=2.4,<2.5
+  - pandas>=2.2,<2.4
+  - matplotlib>=3.10,<3.11
+  - seaborn>=0.13.2,<0.14
+  - pycomplexheatmap>=1.8.4,<1.9
+  - statannotations>=0.7.2,<0.8
+  - pytest>=9.0
+  - pyarrow
+  - loguru
+  - pip
+  - pip:
+    - cnsplots==0.6.0

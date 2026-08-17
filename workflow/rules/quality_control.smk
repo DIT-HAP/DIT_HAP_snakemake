@@ -224,7 +224,7 @@ rule mapping_filtering_statistics:
     log:
         f"projects/{project_name}/logs/quality_control/mapping_filtering_statistics.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Generating mapping filtering statistics..."
     shell:
@@ -262,11 +262,29 @@ rule datavzrd_mapping_filtering_statistics:
 
 # PBL-PBR correlation analysis
 # -----------------------------------------------------
-rule PBL_PBR_correlation_analysis:
+rule pbl_pbr_pairs:
     input:
         expand(rules.merge_strand_insertions.output, sample=samples, timepoint=timepoints, condition=conditions),
     output:
-        report(
+        f"projects/{project_name}/results/18_figure_data/pbl_pbr_pairs.tsv",
+    log:
+        f"projects/{project_name}/logs/quality_control/pbl_pbr_pairs.log",
+    conda:
+        "../envs/statistics_and_computation.yml"
+    message:
+        "*** Extracting PBL-PBR pairs..."
+    shell:
+        """
+        python workflow/scripts/quality_control/PBL_PBR_correlation_analysis.py \
+            -i {input} -o {output} &> {log}
+        """
+
+
+rule plot_pbl_pbr_correlation:
+    input:
+        rules.pbl_pbr_pairs.output,
+    output:
+        journal=report(
             f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
             caption="../reports/captions/PBL_PBR_correlation_analysis.rst",
             category="Quality Control",
@@ -276,21 +294,26 @@ rule PBL_PBR_correlation_analysis:
                 "format": "PDF",
             },
         ),
+        review=f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/PBL_PBR_correlation_analysis.log",
+        f"projects/{project_name}/logs/quality_control/plot_pbl_pbr_correlation.log",
+    params:
+        stem=f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/cnsplots.yml"
     message:
-        "*** Performing PBL-PBR correlation analysis..."
+        "*** Rendering PBL-PBR correlation figure..."
     shell:
         """
-        python workflow/scripts/quality_control/PBL_PBR_correlation_analysis.py -i {input} -o {output} &> {log}
+        python workflow/scripts/figures/plot_pbl_pbr_correlation.py \
+            -i {input} \
+            -o {params.stem} &> {log}
         """
 
 
 # Read count distribution analysis
 # -----------------------------------------------------
-rule read_count_distribution_analysis:
+rule read_count_distribution_data:
     input:
         branch(
             config["merge_similar_timepoints"],
@@ -298,22 +321,14 @@ rule read_count_distribution_analysis:
             expand(rules.concat_timepoints.output.Reads, sample=samples, condition=conditions),
         ),
     output:
-        report(
-            f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
-            caption="../reports/captions/read_count_distribution_analysis.rst",
-            category="Quality Control",
-            labels={
-                "name": "4. Read Count Distribution Analysis",
-                "type": "Distribution Plot",
-                "format": "PDF",
-            },
-        ),
+        distribution=f"projects/{project_name}/results/18_figure_data/read_count_distribution.tsv",
+        stats=f"projects/{project_name}/results/18_figure_data/read_count_cutoff_stats.tsv",
     log:
-        f"projects/{project_name}/logs/quality_control/read_count_distribution_analysis.log",
+        f"projects/{project_name}/logs/quality_control/read_count_distribution_data.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
-        "*** Performing read count distribution analysis..."
+        "*** Computing read count distributions..."
     params:
         initial_time_point=config["initial_time_point"],
         hard_filtering_cutoff=config["hard_filtering_cutoff"],
@@ -323,17 +338,73 @@ rule read_count_distribution_analysis:
             -i {input} \
             -t {params.initial_time_point} \
             -c {params.hard_filtering_cutoff} \
-            -o {output} &> {log}
+            -o {output.distribution} \
+            -s {output.stats} &> {log}
+        """
+
+
+rule plot_read_count_distribution:
+    input:
+        distribution=rules.read_count_distribution_data.output.distribution,
+        stats=rules.read_count_distribution_data.output.stats,
+    output:
+        journal=report(
+            f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
+            caption="../reports/captions/read_count_distribution_analysis.rst",
+            category="Quality Control",
+            labels={
+                "name": "4. Read Count Distribution Analysis",
+                "type": "Distribution Plot",
+                "format": "PDF",
+            },
+        ),
+        review=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.review.png",
+    log:
+        f"projects/{project_name}/logs/quality_control/plot_read_count_distribution.log",
+    params:
+        stem=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis",
+        initial_time_point=config["initial_time_point"],
+        hard_filtering_cutoff=config["hard_filtering_cutoff"],
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** Rendering read count distribution figure..."
+    shell:
+        """
+        python workflow/scripts/figures/plot_read_count_distribution.py \
+            -i {input.distribution} \
+            -s {input.stats} \
+            -t {params.initial_time_point} \
+            -c {params.hard_filtering_cutoff} \
+            -o {params.stem} &> {log}
         """
 
 
 # Insertion orientation analysis
 # -----------------------------------------------------
-rule insertion_orientation_analysis:
+rule strand_pairs:
     input:
         rules.hard_filtering.output,
     output:
-        report(
+        f"projects/{project_name}/results/18_figure_data/strand_pairs.tsv",
+    log:
+        f"projects/{project_name}/logs/quality_control/strand_pairs.log",
+    conda:
+        "../envs/statistics_and_computation.yml"
+    message:
+        "*** Extracting insertion orientation strand pairs..."
+    shell:
+        """
+        python workflow/scripts/quality_control/insertion_orientation_analysis.py \
+            -i {input} -o {output} &> {log}
+        """
+
+
+rule plot_insertion_orientation:
+    input:
+        rules.strand_pairs.output,
+    output:
+        journal=report(
             f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
             caption="../reports/captions/insertion_orientation_analysis.rst",
             category="Quality Control",
@@ -343,40 +414,35 @@ rule insertion_orientation_analysis:
                 "format": "PDF",
             },
         ),
+        review=f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/insertion_orientation_analysis.log",
+        f"projects/{project_name}/logs/quality_control/plot_insertion_orientation.log",
+    params:
+        stem=f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/cnsplots.yml"
     message:
-        "*** Performing insertion orientation analysis..."
+        "*** Rendering insertion orientation figure..."
     shell:
         """
-        python workflow/scripts/quality_control/insertion_orientation_analysis.py -i {input} -o {output} &> {log}
+        python workflow/scripts/figures/plot_insertion_orientation.py \
+            -i {input} \
+            -o {params.stem} &> {log}
         """
 
 
 # Insertion density analysis
 # -----------------------------------------------------
-rule insertion_density_analysis:
+rule insertion_density_data:
     input:
         insertion_data=rules.hard_filtering.output,
         annotation=rules.concat_counts_and_annotations.output.annotations,
     output:
-        table=f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.tsv",
-        plot=report(
-            f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
-            caption="../reports/captions/insertion_density_analysis.rst",
-            category="Quality Control",
-            labels={
-                "name": "6a. Insertion Density (Distributions)",
-                "type": "Distribution Plot",
-                "format": "PDF",
-            },
-        ),
+        f"projects/{project_name}/results/18_figure_data/insertion_density_analysis.tsv",
     log:
-        f"projects/{project_name}/logs/quality_control/insertion_density_analysis.log",
+        f"projects/{project_name}/logs/quality_control/insertion_density_data.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Performing insertion density analysis..."
     params:
@@ -389,7 +455,42 @@ rule insertion_density_analysis:
             -a {input.annotation} \
             -t {params.initial_time_point} \
             -f {params.final_time_point} \
-            -o {output.table} &> {log}
+            -o {output} &> {log}
+        """
+
+
+rule plot_insertion_density:
+    input:
+        rules.insertion_density_data.output,
+    output:
+        journal=report(
+            f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.pdf",
+            caption="../reports/captions/insertion_density_analysis.rst",
+            category="Quality Control",
+            labels={
+                "name": "6a. Insertion Density (Distributions)",
+                "type": "Distribution Plot",
+                "format": "PDF",
+            },
+        ),
+        review=f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.review.png",
+    log:
+        f"projects/{project_name}/logs/quality_control/plot_insertion_density.log",
+    params:
+        stem=f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis",
+        initial_time_point=config["initial_time_point"],
+        final_time_point=config["final_time_point"],
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** Rendering insertion density figure..."
+    shell:
+        """
+        python workflow/scripts/figures/plot_insertion_density.py \
+            -i {input} \
+            -t {params.initial_time_point} \
+            -f {params.final_time_point} \
+            -o {params.stem} &> {log}
         """
 
 
@@ -398,7 +499,7 @@ rule insertion_density_analysis:
 rule datavzrd_insertion_density_analysis:
     input:
         config="workflow/reports/datavzrd/insertion_density_analysis.yaml",
-        table=rules.insertion_density_analysis.output.table,
+        table=rules.insertion_density_data.output,
     params:
         extra="",
     output:
@@ -420,25 +521,16 @@ rule datavzrd_insertion_density_analysis:
 
 # Gene coverage analysis
 # -----------------------------------------------------
-rule gene_coverage_analysis:
+rule gene_coverage_data:
     input:
         insertion_data=f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
         annotation=rules.concat_counts_and_annotations.output.annotations,
     output:
-        report(
-            f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
-            caption="../reports/captions/gene_coverage_analysis.rst",
-            category="Quality Control",
-            labels={
-                "name": "7. Gene Coverage",
-                "type": "Coverage Plot",
-                "format": "PDF",
-            },
-        ),
+        f"projects/{project_name}/results/18_figure_data/gene_coverage_stats.tsv",
     log:
-        f"projects/{project_name}/logs/quality_control/gene_coverage_analysis.log",
+        f"projects/{project_name}/logs/quality_control/gene_coverage_data.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Performing gene coverage analysis..."
     params:
@@ -452,4 +544,35 @@ rule gene_coverage_analysis:
             -a {input.annotation} \
             -v {params.gene_viability} \
             -o {output} &> {log}
+        """
+
+
+rule plot_gene_coverage:
+    input:
+        rules.gene_coverage_data.output,
+    output:
+        journal=report(
+            f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
+            caption="../reports/captions/gene_coverage_analysis.rst",
+            category="Quality Control",
+            labels={
+                "name": "7. Gene Coverage",
+                "type": "Coverage Plot",
+                "format": "PDF",
+            },
+        ),
+        review=f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.review.png",
+    log:
+        f"projects/{project_name}/logs/quality_control/plot_gene_coverage.log",
+    params:
+        stem=f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis",
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** Rendering gene coverage figure..."
+    shell:
+        """
+        python workflow/scripts/figures/plot_gene_coverage.py \
+            -i {input} \
+            -o {params.stem} &> {log}
         """

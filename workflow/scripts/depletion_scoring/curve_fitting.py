@@ -82,8 +82,6 @@ import pandas as pd
 # 3. Third-party Imports
 from joblib import Parallel, delayed
 from loguru import logger
-from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 from scipy.optimize import minimize
 
 # =============================================================================
@@ -91,9 +89,6 @@ from scipy.optimize import minimize
 # =============================================================================
 # Configure matplotlib for publication quality
 SCRIPT_DIR = Path(__file__).parent.resolve()
-plt.style.use(SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle")
-AX_WIDTH, AX_HEIGHT = plt.rcParams['figure.figsize']
-COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 DL_PENALTY = 6e-3
 TOL = 2e-6
@@ -609,9 +604,7 @@ def main() -> int:
         # fitted_results
         results_df[list(numeric_columns.keys())].to_csv(config.output_file.parent/"fitting_results.tsv", index=True, sep="\t")
 
-        # Generate plots
-        output_plot = config.output_file.with_suffix('.pdf').with_name(config.output_file.stem + '_fitted_curves.pdf')
-        # generate_fitting_plots(results_df, x_values, y_values, output_plot)
+        # Plotting moved to separate rendering script (plot_curve_fitting.py)
 
         # Calculate and display statistics
         stats = generate_summary_statistics(results_df)
@@ -621,7 +614,6 @@ def main() -> int:
         elapsed_time = time.time() - start_time
         logger.success(f"Analysis completed in {elapsed_time:.1f} seconds")
         logger.success(f"Results saved to: {config.output_file}")
-        logger.success(f"Plots saved to: {output_plot}")
     except Exception as e:
         logger.exception(f"An unexpected error occurred: {e}")
         return 1

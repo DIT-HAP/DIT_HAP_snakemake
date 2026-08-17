@@ -6,47 +6,54 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "matplotlib",
 #     "numpy",
 #     "pandas",
 #     "loguru",
-#     "tabulate",
 # ]
 # ///
 
 """
-Read Count Distribution Analysis
-================================
+Read Count Distribution Computation
+===================================
 
-Analyzes read count distributions across one or more TSV files. For each input
-file the script builds log10-transformed histograms of every numeric column,
-draws the hard-filtering cutoff on the initial time point column, and reports how
-many rows and counts survive that cutoff. All plots are collected into a single
-multi-page PDF (one page per input file), and a formatted summary table of the
-per-file retention statistics is written to the log.
+Compute log10 read-count histograms and hard-filtering retention statistics from
+one or more TSV files, writing both as intermediate TSVs for downstream
+rendering. This is the computation half of the read count distribution figure;
+it performs no plotting.
 
-The cutoff keeps rows whose initial-time-point value is greater than or equal to
-the cutoff; histograms are drawn on a log10 scale using only strictly positive
-values, while the cutoff line is placed at log10(cutoff).
+Histograms are pre-binned here rather than emitting raw long-format values: a
+long format would multiply the row count by the number of time points, turning a
+10 MB input into hundreds of MB. The renderer must therefore consume these bins
+as-is and never re-bin.
+
+Bins are computed over ``log10(value)`` using only strictly positive values, and
+the cutoff keeps rows whose initial-time-point value is greater than or equal to
+the cutoff, matching the previous behaviour exactly.
 
 Input
 -----
-- One or more TSV files with a 4-level multi-index (``index_col=[0, 1, 2, 3]``)
-  and one numeric read-count column per time point.
+- One or more TSV files (``-i``/``--input``) with a 4-level row index
+  (``index_col=[0, 1, 2, 3]``) and one numeric read-count column per time point.
 
 Output
 ------
-- A multi-page PDF (one distribution plot per input file), each page carrying a
-  per-file statistics box, plus a summary table logged to stdout.
+- ``-o``/``--output``: binned distribution TSV with columns ``sample``,
+  ``timepoint``, ``bin_left``, ``bin_right``, ``count``. A group with no
+  strictly positive values contributes a single marker row with empty
+  ``bin_left``/``bin_right`` and ``count`` of 0, so the renderer can still lay
+  out a panel for it.
+- ``-s``/``--stats``: cutoff retention TSV with columns ``sample``,
+  ``original_rows``, ``rows_kept``, ``pct_rows_kept``, ``original_counts``,
+  ``counts_kept``, ``pct_counts_kept``.
 
 Usage
 -----
-    python read_count_distribution_analysis.py -i sample1.tsv sample2.tsv -t T0 -c 10 -o report.pdf
-    python read_count_distribution_analysis.py -i *.tsv -t T0 -c 10 -o report.pdf --bins 80 --verbose
+    python read_count_distribution_analysis.py -i sample1.tsv sample2.tsv -t YES0 -c 8 -o dist.tsv -s stats.tsv
+    python read_count_distribution_analysis.py -i *.tsv -t YES0 -c 8 -o dist.tsv -s stats.tsv --bins 80 --verbose
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-07-09
-Version:  1.0.0
+Date:     2026-08-14
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -55,55 +62,47 @@ Version:  1.0.0
 # 1. Standard Library Imports
 import argparse
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 # 2. Data Processing Imports
 import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
-import matplotlib.pyplot as plt
 from loguru import logger
-from matplotlib.backends.backend_pdf import PdfPages
-from tabulate import tabulate
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
-SCRIPT_DIR = Path(__file__).parent.resolve()
-plt.style.use(SCRIPT_DIR / "../../../config/DIT_HAP.mplstyle")
-AX_WIDTH, AX_HEIGHT = plt.rcParams["figure.figsize"]
-COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+DISTRIBUTION_COLUMNS = ["sample", "timepoint", "bin_left", "bin_right", "count"]
+STATS_COLUMNS = [
+    "sample",
+    "original_rows",
+    "rows_kept",
+    "pct_rows_kept",
+    "original_counts",
+    "counts_kept",
+    "pct_counts_kept",
+]
 
-# Headers for summary table
-SUMMARY_HEADERS = {
-    "filename": "File Name",
-    "original_rows": "Original Rows",
-    "original_counts": "Original Counts",
-    "rows_kept": "Rows Kept",
-    "percentage_rows_kept": "% Rows Kept",
-    "count_kept": "Counts Kept",
-    "percentage_count_kept": "% Counts Kept",
-}
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ReadCountDistributionAnalysisConfig:
-    """Immutable, validated configuration for read count distribution analysis."""
+    """Immutable, validated configuration for read count distribution computation."""
 
     input_files: list[Path]
     output_path: Path
+    stats_path: Path
     initial_time_point: str
     cutoff: float
     bins: int = 50
 
     def __post_init__(self) -> None:
-        """Validate configuration values and create the output directory."""
+        """Validate configuration values and create the output directories."""
         if not self.input_files:
             raise ValueError("At least one input file must be provided")
         for file_path in self.input_files:
@@ -111,32 +110,19 @@ class ReadCountDistributionAnalysisConfig:
                 raise ValueError(f"Input file does not exist: {file_path}")
             if file_path.suffix.lower() not in [".tsv", ".txt"]:
                 raise ValueError(f"Input file must be a TSV file: {file_path}")
-        if self.output_path.suffix.lower() != ".pdf":
-            raise ValueError(f"Output file must be a PDF: {self.output_path}")
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
         if self.cutoff <= 0:
             raise ValueError("Cutoff value must be positive")
         if self.bins < 5 or self.bins > 200:
             raise ValueError("Number of bins must be between 5 and 200")
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.stats_path.parent.mkdir(parents=True, exist_ok=True)
 
-
-@dataclass(kw_only=True, slots=True, frozen=True)
-class AnalysisResult:
-    """Immutable container for the results of analyzing a single file."""
-
-    filename: str
-    original_rows: int
-    original_counts: float
-    rows_kept: int | str
-    percentage_rows_kept: float | str
-    count_kept: float | str
-    percentage_count_kept: float | str
 
 # =============================================================================
 # LOGGING SETUP
 # =============================================================================
 def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
+    """Configure loguru to emit uncolorised, timestamped records to stdout."""
     logger.remove()
     logger.add(
         sys.stdout,
@@ -145,211 +131,131 @@ def setup_logger(log_level: str = "INFO") -> None:
         colorize=False,
     )
 
-setup_logger()
 
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
 @logger.catch
 def load_and_validate_data(file_path: Path) -> pd.DataFrame:
-    """Load TSV file with multi-index structure and validate data integrity."""
-    df_reader_kwargs = {"sep": "\t", "index_col": [0, 1, 2, 3]}
-    df = pd.read_csv(file_path, engine="python", **df_reader_kwargs)
+    """Load a TSV file with its 4-level row index and reject an empty table."""
+    df = pd.read_csv(file_path, sep="\t", engine="python", index_col=[0, 1, 2, 3])
 
     if df.empty:
         raise ValueError("Empty DataFrame after reading")
 
     return df
 
+
 @logger.catch
-def calculate_cutoff_statistics(df: pd.DataFrame, initial_time_point_col: str, cutoff_val: float) -> dict[str, Any]:
-    """Calculate filtering statistics after applying cutoff to initial time point column."""
-    stats: dict[str, Any] = {}
+def parse_sample_name(file_path: Path) -> str:
+    """Derive the sample label from a filename by dropping every dotted suffix."""
+    return file_path.name.split(".")[0]
+
+
+@logger.catch
+def calculate_cutoff_statistics(df: pd.DataFrame, initial_time_point: str, cutoff: float) -> dict[str, float | int]:
+    """Compute row and count retention after applying the cutoff to the initial time point."""
+    if initial_time_point not in df.columns:
+        raise ValueError(f"Initial time point column '{initial_time_point}' not found in {list(df.columns)}")
+
+    if not pd.api.types.is_numeric_dtype(df[initial_time_point]):
+        raise ValueError(f"Initial time point column '{initial_time_point}' is not numeric")
+
     original_rows = len(df)
-    original_counts = df[initial_time_point_col].sum()
+    original_counts = float(df[initial_time_point].sum())
 
-    stats["original_rows"] = original_rows
-    stats["original_counts"] = original_counts
+    kept = df.loc[df[initial_time_point] >= cutoff, initial_time_point]
+    rows_kept = len(kept)
+    counts_kept = float(kept.sum())
 
-    if initial_time_point_col not in df.columns:
-        stats.update({
-            "rows_kept": "N/A",
-            "percentage_rows_kept": "N/A",
-            "count_kept": "N/A",
-            "percentage_count_kept": "N/A",
-        })
-        return stats
+    return {
+        "original_rows": original_rows,
+        "rows_kept": rows_kept,
+        "pct_rows_kept": (rows_kept / original_rows) * 100.0 if original_rows > 0 else 0.0,
+        "original_counts": original_counts,
+        "counts_kept": counts_kept,
+        "pct_counts_kept": (counts_kept / original_counts) * 100.0 if original_counts > 0 else 0.0,
+    }
 
-    if not pd.api.types.is_numeric_dtype(df[initial_time_point_col]):
-        stats.update({
-            "rows_kept": "N/A (col not numeric)",
-            "percentage_rows_kept": "N/A",
-            "count_kept": "N/A",
-            "percentage_count_kept": "N/A",
-        })
-        return stats
-
-    kept_df = df[df[initial_time_point_col] >= cutoff_val]
-    stats["rows_kept"] = len(kept_df)
-    stats["percentage_rows_kept"] = (stats["rows_kept"] / original_rows) * 100.0 if original_rows > 0 else 0.0
-    stats["count_kept"] = kept_df[initial_time_point_col].sum()
-    stats["percentage_count_kept"] = (stats["count_kept"] / original_counts) * 100.0 if original_counts > 0 else 0.0
-
-    return stats
 
 @logger.catch
-def create_distribution_plot(df: pd.DataFrame, filename: str, initial_time_point_col: str,
-                           cutoff_val: float, bins: int, stats: dict[str, Any]) -> plt.Figure:
-    """Create log-transformed distribution plots with original scale labels and cutoff line."""
+def compute_binned_distribution(df: pd.DataFrame, sample: str, bins: int) -> pd.DataFrame:
+    """Bin log10 of strictly positive values for every numeric column into a long-format frame."""
     numeric_cols = df.select_dtypes(include=np.number).columns
-    if not numeric_cols.any():
+    if numeric_cols.empty:
         raise ValueError("No numeric columns found")
 
-    num_subplots = len(numeric_cols)
-    fig, axes = plt.subplots(
-        num_subplots, 1,
-        figsize=(AX_WIDTH, num_subplots * AX_HEIGHT),
-        sharex=True,
-        sharey=True,
-    )
-    if num_subplots == 1:
-        axes = [axes]
+    frames: list[pd.DataFrame] = []
 
-    fig.suptitle(
-        f"Value Distributions: {filename}\nInitial Time Point: '{initial_time_point_col}', Cutoff >= {cutoff_val}", y=1.01
-    )
-
-    max_y_val = 0
-
-    for i, col_name in enumerate(numeric_cols):
-        ax = axes[i]
+    for col_name in numeric_cols:
         col_data = df[col_name].dropna()
-        positive_col_data = col_data[col_data > 0]
-        ax.set_xlabel("Log10(Value)")
-        ax.set_ylabel("Frequency")
+        positive = col_data[col_data > 0]
 
-        if positive_col_data.empty:
-            ax.text(0.5, 0.5, "No positive data", ha="center", va="center", transform=ax.transAxes)
-            log_col_data_for_plot = pd.Series(dtype=float)
-        else:
-            log_col_data_for_plot = np.log10(positive_col_data)
-            hist_counts, _, _ = ax.hist(
-                log_col_data_for_plot, bins=bins,
-                edgecolor="black", alpha=0.9, rwidth=0.9
+        # Marker row keeps the group present in the output so the renderer can
+        # still allocate a "No valid data" panel for it.
+        if positive.empty:
+            logger.warning(f"  {sample} / {col_name}: no positive values, emitting empty marker row")
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "sample": [sample],
+                        "timepoint": [str(col_name)],
+                        "bin_left": [np.nan],
+                        "bin_right": [np.nan],
+                        "count": [0],
+                    }
+                )
             )
-            if hist_counts.size > 0:
-                max_y_val = max(max_y_val, hist_counts.max())
+            continue
 
-        ax.set_title(col_name)
-        ax.tick_params(axis="both", which="major", labelsize=10, labelbottom=True, labelleft=True, bottom=True, left=True)
+        counts, edges = np.histogram(np.log10(positive.to_numpy()), bins=bins)
 
-        if col_name == initial_time_point_col:
-            if cutoff_val > 0:
-                log_cutoff = np.log10(cutoff_val)
-                current_xlim = ax.get_xlim()
-                if current_xlim[0] < current_xlim[1] and log_cutoff >= current_xlim[0] and log_cutoff <= current_xlim[1]:
-                    ax.axvline(log_cutoff, color=COLORS[0], linestyle="--", label=f"Cutoff = {cutoff_val:.2g}")
-                elif current_xlim[0] >= current_xlim[1]:
-                    ax.axvline(log_cutoff, color=COLORS[0], linestyle="--", label=f"Cutoff = {cutoff_val:.2g}")
-                else:
-                    logger.info(f"Cutoff value {cutoff_val} (log10: {log_cutoff:.2f}) for {col_name} is outside plot x-limits")
+        frames.append(
+            pd.DataFrame(
+                {
+                    "sample": sample,
+                    "timepoint": str(col_name),
+                    "bin_left": edges[:-1],
+                    "bin_right": edges[1:],
+                    "count": counts,
+                }
+            )
+        )
+        logger.info(f"  {sample} / {col_name}: {len(positive)} positive values across {bins} bins")
 
-                if ax.has_data():
-                    ax.legend(frameon=False)
-            else:
-                logger.warning(f"Cutoff value ({cutoff_val}) for {initial_time_point_col} is not positive")
+    return pd.concat(frames, ignore_index=True)[DISTRIBUTION_COLUMNS]
 
-    # Add statistics text box
-    stat_text_lines = [
-        f"File: {filename}",
-        f"Initial Time Point: '{initial_time_point_col}'",
-        f"Cutoff Applied: >= {cutoff_val:.2g}",
-        f"Original Rows: {stats['original_rows']:,}",
-        f"Rows Kept: {stats['rows_kept'] if isinstance(stats['rows_kept'], str) else format(stats['rows_kept'], ',')} ({stats['percentage_rows_kept'] if isinstance(stats['percentage_rows_kept'], str) else format(stats['percentage_rows_kept'], '.1f')}%)",
-        f"Original Counts: {stats['original_counts']:,}",
-        f"Counts Kept: {stats['count_kept'] if isinstance(stats['count_kept'], str) else format(stats['count_kept'], ',')} ({stats['percentage_count_kept'] if isinstance(stats['percentage_count_kept'], str) else format(stats['percentage_count_kept'], '.1f')}%)",
-    ]
-    stat_text = "\n".join(stat_text_lines)
-
-    fig.text(0.5, 0.95, stat_text, transform=fig.transFigure,
-             verticalalignment="top", horizontalalignment="left",
-             bbox=dict(boxstyle="round,pad=0.4", fc="white", alpha=0.7, ec="gray"))
-
-    return fig
 
 @logger.catch
-def plot_distributions_and_calculate_stats(
-    df: pd.DataFrame,
-    filename: str,
-    initial_time_point_col: str,
-    cutoff_val: float,
-    bins: int,
-) -> tuple[plt.Figure, dict[str, Any]]:
-    """Main analysis function to create plots and calculate filtering statistics."""
-    stats = calculate_cutoff_statistics(df, initial_time_point_col, cutoff_val)
-    fig = create_distribution_plot(df, filename, initial_time_point_col, cutoff_val, bins, stats)
-    return fig, stats
-
-@logger.catch
-def display_summary_table(aggregated_stats: list[dict[str, Any]], total_time: float, headers: dict[str, str]) -> None:
-    """Display formatted summary table of processing results and statistics."""
-    if not aggregated_stats:
+def log_summary_table(stats_df: pd.DataFrame) -> None:
+    """Log the per-sample retention statistics as a plain-text table."""
+    if stats_df.empty:
         logger.info("No statistics to display.")
         return
 
-    table_data = []
-    for file_stats in aggregated_stats:
-        row = []
-        if "error" in file_stats and len(file_stats) <= 2:
-            row.append(file_stats.get("filename", "Unknown File"))
-            error_message = file_stats.get("error", "Processing Error")
-            for i, key in enumerate(headers.keys()):
-                if i == 0:
-                    continue
-                if key == "original_rows":
-                    row.append(error_message[:50])
-                else:
-                    row.append("N/A")
-        else:
-            for key in headers:
-                value = file_stats.get(key, "N/A")
-                if isinstance(value, float) and ("percentage" in key or "%" in headers[key]):
-                    row.append(f"{value:.2f}%")
-                elif isinstance(value, (int)) and not ("percentage" in key or "%" in headers[key]):
-                    row.append(f"{value:,}")
-                elif isinstance(value, float) and not ("percentage" in key or "%" in headers[key]):
-                    row.append(f"{value:.2f}")
-                else:
-                    row.append(str(value))
-        table_data.append(row)
+    logger.info("--- Processing Summary ---")
+    for line in stats_df.to_string(index=False).split("\n"):
+        logger.info(line)
 
-    logger.info("\n--- Processing Summary ---")
-    try:
-        table_str = tabulate(table_data, headers=list(headers.values()), tablefmt="grid", stralign="left", numalign="right")
-        for line in table_str.split("\n"):
-            logger.info(line)
-    except Exception as e:
-        logger.error(f"Could not generate summary table with tabulate: {e}")
-        logger.info("Raw aggregated stats:")
-        for stat_item in aggregated_stats:
-            logger.info(str(stat_item))
 
 # =============================================================================
 # MAIN EXECUTION
 # =============================================================================
 def parse_args() -> argparse.Namespace:
-    """Set and parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Analyze read count distributions from TSV files and apply cutoffs.")
+    """Parse command-line arguments and return the populated namespace."""
+    parser = argparse.ArgumentParser(description="Compute binned read count distributions and cutoff statistics from TSV files.")
     parser.add_argument("-i", "--input", nargs="+", type=Path, required=True, help="One or more input TSV files.")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Output PDF file path for the plots.")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="Output TSV path for the binned distribution.")
+    parser.add_argument("-s", "--stats", type=Path, required=True, help="Output TSV path for the cutoff retention statistics.")
     parser.add_argument("-t", "--initial_time_point", required=True, type=str, help="Name of the column representing the initial time point for cutoff application.")
     parser.add_argument("-c", "--cutoff", required=True, type=float, help="Cutoff value to apply to the initial time point column (values >= cutoff are kept).")
     parser.add_argument("--bins", type=int, default=50, help="Number of bins for histograms (default: %(default)s).")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
+
 def main() -> int:
-    """Main entry point for read count distribution analysis with cutoff application."""
+    """Bin read count distributions, compute cutoff retention, and write both TSVs."""
     args = parse_args()
     setup_logger(log_level="DEBUG" if args.verbose else "INFO")
 
@@ -357,69 +263,57 @@ def main() -> int:
         config = ReadCountDistributionAnalysisConfig(
             input_files=args.input,
             output_path=args.output,
+            stats_path=args.stats,
             initial_time_point=args.initial_time_point,
             cutoff=args.cutoff,
             bins=args.bins,
         )
-
-        logger.info(f"Starting processing of {len(config.input_files)} input files")
-        logger.info(f"Initial time point column: '{config.initial_time_point}'")
-        logger.info(f"Cutoff value: {config.cutoff}")
-        logger.info(f"Histogram bins: {config.bins}")
-        logger.info(f"Output PDF: {config.output_path}")
-
-        start_time = time.time()
-        all_file_stats: list[dict[str, Any]] = []
-
-        with PdfPages(config.output_path) as pdf:
-            for file_path in sorted(config.input_files, key=lambda p: p.name):
-                filename = file_path.name
-                logger.info(f"--- Processing file: {filename} ---")
-
-                try:
-                    df = load_and_validate_data(file_path)
-                    fig, current_stats = plot_distributions_and_calculate_stats(
-                        df, filename, config.initial_time_point, config.cutoff, config.bins
-                    )
-
-                    current_stats["filename"] = filename
-                    all_file_stats.append(current_stats)
-
-                    if fig:
-                        pdf.savefig(fig, bbox_inches="tight")
-                        plt.close(fig)
-                        logger.info(f"Plot generated for {filename}.")
-                        logger.debug(f"Detailed stats for {filename}: {current_stats}")
-                    else:
-                        logger.info(f"Plotting skipped for {filename} (no numeric data).")
-
-                except FileNotFoundError:
-                    logger.error(f"File {filename} not found. Skipping.")
-                    all_file_stats.append({"filename": filename, "error": "File not found"})
-                except pd.errors.EmptyDataError:
-                    logger.warning(f"File {filename} is empty. Skipping.")
-                    all_file_stats.append({"filename": filename, "error": "Empty file"})
-                except pd.errors.ParserError as pe:
-                    logger.error(f"ParserError for {filename}: {pe}. Skipping.")
-                    all_file_stats.append({"filename": filename, "error": f"Parsing failed: {pe}"})
-                except ValueError as ve:
-                    logger.warning(f"ValueError for {filename}: {ve}. Skipping.")
-                    all_file_stats.append({"filename": filename, "error": str(ve)})
-                except Exception as e:
-                    logger.error(f"An unexpected error occurred while processing {filename}: {e}")
-                    all_file_stats.append({"filename": filename, "error": str(e)})
-
-        end_time = time.time()
-        total_processing_time = end_time - start_time
-
-        logger.info(f"--- Analysis complete for all files. PDF saved to {config.output_path} ---")
-        display_summary_table(all_file_stats, total_processing_time, SUMMARY_HEADERS)
-
     except ValueError as e:
         logger.error(f"Error: {e}")
         return 1
 
+    logger.info("=== Read Count Distribution Computation ===")
+    logger.info(f"Processing {len(config.input_files)} input files")
+    logger.info(f"Initial time point column: '{config.initial_time_point}'")
+    logger.info(f"Cutoff value: {config.cutoff}")
+    logger.info(f"Histogram bins: {config.bins}")
+
+    distribution_frames: list[pd.DataFrame] = []
+    stats_records: list[dict[str, float | int | str]] = []
+
+    for file_path in sorted(config.input_files, key=lambda p: p.name):
+        sample = parse_sample_name(file_path)
+        logger.info(f"--- Processing file: {file_path.name} (sample: {sample}) ---")
+
+        # Per-file control flow: skip a file that fails to parse, continue with the rest.
+        try:
+            df = load_and_validate_data(file_path)
+            stats = calculate_cutoff_statistics(df, config.initial_time_point, config.cutoff)
+            distribution_frames.append(compute_binned_distribution(df, sample, config.bins))
+        except (ValueError, KeyError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+            logger.error(f"Failed to process {file_path.name}: {e}. Skipping.")
+            continue
+
+        stats_records.append({"sample": sample, **stats})
+
+    if not distribution_frames:
+        logger.error("Error: No valid data found in any input file!")
+        return 1
+
+    distribution_df = pd.concat(distribution_frames, ignore_index=True)
+    stats_df = pd.DataFrame(stats_records)[STATS_COLUMNS]
+
+    logger.info(f"Writing {len(distribution_df)} bin rows to {config.output_path}...")
+    distribution_df.to_csv(config.output_path, sep="\t", index=False, float_format="%.6f")
+
+    logger.info(f"Writing {len(stats_df)} stats rows to {config.stats_path}...")
+    stats_df.to_csv(config.stats_path, sep="\t", index=False, float_format="%.4f")
+
+    log_summary_table(stats_df)
+    logger.success(f"Computation complete! Outputs: {config.output_path}, {config.stats_path}")
+
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

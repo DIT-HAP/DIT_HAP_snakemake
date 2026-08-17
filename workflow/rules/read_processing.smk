@@ -163,7 +163,7 @@ rule filter_aligned_reads:
     log:
         f"projects/{project_name}/logs/read_processing/filter_aligned_reads/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     params:
         snakemake_config_file=config_file,
         chunk_size=config["chunk_size"],
@@ -187,7 +187,7 @@ rule extract_insertion_sites:
     log:
         f"projects/{project_name}/logs/read_processing/extract_insertion_sites/{{sample}}_{{timepoint}}_{{condition}}.{{fragment}}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     params:
         chunk_size=config["chunk_size"],
     message:
@@ -210,7 +210,7 @@ rule merge_strand_insertions:
     log:
         f"projects/{project_name}/logs/read_processing/merge_strand_insertions/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Merging strand insertions for {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition}..."
     shell:
@@ -294,7 +294,7 @@ if config["merge_similar_timepoints"]:
             merged_timepoint=config["merged_timepoint"],
             drop_columns=config["drop_columns"],
         conda:
-            "../envs/statistics_and_figure_plotting.yml"
+            "../envs/statistics_and_computation.yml"
         message:
             "*** Merging similar time points for {wildcards.sample}_{wildcards.condition}..."
         shell:
@@ -327,7 +327,7 @@ rule concat_counts_and_annotations:
     log:
         f"projects/{project_name}/logs/read_processing/concat_counts_and_annotations.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     message:
         "*** Concatenating counts and annotations..."
     shell:
@@ -350,7 +350,7 @@ rule hard_filtering:
     log:
         f"projects/{project_name}/logs/read_processing/hard_filtering.log",
     conda:
-        "../envs/statistics_and_figure_plotting.yml"
+        "../envs/statistics_and_computation.yml"
     params:
         cutoff=config["hard_filtering_cutoff"],
         init_timepoint=config["initial_time_point"],
