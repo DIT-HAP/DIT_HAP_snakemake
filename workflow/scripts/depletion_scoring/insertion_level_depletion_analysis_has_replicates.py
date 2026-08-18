@@ -211,7 +211,7 @@ def perform_differential_analysis(dds: DeseqDataSet, timepoints: list[str], init
     for tp in timepoints:
         logger.info(f"Analyzing timepoint: {tp} vs {initial_timepoint}")
         stat_res[tp] = DeseqStats(
-            dds, contrast=["condition", tp, initial_timepoint], inference=inference,
+            dds, contrast=["condition", initial_timepoint, tp], inference=inference,
             cooks_filter=True, independent_filter=True, quiet=True
         )
         stat_res[tp].summary()
@@ -228,10 +228,10 @@ def write_dispersion_data_tsv(dds: DeseqDataSet, output_path: Path) -> None:
 
     dispersion_df = pd.DataFrame(
         {
-            "normed_mean": dds.varm["_normed_means"],
-            "genewise_dispersion": dds.varm["genewise_dispersions"],
-            "MAP_dispersion": dds.varm["dispersions"],
-            "fitted_dispersion": dds.varm["fitted_dispersions"],
+            "normed_mean": dds.var["_normed_means"].values,
+            "genewise_dispersion": dds.var["genewise_dispersions"].values,
+            "MAP_dispersion": dds.var["dispersions"].values,
+            "fitted_dispersion": dds.var["fitted_dispersions"].values,
         },
         index=pd.MultiIndex.from_tuples(
             [tuple(idx.split("=")) for idx in dds.var.index],
