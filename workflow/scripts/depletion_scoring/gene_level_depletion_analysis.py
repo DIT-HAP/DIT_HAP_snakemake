@@ -16,40 +16,42 @@
 Gene-Level Depletion Analysis for Transposon Insertion Sequencing
 =================================================================
 
-Aggregates insertion-level depletion signal to the gene level for transposon
-insertion sequencing experiments. Insertion-level log2 fold changes (LFC) are
-combined within each gene using a weighted mean, where the weights are derived
-from an insertion-level weights table (transformed via ``-log10``).
+Aggregates insertion-level log2 fold changes (LFC) to the gene level using a
+pre-computed, gene-timepoint-normalised weight for each insertion. Weighting is
+owned entirely upstream by ``compute_insertion_weights.py``: this script only
+joins insertion LFC values onto that weight table and sums, so it has no
+knowledge of whether the weights came from DESeq2 p-values or curve-fitting R2.
 
-Only in-gene insertions are retained (annotation ``Type`` is not an intergenic
-region and ``Distance_to_stop_codon`` is greater than 4). Weights are normalized
-within each gene-timepoint group, and the per-timepoint gene LFC is computed as
-the weighted average of its insertion LFCs. Results are pivoted to a wide,
-per-timepoint gene-level table.
+Because each insertion's weight already sums to 1 within its gene-timepoint
+group, aggregation is a plain weighted sum rather than a weighted average —
+mathematically identical to ``np.average`` with normalised weights, but
+vectorised across every gene and timepoint at once.
 
 Input
 -----
 - ``--lfc_path`` (TSV): insertion-level LFC, 4-level index (Chr, Coordinate,
   Strand, Target), one column per timepoint.
-- ``--weights_path`` (TSV): insertion-level weights, same 4-level index/layout.
-- ``--annotations_path`` (TSV): genomic annotations, same 4-level index, with
-  ``Type``, ``Distance_to_stop_codon``, ``Systematic ID``, ``Name``,
-  ``FYPOviability``, ``DeletionLibrary_essentiality`` columns.
+- ``--weights_path`` (TSV): long-format insertion weights from
+  ``compute_insertion_weights.py``, with columns Chr, Coordinate, Strand,
+  Target, Timepoint, Systematic ID, Weight (already gene-timepoint normalised).
+- ``--annotations_path`` (TSV): genomic annotations, 4-level index, used only
+  to look up each gene's ``Name``, ``FYPOviability`` and
+  ``DeletionLibrary_essentiality``.
 
 Output
 ------
 - ``--output_path`` (TSV): gene-level statistics table (wide, per-timepoint LFC),
   indexed by ``Systematic ID``.
-- ``LFC.tsv`` and ``transformed_weights.tsv`` written alongside the output.
+- ``LFC.tsv`` written alongside the output.
 
 Usage
 -----
-    python gene_level_depletion_analysis.py -l lfc.tsv -a annotations.tsv -w weights.tsv -o gene_level_statistics.tsv
-    python gene_level_depletion_analysis.py -l lfc.tsv -a annotations.tsv -w weights.tsv -o gene_level_statistics.tsv --verbose
+    python gene_level_depletion_analysis.py -l lfc.tsv -a annotations.tsv -w insertion_weights.tsv -o gene_level_statistics.tsv
+    python gene_level_depletion_analysis.py -l lfc.tsv -a annotations.tsv -w insertion_weights.tsv -o gene_level_statistics.tsv --verbose
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-07-09
-Version:  1.0.0
+Date:     2026-08-18
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -63,11 +65,24 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
-import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
 from loguru import logger
+
+# =============================================================================
+# GLOBAL CONSTANTS & ENUMS
+# =============================================================================
+INSERTION_INDEX_COLUMNS = [0, 1, 2, 3]
+
+TIMEPOINT_AXIS = "Timepoint"
+LFC_COLUMN = "LFC"
+WEIGHT_COLUMN = "Weight"
+CONTRIBUTION_COLUMN = "Contribution"
+
+GENE_ID = "Systematic ID"
+GENE_METADATA_COLUMNS = ["Name", "FYPOviability", "DeletionLibrary_essentiality"]
+GENE_GROUP_COLUMNS = [GENE_ID, *GENE_METADATA_COLUMNS]
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -102,171 +117,62 @@ def setup_logger(log_level: str = "INFO") -> None:
 # =============================================================================
 # --- Data Loading ---
 @logger.catch
-def load_data(config: AnalysisConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Index]:
-    """Load and validate all required data files."""
-    logger.info(f"Loading LFC data from {config.lfc_path}")
-    logger.info(f"Loading weights from {config.weights_path}")
-    logger.info(f"Loading annotations from {config.annotations_path}")
+def load_lfc_long(lfc_path: Path) -> pd.DataFrame:
+    """Load insertion-level LFC and reshape to long format (site, Timepoint, LFC)."""
+    logger.info(f"Loading LFC data from {lfc_path}")
+    lfc_df = pd.read_csv(lfc_path, index_col=INSERTION_INDEX_COLUMNS, sep="\t")
+    logger.info(f"Loaded {lfc_df.shape[0]:,} insertions")
+    return lfc_df.rename_axis(TIMEPOINT_AXIS, axis=1).stack().to_frame(LFC_COLUMN)
 
-    try:
-        lfc_df = pd.read_csv(config.lfc_path, index_col=[0, 1, 2, 3], sep="\t")
-        weights_df = pd.read_csv(config.weights_path, index_col=[0, 1, 2, 3], sep="\t")
-        annotations_df = pd.read_csv(config.annotations_path, index_col=[0, 1, 2, 3], sep="\t")
-
-        in_gene_insertions = annotations_df.query(
-            "(Type != 'Intergenic region') and (Distance_to_stop_codon > 4)"
-        ).index
-
-        # PomBase releases may leave DeletionLibrary_essentiality blank for genes that were
-        # previously annotated as "Not_determined".  A bare NaN causes pandas groupby to
-        # silently drop those genes (default dropna=True).  Treat missing values the same
-        # way as the explicit "Not_determined" label so no gene is lost.
-        na_ess = annotations_df["DeletionLibrary_essentiality"].isna().sum()
-        if na_ess > 0:
-            logger.warning(
-                f"Found {na_ess} insertions with missing DeletionLibrary_essentiality; "
-                "filling with 'Not_determined' to prevent silent gene loss in groupby"
-            )
-            annotations_df["DeletionLibrary_essentiality"] = (
-                annotations_df["DeletionLibrary_essentiality"].fillna("Not_determined")
-            )
-
-        # transform weights
-        transformed_weights_df = -np.log10(weights_df.fillna(1).clip(lower=1e-6, upper=1-1e-6))
-
-        logger.info(f"Loaded {lfc_df.shape[0]} total insertions")
-        logger.info(f"Found {len(in_gene_insertions)} in-gene insertions")
-
-        return lfc_df, transformed_weights_df, annotations_df, in_gene_insertions
-
-    except Exception as e:
-        raise ValueError(f"Error loading data: {e}")
-
-# --- Data Processing ---
-@logger.catch
-def filter_in_gene_data(lfc_df: pd.DataFrame, transformed_weights_df: pd.DataFrame,
-                       in_gene_insertions: pd.Index) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Filter LFC and weights data for in-gene insertions."""
-    in_gene_lfc = lfc_df[lfc_df.index.isin(in_gene_insertions)].copy()
-    in_gene_weights = transformed_weights_df[transformed_weights_df.index.isin(in_gene_insertions)].copy()
-
-    in_gene_lfc = in_gene_lfc.rename_axis("Timepoint", axis=1)
-    in_gene_weights = in_gene_weights.rename_axis("Timepoint", axis=1)
-
-    # Handle NaN values
-    lfc_nan_count = in_gene_lfc.isna().any(axis=1).sum()
-    weight_nan_count = in_gene_weights.isna().any(axis=1).sum()
-
-    if lfc_nan_count > 0:
-        logger.warning(f"Found {lfc_nan_count} rows with NaN LFC values")
-    if weight_nan_count > 0:
-        logger.warning(f"Found {weight_nan_count} rows with NaN weights - filling with 1")
-        in_gene_weights = in_gene_weights.fillna(1)
-
-    logger.info(f"Processed {in_gene_lfc.shape[0]} in-gene measurements")
-    return in_gene_lfc, in_gene_weights
 
 @logger.catch
-def prepare_weighted_data(lfc_df: pd.DataFrame, transformed_weights_df: pd.DataFrame) -> pd.DataFrame:
-    """Merge LFC and weights data into a single DataFrame."""
-    lfc_series = lfc_df.stack().to_frame("LFC")
-    weights_series = transformed_weights_df.stack().to_frame("Weights")
+def load_weights_long(weights_path: Path) -> pd.DataFrame:
+    """Load the pre-normalised, long-format insertion weight table."""
+    logger.info(f"Loading insertion weights from {weights_path}")
+    weights = pd.read_csv(weights_path, sep="\t")
+    logger.info(f"Loaded {len(weights):,} insertion-timepoint-gene weight rows")
+    return weights
 
-    merged = pd.merge(lfc_series, weights_series, left_index=True, right_index=True)
-
-    weight_stats = merged["Weights"].describe()
-    logger.info(f"Weight stats: mean={weight_stats['mean']:.2f}, max={weight_stats['max']:.2f}")
-
-    return merged
 
 @logger.catch
-def annotate_and_normalize(data: pd.DataFrame, annotations: pd.DataFrame) -> pd.DataFrame:
-    """Annotate data with gene information and normalize weights."""
-    annotated = pd.merge(data, annotations, left_index=True, right_index=True, how="left")
+def load_gene_metadata(annotations_path: Path) -> pd.DataFrame:
+    """Load one metadata row per gene (Name, FYPOviability, DeletionLibrary_essentiality)."""
+    logger.info(f"Loading annotations from {annotations_path}")
+    annotations_df = pd.read_csv(annotations_path, index_col=INSERTION_INDEX_COLUMNS, sep="\t")
 
-    # Remove missing weights
-    initial_count = len(annotated)
-    annotated = annotated[annotated["Weights"].notna()].copy()
-    if len(annotated) != initial_count:
-        logger.warning(f"Removed {initial_count - len(annotated)} rows with missing weights")
+    # PomBase releases may leave DeletionLibrary_essentiality blank for genes that were
+    # previously annotated as "Not_determined". A bare NaN causes pandas groupby to
+    # silently drop those genes (default dropna=True). Treat missing values the same
+    # way as the explicit "Not_determined" label so no gene is lost.
+    na_ess = annotations_df["DeletionLibrary_essentiality"].isna().sum()
+    if na_ess > 0:
+        logger.warning(
+            f"Found {na_ess} insertions with missing DeletionLibrary_essentiality; "
+            "filling with 'Not_determined' to prevent silent gene loss in groupby"
+        )
+        annotations_df["DeletionLibrary_essentiality"] = (
+            annotations_df["DeletionLibrary_essentiality"].fillna("Not_determined")
+        )
 
-    # Normalize weights within gene-timepoint groups
-    annotated["Normalized_weights"] = annotated.groupby(
-        ["Systematic ID", "Timepoint"]
-    )["Weights"].transform(lambda x: x / x.sum())
+    return annotations_df[GENE_GROUP_COLUMNS].drop_duplicates(GENE_ID)
 
-    logger.info(f"Annotated {len(annotated)} insertions")
-    return annotated
-
-# --- Gene-Level Analysis ---
+# --- Gene-Level Aggregation ---
 @logger.catch
-def calculate_gene_lfc(gene_data: pd.DataFrame) -> pd.DataFrame:
-    """Calculate gene-level LFC for a single gene across timepoints."""
-    gene_data = gene_data.reset_index().set_index(
-        ["Chr", "Coordinate", "Strand", "Target", "Timepoint"]
+def aggregate_to_gene_level(lfc_long: pd.DataFrame, weights: pd.DataFrame,
+                           gene_metadata: pd.DataFrame) -> pd.DataFrame:
+    """Weighted-sum insertion LFC to gene level; each gene-timepoint's weights already sum to 1."""
+    merged = weights.merge(
+        lfc_long, on=[*lfc_long.index.names[:-1], TIMEPOINT_AXIS], how="inner"
     )
+    logger.info(f"Matched {len(merged):,} of {len(weights):,} weight rows to an observed LFC")
 
-    results = pd.DataFrame()
+    merged = merged.merge(gene_metadata, on=GENE_ID, how="left")
+    merged[CONTRIBUTION_COLUMN] = merged[LFC_COLUMN] * merged[WEIGHT_COLUMN]
 
-    for timepoint, tp_data in gene_data.groupby("Timepoint"):
-        lfcs = tp_data["LFC"].values
-        weights = tp_data["Normalized_weights"].values
+    gene_lfc = merged.groupby([*GENE_GROUP_COLUMNS, TIMEPOINT_AXIS])[CONTRIBUTION_COLUMN].sum(min_count=1)
+    gene_wide = gene_lfc.unstack(TIMEPOINT_AXIS).round(3).dropna(how="all")
 
-        gene_lfc = np.average(lfcs, weights=weights)
-        results.loc[timepoint, "LFC"] = gene_lfc
-
-    return results.sort_index().round(3)
-
-@logger.catch
-def analyze_all_genes(annotated_data: pd.DataFrame) -> pd.DataFrame:
-    """Calculate gene-level statistics for all genes."""
-    logger.info("Calculating gene-level statistics")
-
-    gene_groups = annotated_data.groupby([
-        "Systematic ID", "Name", "FYPOviability", "DeletionLibrary_essentiality"
-    ])
-
-    results = []
-    total_genes = len(gene_groups)
-    start_time = time.time()
-
-    for idx, ((sys_id, name, viability, essentiality), gene_data) in enumerate(gene_groups, 1):
-        try:
-            gene_results = calculate_gene_lfc(gene_data)
-
-            for timepoint, lfc in gene_results["LFC"].items():
-                results.append({
-                    "Systematic ID": sys_id,
-                    "Name": name,
-                    "FYPOviability": viability,
-                    "DeletionLibrary_essentiality": essentiality,
-                    "Timepoint": timepoint,
-                    "LFC": lfc
-                })
-
-        except Exception as e:
-            logger.error(f"Error processing gene {sys_id}: {e}")
-            continue
-
-        if idx % 100 == 0 or idx == total_genes:
-            elapsed = time.time() - start_time
-            rate = idx / elapsed
-            eta = (total_genes - idx) / rate if rate > 0 else 0
-            logger.info(f"Processed {idx}/{total_genes} genes ({idx/total_genes*100:.1f}%) - ETA: {eta:.0f}s")
-
-    # Pivot to wide format
-    gene_df = pd.DataFrame(results)
-    gene_wide = gene_df.pivot_table(
-        index=["Systematic ID", "Name", "FYPOviability", "DeletionLibrary_essentiality"],
-        columns="Timepoint",
-        values="LFC",
-        aggfunc="first"
-    )
-
-    # Remove genes with all NaN values
-    gene_wide = gene_wide.dropna(how="all")
-
-    logger.info(f"Completed analysis for {len(gene_wide)} genes")
+    logger.info(f"Completed analysis for {len(gene_wide):,} genes")
     return gene_wide.reset_index()
 
 # --- Summary Statistics ---
@@ -301,13 +207,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument('-l', '--lfc_path', type=Path, required=True,
-                       help='Path to CSV file with LFC results')
+                       help='Path to TSV file with insertion-level LFC')
     parser.add_argument('-a', '--annotations_path', type=Path, required=True,
-                       help='Path to CSV file with annotations')
+                       help='Path to TSV file with annotations')
     parser.add_argument('-w', '--weights_path', type=Path, required=True,
-                       help='Path to CSV file with weights')
+                       help='Path to long-format insertion weights TSV')
     parser.add_argument('-o', '--output_path', type=Path, required=True,
-                       help='Path for output CSV file')
+                       help='Path for output TSV file')
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='Enable DEBUG level logging')
 
@@ -331,25 +237,17 @@ def main() -> int:
 
         args.output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Load and process data
-        lfc_df, transformed_weights_df, annotations_df, in_gene_insertions = load_data(config)
-        in_gene_lfc, in_gene_weights = filter_in_gene_data(lfc_df, transformed_weights_df, in_gene_insertions)
+        lfc_long = load_lfc_long(config.lfc_path)
+        weights = load_weights_long(config.weights_path)
+        gene_metadata = load_gene_metadata(config.annotations_path)
 
-        # Prepare weighted data and annotations
-        weighted_data = prepare_weighted_data(in_gene_lfc, in_gene_weights)
-        annotated_data = annotate_and_normalize(weighted_data, annotations_df)
+        gene_results = aggregate_to_gene_level(lfc_long, weights, gene_metadata)
 
-        # Calculate gene-level statistics
-        gene_results = analyze_all_genes(annotated_data)
-
-        # Generate and display summary
         summary = generate_summary(gene_results)
         display_summary(summary)
 
-        # Save results
-        gene_results = gene_results.set_index("Systematic ID")
+        gene_results = gene_results.set_index(GENE_ID)
         gene_results.to_csv(args.output_path.parent / "LFC.tsv", sep="\t")
-        transformed_weights_df.to_csv(args.output_path.parent / "transformed_weights.tsv", sep="\t")
         gene_results.to_csv(args.output_path, sep="\t")
 
         elapsed = time.time() - start_time

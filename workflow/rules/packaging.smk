@@ -12,12 +12,11 @@
 # reference data shared across projects, not any single project's results.
 #
 # IMPORTANT — side-outputs: several source files (baseMean.tsv, normed_counts.tsv,
-# insertion_level_statistics.tsv, fitting_*.tsv, transformed_weights.tsv,
-# imputation_statistics.tsv) are written by scripts NEXT TO a rule's declared
-# output but are NOT themselves declared in any rule's `output:`. Snakemake
-# cannot build an undeclared file on demand, so each release target depends on
-# its rule's DECLARED sibling ("anchor") to drive the DAG, then copies the
-# real source ("src") in the shell.
+# insertion_level_statistics.tsv, fitting_*.tsv, imputation_statistics.tsv) are
+# written by scripts NEXT TO a rule's declared output but are NOT themselves
+# declared in any rule's `output:`. Snakemake cannot build an undeclared file
+# on demand, so each release target depends on its rule's DECLARED sibling
+# ("anchor") to drive the DAG, then copies the real source ("src") in the shell.
 # =============================================================================
 
 import re
@@ -68,8 +67,8 @@ if config.get("use_DEseq2_for_biological_replicates", False):
     }
 
 # Curve-fitting / gene-level outputs (15-17) need config["time_points"] — see
-# insertion_level_curve_fitting and gene_level_depletion_analysis's weights_path
-# branch in depletion_scoring.smk. Skip these entirely when time_points is
+# insertion_level_curve_fitting and compute_insertion_weights's scheme branch
+# in depletion_scoring.smk. Skip these entirely when time_points is
 # absent (e.g. Spikein, run QC-only).
 if config.get("time_points"):
     RELEASE_MAP |= {
@@ -85,9 +84,11 @@ if config.get("time_points"):
             "15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
             "15_insertion_level_curve_fitting/fitting_results.tsv",
         ),
-        "insertion_level/transformed_weights.tsv": (
-            "16_gene_level_depletion_analysis/gene_level_statistics.tsv",
-            "16_gene_level_depletion_analysis/transformed_weights.tsv",
+        # insertion_weights.tsv is a declared output of compute_insertion_weights
+        # (unlike the transformed_weights.tsv it replaces), so anchor == src.
+        "insertion_level/insertion_weights.tsv": (
+            "16_gene_level_depletion_analysis/insertion_weights.tsv",
+            "16_gene_level_depletion_analysis/insertion_weights.tsv",
         ),
         "gene_level/LFC.tsv": (
             "16_gene_level_depletion_analysis/LFC.tsv",
