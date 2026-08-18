@@ -58,6 +58,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 # Force BLAS/OpenMP threads to 1 BEFORE numpy is imported. Curve fitting is
 # parallelised across datasets with joblib (process pool), so per-worker BLAS
