@@ -246,9 +246,10 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
     try:
         result = minimize(
             objective_function,
-            x0=[1, 1, 1],
+            x0=[-1, -1, 1],
             args=(x_values, y_values, weight_values),
-            bounds=((-1, t_last), (-1, np.inf), (-1e-6, t_last)),
+            # bounds=((-1, t_last), (-1, np.inf), (-1e-6, t_last)),
+            bounds=((-t_last, 1), (-np.inf, 1), (-1e-6, t_last)),
             constraints=constraints,
             options={'maxiter': 3000, 'disp': False},
             tol=TOL
@@ -377,7 +378,8 @@ def create_fitted_plot(ax: plt.Axes, x_values: np.ndarray, y_values: np.ndarray,
                transform=ax.transAxes,
                horizontalalignment='center', color='red')
 
-    ax.set_ylim(-1.5, 8.5)
+    # ax.set_ylim(-1.5, 8.5)
+    ax.set_ylim(-8.5, 1.5)
     ax.set_title(" ".join(ID.split("=")))
 
 
