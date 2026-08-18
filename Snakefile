@@ -83,29 +83,34 @@ wildcard_constraints:
 rule all:
     input:
         # --- reference data ---
-        # f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
+        f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
+
         # --- read processing ---
         # expand(f"results/{project_name}/10_annotated/{{sample}}_{{timepoint}}_{{condition}}.annotated.tsv", sample=samples, timepoint=timepoints, condition=conditions),
         # expand(f"results/{project_name}/11_concat_timepoints/{{sample}}_{{condition}}.counts.tsv", sample=samples, condition=conditions),
+        
         # --- depletion scoring ---
         # f"results/{project_name}/13_filtered/raw_reads.filtered.tsv",
-        # f"results/{project_name}/14_insertion_level_depletion_analysis/LFC.tsv",
+        f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
         # f"results/{project_name}/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
         # f"results/{project_name}/16_gene_level_depletion_analysis/gene_level_statistics.tsv",
         # f"results/{project_name}/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
+        
         # --- quality control ---
         # f"reports/{project_name}/multiqc/quality_control_multiqc_report.html",
         # f"reports/{project_name}/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
         # f"reports/{project_name}/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
         # f"reports/{project_name}/gene_coverage_analysis",
+        
         # --- packaging ---
         # see workflow/rules/packaging.smk's package_release for the release/
         # folder target; generate the Snakemake HTML/zip report separately with
         # `snakemake --use-conda --cores <N> \
         #     --report projects/{project_name}/reports/snakemake_report/report.zip \
         #     --report-after-run -- all`
+        
         # --- smoke-test target (uncomment one to run) ---
-        f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
+        # f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
 
 # ---------------------------------------------------------------------------
 # Rule modules
