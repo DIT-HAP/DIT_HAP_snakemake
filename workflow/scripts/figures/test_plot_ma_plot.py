@@ -5,11 +5,12 @@
 Tests for MA Plot Figure Rendering
 ===================================
 
-Validates rendering against real data, asserting baseline statistics and artifact creation.
+Validates loading and rendering of the wide-format baseMean/LFC tables,
+against both real project data and small synthetic fixtures.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-08-14
-Version:  1.0.0
+Date:     2026-08-18
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -23,16 +24,28 @@ import pytest
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_ma_plot import load_ma_data, render_ma_figure, PlotConfig  # noqa: E402
+from plot_ma_plot import load_ma_data, render_ma_figure, Orientation, PlotConfig  # noqa: E402
 
 
 # =============================================================================
 # FIXTURES
 # =============================================================================
 @pytest.fixture
-def real_data_path() -> Path:
-    """Path to real MA values TSV."""
-    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/ma_values.tsv")
+def real_basemean_path() -> Path:
+    """Path to the real project baseMean TSV."""
+    return Path(
+        "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/"
+        "results/14_insertion_level_depletion_analysis/baseMean.tsv"
+    )
+
+
+@pytest.fixture
+def real_lfc_path() -> Path:
+    """Path to the real project LFC TSV."""
+    return Path(
+        "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/"
+        "results/14_insertion_level_depletion_analysis/LFC.tsv"
+    )
 
 
 @pytest.fixture
@@ -41,41 +54,53 @@ def output_stem(tmp_path: Path) -> Path:
     return tmp_path / "test_ma_plot"
 
 
+@pytest.fixture
+def small_index() -> pd.MultiIndex:
+    """A tiny 4-level row index shared by synthetic baseMean/LFC fixtures."""
+    return pd.MultiIndex.from_tuples(
+        [("chr1", 100, "+", "geneA"), ("chr1", 200, "-", "geneB"), ("chr2", 50, "+", "geneC")],
+        names=["Chr", "Coordinate", "Strand", "Target"],
+    )
+
+
 # =============================================================================
 # TESTS
 # =============================================================================
-def test_baseline_statistics(real_data_path: Path) -> None:
-    """Assert baseline row counts against real data."""
-    if not real_data_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
+def test_baseline_statistics(real_basemean_path: Path, real_lfc_path: Path) -> None:
+    """Assert baseline shape against real project data."""
+    if not (real_basemean_path.exists() and real_lfc_path.exists()):
+        pytest.skip(f"Real data not found: {real_basemean_path}, {real_lfc_path}")
 
-    df = load_ma_data(real_data_path)
+    basemean_df, lfc_df = load_ma_data(real_basemean_path, real_lfc_path)
 
-    # HD_DIT_HAP has 93596 insertions (after imputation/hard filtering)
-    # 15 samples (3 biological replicates × 5 timepoints)
-    # M and A computed for 4 timepoints (YES1-YES4, relative to YES0)
-    # Total: 93596 * 15 * 4 / 5 = 1,123,152 rows (but varies by sample count per timepoint)
-    # Actual observed: 1,403,940 rows (includes all sample-timepoint combinations)
-
-    # Just verify it's in the right ballpark and has all timepoints
-    assert len(df) > 1_000_000, f"Expected > 1M rows, got {len(df)}"
-
-    # Verify timepoints present (YES0 is included with M=0, A values)
-    timepoints = set(df['timepoint'].unique())
-    assert 'YES0' in timepoints or len(timepoints) >= 4, f"Expected at least 4 timepoints, got {timepoints}"
-
-    # Verify data types
-    assert df['M'].dtype in ['float64', 'float32'], f"M should be float, got {df['M'].dtype}"
-    assert df['A'].dtype in ['float64', 'float32'], f"A should be float, got {df['A'].dtype}"
+    assert len(basemean_df) == len(lfc_df) > 0
+    assert list(lfc_df.columns) == list(basemean_df.columns)
 
 
-def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None:
-    """Assert that both PDF and PNG artifacts are created and non-empty."""
-    if not real_data_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
+def test_load_ma_data_rejects_mismatched_timepoints(small_index: pd.MultiIndex, tmp_path: Path) -> None:
+    """Assert a timepoint present in LFC but absent from baseMean is rejected."""
+    basemean_df = pd.DataFrame({"YES0": [10.0, 20.0, 30.0]}, index=small_index)
+    lfc_df = pd.DataFrame({"YES0": [0.0, 0.0, 0.0], "YES1": [0.5, -0.3, 0.0]}, index=small_index)
 
-    df = load_ma_data(real_data_path)
-    render_ma_figure(df, output_stem)
+    basemean_path = tmp_path / "baseMean.tsv"
+    lfc_path = tmp_path / "LFC.tsv"
+    basemean_df.to_csv(basemean_path, sep="\t")
+    lfc_df.to_csv(lfc_path, sep="\t")
+
+    assert load_ma_data(basemean_path, lfc_path) is None
+
+
+@pytest.mark.parametrize("orientation", [Orientation.VERTICAL, Orientation.HORIZONTAL])
+def test_dual_artifacts_created(small_index: pd.MultiIndex, output_stem: Path, orientation: Orientation) -> None:
+    """Assert that both PDF and PNG artifacts are created and non-empty for synthetic data, in either orientation."""
+    basemean_df = pd.DataFrame(
+        {"YES0": [10.0, 20.0, 30.0], "YES1": [10.0, 20.0, 30.0]}, index=small_index
+    )
+    lfc_df = pd.DataFrame(
+        {"YES0": [0.0, 0.0, 0.0], "YES1": [0.5, -0.3, 0.0]}, index=small_index
+    )
+
+    render_ma_figure(basemean_df, lfc_df, output_stem, orientation)
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -87,18 +112,23 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
     assert png_path.stat().st_size > 0, "PNG artifact is empty"
 
 
-def test_empty_data_handling(tmp_path: Path) -> None:
-    """Assert empty data case is handled gracefully."""
-    # Create empty TSV with correct schema
-    empty_tsv = tmp_path / "empty.tsv"
-    empty_df = pd.DataFrame(columns=['timepoint', 'M', 'A'])
-    empty_df.to_csv(empty_tsv, sep='\t', index=False)
+@pytest.mark.parametrize("orientation", [Orientation.VERTICAL, Orientation.HORIZONTAL])
+def test_empty_data_handling(tmp_path: Path, orientation: Orientation) -> None:
+    """Assert empty data case is handled gracefully in either orientation."""
+    empty_basemean = pd.DataFrame(columns=["YES0", "YES1"])
+    empty_lfc = pd.DataFrame(columns=["YES0", "YES1"])
 
     output_stem = tmp_path / "empty_test"
 
-    # Load should return empty dataframe
-    df = load_ma_data(empty_tsv)
-    assert df.empty
-
     # Render should not crash
-    render_ma_figure(df, output_stem)
+    render_ma_figure(empty_basemean, empty_lfc, output_stem, orientation)
+
+
+def test_config_rejects_missing_input(tmp_path: Path) -> None:
+    """Assert PlotConfig rejects a non-existent input path."""
+    with pytest.raises(ValueError, match="does not exist"):
+        PlotConfig(
+            basemean_path=tmp_path / "nope_baseMean.tsv",
+            lfc_path=tmp_path / "nope_LFC.tsv",
+            output_stem=tmp_path / "out",
+        )

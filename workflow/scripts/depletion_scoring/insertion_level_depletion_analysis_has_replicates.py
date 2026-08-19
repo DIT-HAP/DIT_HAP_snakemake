@@ -43,21 +43,18 @@ Output
 - Alongside it in the same directory: ``insertion_level_statistics.tsv``,
   ``baseMean.tsv``, ``lfcSE.tsv``, ``stat.tsv``, ``pvalue.tsv``, ``padj.tsv``,
   ``normed_counts.tsv``, ``count_X.tsv``, ``cooks.tsv``.
-- Figure-data TSVs for the rendering layer, at the explicit ``--dispersion_data``
-  and ``--ma_values`` paths: per-insertion normed mean with genewise/MAP/fitted
-  dispersions, and long-format baseMean/log2FoldChange/padj per timepoint
-  (pre-negation, matching pydeseq2's own ``plot_MA`` convention).
+- Dispersion figure-data TSV for the rendering layer, at the explicit
+  ``--dispersion_data`` path: per-insertion normed mean with genewise/MAP/fitted
+  dispersions.
 
 Usage
 -----
     python insertion_level_depletion_analysis_has_replicates.py \
         -i counts.tsv -c control_insertions.tsv -t 0h -o output_dir/log2FoldChange.tsv \
-        --dispersion_data figure_dir/dispersion_data.tsv \
-        --ma_values figure_dir/ma_values_replicates.tsv
+        --dispersion_data figure_dir/dispersion_data.tsv
     python insertion_level_depletion_analysis_has_replicates.py \
         -i counts.tsv -c control_insertions.tsv -t 0h -o output_dir/log2FoldChange.tsv \
-        --dispersion_data figure_dir/dispersion_data.tsv \
-        --ma_values figure_dir/ma_values_replicates.tsv --verbose
+        --dispersion_data figure_dir/dispersion_data.tsv --verbose
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
@@ -95,14 +92,13 @@ class InputOutputConfig:
     initial_timepoint: str
     output_file: Path
     dispersion_data_file: Path
-    ma_values_file: Path
     verbose: bool = False
 
     def __post_init__(self) -> None:
         for path in (self.counts_file, self.control_insertions_file):
             if not path.exists():
                 raise ValueError(f"Input file does not exist: {path}")
-        for path in (self.output_file, self.dispersion_data_file, self.ma_values_file):
+        for path in (self.output_file, self.dispersion_data_file):
             path.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -242,21 +238,6 @@ def write_dispersion_data_tsv(dds: DeseqDataSet, output_path: Path) -> None:
 
 
 @logger.catch
-def write_ma_values_tsv(stat_res: dict[str, DeseqStats], output_path: Path) -> None:
-    """Write pre-negation baseMean/log2FoldChange/padj per timepoint for the rendering layer."""
-    logger.info("Writing MA values")
-
-    frames = []
-    for tp, res in stat_res.items():
-        tp_df = res.results_df[["baseMean", "log2FoldChange", "padj"]].copy()
-        tp_df["timepoint"] = tp
-        frames.append(tp_df)
-
-    ma_values_df = pd.concat(frames, ignore_index=True)[["timepoint", "baseMean", "log2FoldChange", "padj"]]
-    ma_values_df.to_csv(output_path, sep="\t", index=False)
-
-
-@logger.catch
 def concatenate_results(stat_res: dict[str, DeseqStats], timepoints: list[str]) -> pd.DataFrame:
     """Concatenate results from all timepoints into a single DataFrame."""
     logger.info("Concatenating results from all timepoints")
@@ -319,7 +300,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-c", "--control_insertions_file", type=Path, required=True, help="Path to the control insertions file.")
     parser.add_argument("-o", "--output", type=Path, required=True, help="Path to the output file.")
     parser.add_argument("--dispersion_data", type=Path, required=True, help="Path to the dispersion figure-data TSV.")
-    parser.add_argument("--ma_values", type=Path, required=True, help="Path to the MA-values figure-data TSV.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
@@ -340,7 +320,6 @@ def main() -> int:
             initial_timepoint=args.initial_timepoint,
             output_file=args.output,
             dispersion_data_file=args.dispersion_data,
-            ma_values_file=args.ma_values,
             verbose=args.verbose
         )
 
@@ -391,8 +370,6 @@ def main() -> int:
         # Perform differential analysis
         logger.info("Performing differential analysis...")
         stat_res = perform_differential_analysis(dds, timepoints, config.initial_timepoint)
-        write_ma_values_tsv(stat_res, config.ma_values_file)
-        logger.info(f"MA values saved to {config.ma_values_file}")
 
         # Concatenate results
         logger.info("Concatenating results...")

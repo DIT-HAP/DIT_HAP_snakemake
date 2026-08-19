@@ -2,15 +2,37 @@
 # -*- coding: utf-8 -*-
 
 """
-MA Plot Figure Renderer
-=======================
+MA Plot Figure Renderer (Unified)
+==================================
 
-Render MA plots (M vs A) from pre-computed TSV with one panel per timepoint.
-M = log-fold change, A = average expression.
+Render MA plots directly from the wide-format ``baseMean.tsv`` and ``LFC.tsv``
+tables produced by either insertion-level depletion analysis branch (with or
+without replicates), with one panel per timepoint column. Both tables share
+the same row index (Chr, Coordinate, Strand, Target) and the same timepoint
+columns, so no branch-specific handling is needed.
+
+Input
+-----
+- baseMean TSV: ``index_col=[0, 1, 2, 3]`` row MultiIndex, tab-separated,
+  one column per timepoint.
+- LFC TSV: same row MultiIndex and timepoint columns as the baseMean table.
+
+Output
+------
+- `<stem>.pdf` / `<stem>.review.png` — vertical stack, one panel per timepoint,
+  LFC on the x-axis and baseMean (log-scaled) on the y-axis.
+- `<stem>_horizontal.pdf` / `<stem>_horizontal.review.png` — the same panels
+  arranged in a single row, with baseMean (log-scaled) on the x-axis and LFC
+  on the y-axis.
+
+Usage
+-----
+    python plot_ma_plot.py -b baseMean.tsv -l LFC.tsv -o figures/ma_plot
+    python plot_ma_plot.py -b baseMean.tsv -l LFC.tsv -o figures/ma_plot --verbose
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-08-14
-Version:  1.0.0
+Date:     2026-08-19
+Version:  4.0.0
 """
 
 # =============================================================================
@@ -19,6 +41,7 @@ Version:  1.0.0
 import argparse
 import sys
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import cnsplots as cns
@@ -38,14 +61,16 @@ from figures import apply_house_style, save_dual  # noqa: E402
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PlotConfig:
-    """Immutable config holding validated input TSV path and output stem."""
-    ma_values_path: Path
+    """Immutable config holding validated input TSV paths and output stem."""
+    basemean_path: Path
+    lfc_path: Path
     output_stem: Path
 
     def __post_init__(self) -> None:
-        """Validate that input exists and output directory can be created."""
-        if not self.ma_values_path.exists():
-            raise ValueError(f"MA values file does not exist: {self.ma_values_path}")
+        """Validate that inputs exist and output directory can be created."""
+        for path in (self.basemean_path, self.lfc_path):
+            if not path.exists():
+                raise ValueError(f"Input file does not exist: {path}")
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -64,87 +89,128 @@ def setup_logger(log_level: str = "INFO") -> None:
 
 
 # =============================================================================
+# GLOBAL CONSTANTS
+# =============================================================================
+class Orientation(StrEnum):
+    """Panel arrangement and axis assignment for the MA plot."""
+
+    VERTICAL = "vertical"
+    HORIZONTAL = "horizontal"
+
+NONSIGNIFICANT_COLOR = "gray"
+LFC_NULL = 0.0
+LFC_LABEL = "log2 fold change"
+BASEMEAN_LABEL = "mean of normalized counts"
+
+
+# =============================================================================
 # CORE LOGIC
 # =============================================================================
 @logger.catch
-def load_ma_data(ma_values_path: Path) -> pd.DataFrame:
-    """Load MA values TSV and validate schema."""
-    logger.info(f"Loading MA values from {ma_values_path}...")
-    df = pd.read_csv(ma_values_path, sep='\t')
+def load_ma_data(basemean_path: Path, lfc_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load the wide-format baseMean/LFC tables and validate their columns match."""
+    logger.info(f"Loading baseMean from {basemean_path}...")
+    basemean_df = pd.read_csv(basemean_path, sep="\t", index_col=[0, 1, 2, 3])
 
-    required_cols = ['timepoint', 'M', 'A']
-    missing_cols = [col for col in required_cols if col not in df.columns]
+    logger.info(f"Loading LFC from {lfc_path}...")
+    lfc_df = pd.read_csv(lfc_path, sep="\t", index_col=[0, 1, 2, 3])
+
+    missing_cols = [col for col in lfc_df.columns if col not in basemean_df.columns]
     if missing_cols:
-        raise ValueError(f"Missing required columns: {missing_cols}")
+        raise ValueError(f"Timepoints present in LFC but missing from baseMean: {missing_cols}")
 
-    logger.info(f"Loaded {len(df)} rows")
-    return df
+    logger.info(f"Loaded {len(lfc_df)} insertions across {len(lfc_df.columns)} timepoints")
+
+    return basemean_df, lfc_df
 
 
 @logger.catch
-def render_ma_figure(df: pd.DataFrame, output_stem: Path) -> None:
-    """Render MA plot with one panel per timepoint."""
-    logger.info("Rendering MA plot figure...")
+def render_ma_figure(
+    basemean_df: pd.DataFrame,
+    lfc_df: pd.DataFrame,
+    output_stem: Path,
+    orientation: Orientation = Orientation.VERTICAL,
+) -> None:
+    """Render MA plot with one panel per timepoint column, stacked vertically or in a single row."""
+    logger.info(f"Rendering MA plot figure ({orientation})...")
 
-    if df.empty:
+    if lfc_df.empty:
         logger.warning("No data to plot!")
         return
 
     # Apply house style before creating figure
     apply_house_style()
 
-    # Group by timepoint
-    timepoints = sorted(df['timepoint'].unique())
+    timepoints = list(lfc_df.columns)
     n_panels = len(timepoints)
 
     logger.info(f"Creating figure with {n_panels} panels (one per timepoint)...")
 
-    # Create multipanel layout (vertical stack)
-    panel_width = 510
-    panel_height = 200
-    multipanel = cns.multipanel(max_width=panel_width)
+    # Square-ish panels, sharing both axes so panels are directly comparable.
+    panel_size = 220
+    match orientation:
+        case Orientation.VERTICAL:
+            # A small max_width (one panel wide) forces one panel per row. The
+            # default 10 px bottom margin is too tight for a stack: each panel's
+            # title would collide with the x-axis label of the panel above it.
+            multipanel = cns.multipanel(max_width=panel_size)
+            panel_margin_bottom = 32
+        case Orientation.HORIZONTAL:
+            # A max_width spanning all panels forces a single row instead of a stack.
+            # Each panel's true rendered width exceeds `panel_size` (log-scale y-axis
+            # tick labels add a measured ~30-40 px "left_reserve", plus the 10 px
+            # margin_right); layout wraps to a new row once the running width sum
+            # exceeds max_width, so budget a generous +80 px/panel headroom. An
+            # oversized max_width is safe: the figure is always rendered at exactly
+            # max_width regardless of how much of it the panels actually fill.
+            multipanel = cns.multipanel(max_width=panel_size * n_panels + 80 * n_panels)
+            panel_margin_bottom = 10
 
     # Panel labels A, B, C...
     panel_labels = [chr(65 + i) for i in range(n_panels)]
 
-    # Scatter kwargs for many points
+    # Rasterize: tens of thousands of points per panel would bloat the vector PDF
     scatter_kws = dict(
-        s=10,
-        facecolor="none",
-        edgecolor="black",
-        alpha=0.5,
-        linewidths=0.5,
-        rasterized=True
+        s=1.5,
+        alpha=0.4,
+        linewidths=0,
+        rasterized=True,
     )
 
+    first_ax = None
     for timepoint, label in zip(timepoints, panel_labels):
-        group_df = df[df['timepoint'] == timepoint]
-        logger.info(f"  Panel {label}: {timepoint} (n={len(group_df)})")
+        logger.info(f"  Panel {label}: {timepoint} (n={len(lfc_df[timepoint])})")
 
-        if group_df.empty:
-            ax = multipanel.panel(label=label, width=panel_width, height=panel_height)
-            ax.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax.transAxes)
-            ax.set_xlabel('M value')
-            ax.set_ylabel('A value')
-            ax.set_title(f'MA plot - {timepoint}')
-            continue
-
-        # Create panel
-        ax = multipanel.panel(label=label, width=panel_width, height=panel_height)
-
-        # Scatter plot M vs A
-        ax.scatter(
-            group_df['M'],
-            group_df['A'],
-            **scatter_kws
+        ax = multipanel.panel(
+            label=label,
+            width=panel_size,
+            height=panel_size,
+            margin_bottom=panel_margin_bottom,
         )
 
-        # Add reference line at M=0
-        ax.axvline(0, color='red', linestyle='--', linewidth=2, alpha=0.5)
+        if first_ax is None:
+            first_ax = ax
+        else:
+            ax.sharex(first_ax)
+            ax.sharey(first_ax)
 
-        ax.set_xlabel('M value')
-        ax.set_ylabel('A value')
-        ax.set_title(f'MA plot - {timepoint}')
+        match orientation:
+            case Orientation.VERTICAL:
+                # LFC on x, baseMean (log) on y: reference line is vertical.
+                ax.scatter(lfc_df[timepoint], basemean_df[timepoint], c=NONSIGNIFICANT_COLOR, **scatter_kws)
+                ax.set_yscale("log")
+                ax.axvline(LFC_NULL, color="red", alpha=0.5, linestyle="--", linewidth=1, zorder=3)
+                ax.set_xlabel(LFC_LABEL)
+                ax.set_ylabel(BASEMEAN_LABEL)
+            case Orientation.HORIZONTAL:
+                # baseMean (log) on x, LFC on y: reference line is horizontal.
+                ax.scatter(basemean_df[timepoint], lfc_df[timepoint], c=NONSIGNIFICANT_COLOR, **scatter_kws)
+                ax.set_xscale("log")
+                ax.axhline(LFC_NULL, color="red", alpha=0.5, linestyle="--", linewidth=1, zorder=3)
+                ax.set_xlabel(BASEMEAN_LABEL)
+                ax.set_ylabel(LFC_LABEL)
+
+        ax.set_title(f"MA plot - {timepoint}")
 
     # Save dual artifacts
     logger.info(f"Saving figure to {output_stem}...")
@@ -157,8 +223,9 @@ def render_ma_figure(df: pd.DataFrame, output_stem: Path) -> None:
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Render MA plot figure from pre-computed MA values TSV")
-    parser.add_argument("-i", "--input", type=Path, required=True, help="Input MA values TSV file")
+    parser = argparse.ArgumentParser(description="Render unified MA plot figure from baseMean/LFC tables")
+    parser.add_argument("-b", "--basemean", type=Path, required=True, help="Input baseMean TSV file")
+    parser.add_argument("-l", "--lfc", type=Path, required=True, help="Input LFC TSV file")
     parser.add_argument("-o", "--output", type=Path, required=True, help="Output file stem (extension will be added)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
@@ -170,26 +237,29 @@ def main() -> int:
     setup_logger("DEBUG" if args.verbose else "INFO")
 
     # Strip extension from output if provided
-    output_stem = args.output.with_suffix('')
+    output_stem = args.output.with_suffix("")
 
     # Validate paths
     try:
         config = PlotConfig(
-            ma_values_path=args.input,
+            basemean_path=args.basemean,
+            lfc_path=args.lfc,
             output_stem=output_stem,
         )
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
         return 1
 
-    logger.info("=== MA Plot Figure Rendering ===")
+    logger.info("=== Unified MA Plot Figure Rendering ===")
 
     try:
         # Load data
-        df = load_ma_data(config.ma_values_path)
+        basemean_df, lfc_df = load_ma_data(config.basemean_path, config.lfc_path)
 
-        # Render figure
-        render_ma_figure(df, config.output_stem)
+        # Render both orientations
+        render_ma_figure(basemean_df, lfc_df, config.output_stem, Orientation.VERTICAL)
+        horizontal_stem = config.output_stem.with_name(f"{config.output_stem.name}_horizontal")
+        render_ma_figure(basemean_df, lfc_df, horizontal_stem, Orientation.HORIZONTAL)
 
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

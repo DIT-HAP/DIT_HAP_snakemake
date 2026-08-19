@@ -76,7 +76,6 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 },
             ),
             dispersion_data="projects/{project_name}/results/18_figure_data/dispersion_data.tsv",
-            ma_values="projects/{project_name}/results/18_figure_data/ma_values_replicates.tsv",
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_has_replicates.log",
         params:
@@ -92,8 +91,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 -c {input.control_insertions_df} \
                 -t {params.initial_time_point} \
                 -o {output.LFC} \
-                --dispersion_data {output.dispersion_data} \
-                --ma_values {output.ma_values} &> {log}
+                --dispersion_data {output.dispersion_data} &> {log}
             """
 
 else:
@@ -113,7 +111,6 @@ else:
                     "format": "TSV",
                 },
             ),
-            ma_values="projects/{project_name}/results/18_figure_data/ma_values.tsv",
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_no_replicates.log",
         params:
