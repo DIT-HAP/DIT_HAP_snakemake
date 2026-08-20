@@ -833,47 +833,527 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Phase 2: Figures Domain Extraction
 
-(The plan continues with Phases 2-6 following the same structure. Each phase extracts domain logic for one subdirectory into src/, rewrites scripts as thin CLIs, moves tests, and verifies byte-compare where possible. Due to length constraints, I'll provide the structure for Phase 2 and note that Phases 3-6 follow the identical pattern.)
+Ten figure scripts, each split into a `src/figure_render/<module>.py` library half and
+a thin CLI half. The scripts are the least entangled in the tree (2–3 core functions
+each), which is why this phase runs first.
 
-### Task 2.1: Create src/figure_render/ Modules
+### Phase 2 Conventions (apply to every task below)
+
+**Extraction rule.** For each script, move the `load_*` / `render_*` / helper functions
+verbatim into the named `src/figure_render/` module. Do not alter function bodies except
+where a step below names the change. Leave in the script: the module docstring, the
+`PlotConfig` dataclass, `parse_args()`, `main()`.
+
+**Module header.** Every new `src/figure_render/*.py` starts with:
+
+```python
+"""<One-line title>.
+
+Input
+-----
+- <what the load_* function reads>
+
+Output
+------
+- <what the render_* function writes>
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-08-19
+Version:  1.0.0
+"""
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+```
+
+No `main()`, no `parse_args()`, no `setup_logger()` — these are library modules.
+
+**Import style inside `src/figure_render/`.** Sibling `src` modules import by bare name
+(`from figures import apply_house_style, save_dual`), because `src/` is the sys.path root
+the scripts append. Do NOT use `from ..figures import` or `from src.figures import`.
+
+**Script CLI shape.** After extraction each script reads:
+
+```python
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
+from logging_setup import setup_logger  # noqa: E402
+from figure_render.<module> import <load_fn>, <render_fn>  # noqa: E402
+```
+
+with `main()` calling `setup_logger`, building `PlotConfig`, calling the two imported
+functions, and returning 0/1. Keep every existing `-`/`--` flag name and default
+unchanged: the `.smk` rules pass them positionally by name and are out of scope.
+
+**Per-script verification.** After each script is rewritten, run it with `--help` to
+prove the CLI still constructs, and confirm the module imports standalone:
+
+```bash
+RENDER_PY=/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/python
+$RENDER_PY workflow/scripts/figures/<script>.py --help
+$RENDER_PY -c "import sys; sys.path.insert(0,'workflow/src'); import figure_render.<module>; print('ok')"
+```
+
+---
+
+### Task 2.1: Extract the shared sigmoid model
+
+`sigmoid_function` exists byte-identically in `scripts/figures/plot_curve_fitting.py:67`
+and `scripts/depletion_scoring/curve_fitting.py`. Phase 2 is the first phase to need it,
+so it lands here and Phase 3 imports it rather than re-homing it later.
 
 **Files:**
-- Create: `workflow/src/figure_render/__init__.py`
-- Create: `workflow/src/figure_render/ma_plot.py`
-- Create: `workflow/src/figure_render/curve_fitting.py`
-- Create: `workflow/src/figure_render/dispersions.py`
-- Create: `workflow/src/figure_render/density.py`
-- Create: `workflow/src/figure_render/orientation.py`
-- Create: `workflow/src/figure_render/coverage.py`
-- Create: `workflow/src/figure_render/read_counts.py`
-- Create: `workflow/src/figure_render/correlation.py`
-- Create: `workflow/src/figure_render/distribution.py`
+- Create: `workflow/src/depletion/__init__.py`
+- Create: `workflow/src/depletion/curve_model.py`
+- Create: `workflow/tests/depletion/__init__.py`
+- Create: `workflow/tests/depletion/test_curve_model.py`
 
 **Interfaces:**
-- Consumes: `workflow/src/figures.py` (apply_house_style, save_dual, JOURNAL_*)
-- Produces: 9 library modules with load_* + render_* functions
+- Produces: `sigmoid_function(x: np.ndarray, A: float, DR: float, DL: float) -> np.ndarray`
+  — Gompertz curve; returns `np.zeros_like(x)` when `A == 0`; exponent clipped to
+  `(-700, 700)` for numerical stability. Consumed by Task 2.3 and by Phase 3.
 
-(Each module extraction follows the pattern: extract load_* + render_* functions from scripts/figures/<name>.py, leave PlotConfig dataclass in the script, rewrite script as ~70-line CLI.)
+- [ ] **Step 1: Write the failing test**
 
-[Detailed steps for each of 9 figure modules would follow here, similar to Task 1.1's structure]
+Create `workflow/tests/depletion/__init__.py` (empty) and
+`workflow/tests/depletion/test_curve_model.py`:
+
+```python
+"""Tests for the shared Gompertz curve model."""
+
+import numpy as np
+import pytest
+
+from depletion.curve_model import sigmoid_function
+
+
+def test_zero_amplitude_returns_zeros():
+    """A == 0 must short-circuit to zeros rather than divide by zero."""
+    x = np.array([0.0, 1.0, 2.0])
+    assert np.array_equal(sigmoid_function(x, 0.0, 1.0, 1.0), np.zeros_like(x))
+
+
+def test_monotonic_decreasing_in_x():
+    """With positive amplitude the Gompertz curve decreases as x grows."""
+    x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    y = sigmoid_function(x, 2.0, 0.5, 2.0)
+    assert np.all(np.diff(y) <= 1e-12)
+
+
+def test_extreme_input_does_not_overflow():
+    """Exponent clipping must keep a huge negative x finite."""
+    y = sigmoid_function(np.array([-1e6]), 2.0, 0.5, 2.0)
+    assert np.all(np.isfinite(y))
+
+
+def test_matches_amplitude_at_large_x():
+    """As x grows past DL the curve approaches the amplitude A."""
+    y = sigmoid_function(np.array([1e3]), 2.0, 0.5, 2.0)
+    assert y[0] == pytest.approx(2.0, abs=1e-9)
+```
+
+- [ ] **Step 2: Run it to confirm it fails**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest \
+    workflow/tests/depletion/test_curve_model.py -v
+```
+Expected: collection error / `ModuleNotFoundError: No module named 'depletion'`
+
+- [ ] **Step 3: Create the module**
+
+`workflow/src/depletion/__init__.py`:
+
+```python
+"""Depletion scoring library modules."""
+```
+
+`workflow/src/depletion/curve_model.py`:
+
+```python
+"""Gompertz curve model shared by curve fitting and its figures.
+
+Input
+-----
+- None (pure numerical model).
+
+Output
+------
+- None (returns arrays).
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-08-19
+Version:  1.0.0
+"""
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+import numpy as np
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+# np.exp overflows past ~709; clip well inside that bound.
+EXPONENT_CLIP = 700
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+def sigmoid_function(x: np.ndarray, A: float, DR: float, DL: float) -> np.ndarray:
+    """Calculate sigmoid function values using gompertz function."""
+    if A == 0:
+        return np.zeros_like(x)
+    alpha = (DR * np.e) / A
+    u = alpha * (DL - x) + 1
+    exponent = np.clip(u, -EXPONENT_CLIP, EXPONENT_CLIP)
+    return A * np.exp(-np.exp(exponent))
+```
+
+- [ ] **Step 4: Run the test to confirm it passes**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest \
+    workflow/tests/depletion/test_curve_model.py -v
+```
+Expected: 4 passed
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add workflow/src/depletion workflow/tests/depletion
+git commit -m "feat(src/depletion): extract shared Gompertz curve model
+
+sigmoid_function was byte-identical in scripts/figures/plot_curve_fitting.py
+and scripts/depletion_scoring/curve_fitting.py. Phase 2 needs it first, so it
+lands here; Phase 3 will import it instead of keeping its own copy.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
 
 ---
 
-### Task 2.2: Rewrite figures/ Scripts as Thin CLIs
+### Task 2.2: Extract the four single-load/render figure modules
 
-(Rewrites 10 scripts following the pattern: docstring + bootstrap + parse_args + main calling src functions)
+Four scripts share one shape exactly — one `load_*`, one `render_*`, nothing else — so
+they are one task, not four. Apply the Phase 2 Conventions to each.
+
+**Files:**
+- Create: `workflow/src/figure_render/__init__.py` (`"""Figure rendering library modules."""`)
+- Create: `workflow/src/figure_render/dispersions.py` — from `scripts/figures/plot_dispersions.py`
+- Create: `workflow/src/figure_render/orientation.py` — from `scripts/figures/plot_insertion_orientation.py`
+- Create: `workflow/src/figure_render/correlation.py` — from `scripts/figures/plot_pbl_pbr_correlation.py`
+- Create: `workflow/src/figure_render/distribution.py` — from `scripts/figures/plot_distribution_of_curve_fitting.py`
+- Modify: those four scripts, reduced to CLI per the conventions
+
+**Interfaces:**
+- Consumes: `figures.apply_house_style`, `figures.save_dual`, and for dispersions /
+  orientation / correlation also `figures.JOURNAL_WIDTH_PX`, `figures.JOURNAL_HEIGHT_PX`.
+- Produces, moved verbatim from the named script:
+  - `dispersions.load_dispersion_data(dispersion_data_path: Path) -> pd.DataFrame`
+  - `dispersions.render_dispersion_figure(df: pd.DataFrame, output_stem: Path) -> None`
+  - `orientation.load_and_prepare_data(input_path: Path) -> pd.DataFrame`
+  - `orientation.render_orientation_figure(df: pd.DataFrame, output_stem: Path) -> None`
+  - `correlation.load_and_prepare_data(input_path: Path) -> pd.DataFrame`
+  - `correlation.render_correlation_figure(df: pd.DataFrame, output_stem: Path) -> None`
+  - `distribution.load_fitting_stats(fitting_stats_path: Path) -> tuple[pd.DataFrame, list[str]]`
+  - `distribution.render_distribution_figure(df: pd.DataFrame, metric_cols: list[str], output_stem: Path, bins: int) -> None`
+
+`orientation.load_and_prepare_data` and `correlation.load_and_prepare_data` keep their
+shared name: they live in different modules and are never imported together.
+
+- [ ] **Step 1: Create the package marker and the four modules**
+
+For each of the four, move the functions listed under Interfaces out of the script and
+into the new module, adding the standard header and the imports each body actually uses.
+Change nothing inside the bodies. `matplotlib.use("Agg")` stays in the *script*, not the
+module — it is a process-level side effect and a library must not impose it.
+
+- [ ] **Step 2: Confirm each module imports standalone**
+
+```bash
+RENDER_PY=/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/python
+for m in dispersions orientation correlation distribution; do
+  $RENDER_PY -c "import sys; sys.path.insert(0,'workflow/src'); import figure_render.$m; print('$m ok')"
+done
+```
+Expected: four `ok` lines
+
+- [ ] **Step 3: Reduce the four scripts to CLIs**
+
+Apply the Script CLI shape from the conventions. Each `main()` keeps its existing
+sequence of calls and its existing flags; only the function *source* changes from local
+def to import.
+
+- [ ] **Step 4: Confirm all four CLIs still construct**
+
+```bash
+RENDER_PY=/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/python
+for s in plot_dispersions plot_insertion_orientation plot_pbl_pbr_correlation \
+         plot_distribution_of_curve_fitting; do
+  $RENDER_PY workflow/scripts/figures/$s.py --help > /dev/null && echo "$s ok"
+done
+```
+Expected: four `ok` lines
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add workflow/src/figure_render workflow/scripts/figures
+git commit -m "refactor(figures): extract dispersions/orientation/correlation/distribution
+
+Move load_*/render_* into src/figure_render/; the four scripts keep their
+docstring, PlotConfig, parse_args and main. CLI flags unchanged.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
 
 ---
 
-### Task 2.3: Move Figure Tests to workflow/tests/figure_render/
+### Task 2.3: Extract the five figure modules with helpers or extra params
 
-(Moves 10 test files, updates imports to pull from src/figure_render/)
+The remaining six scripts each carry a private helper, an enum, or a config-dependent
+loader, so each needs a named decision. `plot_ma_plot.py` and `plot_ma_plot_replicates.py`
+are distinct scripts and get distinct modules.
+
+**Files:**
+- Create: `workflow/src/figure_render/ma_plot.py` — from `scripts/figures/plot_ma_plot.py`
+- Create: `workflow/src/figure_render/ma_plot_replicates.py` — from `scripts/figures/plot_ma_plot_replicates.py`
+- Create: `workflow/src/figure_render/coverage.py` — from `scripts/figures/plot_gene_coverage.py`
+- Create: `workflow/src/figure_render/density.py` — from `scripts/figures/plot_insertion_density.py`
+- Create: `workflow/src/figure_render/read_counts.py` — from `scripts/figures/plot_read_count_distribution.py`
+- Create: `workflow/src/figure_render/curve_fitting.py` — from `scripts/figures/plot_curve_fitting.py`
+- Modify: those six scripts, reduced to CLI per the conventions
+
+**Interfaces:**
+- Consumes: `figures.apply_house_style`, `figures.save_dual`, `figures.JOURNAL_*` as each
+  body already does; `curve_fitting` additionally consumes
+  `depletion.curve_model.sigmoid_function` from Task 2.1.
+- Produces:
+  - `ma_plot.Orientation` (StrEnum: `VERTICAL`, `HORIZONTAL`) — moves with the module
+  - `ma_plot.load_ma_data(basemean_path: Path, lfc_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]`
+  - `ma_plot.render_ma_figure(basemean_df, lfc_df, output_stem: Path, orientation: Orientation = Orientation.VERTICAL) -> None`
+  - `ma_plot_replicates.load_ma_data(ma_values_path: Path) -> pd.DataFrame`
+  - `ma_plot_replicates.significance_colors(padj: pd.Series) -> pd.Series`
+  - `ma_plot_replicates.render_ma_figure(df: pd.DataFrame, output_stem: Path) -> None`
+  - `coverage.load_coverage_data(input_path: Path) -> pd.DataFrame`
+  - `coverage.render_coverage_figure(df: pd.DataFrame, output_stem: Path) -> None`
+    (private `_status_counts_frame` moves too, still underscore-prefixed)
+  - `density.load_density_data(input_path: Path) -> pd.DataFrame`
+  - `density.render_density_figure(df: pd.DataFrame, output_stem: Path, initial_timepoint: str, final_timepoint: str) -> None`
+    (private `_draw_panel_or_placeholder` moves too)
+  - `read_counts.load_distribution_data(input_path: Path) -> pd.DataFrame`
+  - `read_counts.load_cutoff_stats(stats_path: Path) -> pd.DataFrame`
+  - `read_counts.format_retention_caption(sample: str, stats_row: pd.Series | None) -> str`
+  - `read_counts.render_distribution_figure(...)` — same signature as the current script
+  - `curve_fitting.load_and_sample_data(fitting_stats_path: Path, lfc_path: Path, n_curves: int, random_seed: int) -> tuple[pd.DataFrame, pd.DataFrame, list[float]]`
+  - `curve_fitting.render_curve_fitting_figure(...)` — same signature as the current script
+
+- [ ] **Step 1: Change `load_and_sample_data` to take scalars, not `PlotConfig`**
+
+Today it reads `config.fitting_stats_path`, `config.lfc_path`, `config.n_curves`,
+`config.random_seed` off the dataclass. `PlotConfig` stays in the script, so a `src`
+function must not depend on it. Replace the parameter list with the four scalars in the
+order given under Interfaces and substitute the four attribute reads with the parameter
+names. Nothing else in the body changes. The caller in `main()` becomes:
+
+```python
+sampled, lfc_sampled, time_points = load_and_sample_data(
+    config.fitting_stats_path, config.lfc_path, config.n_curves, config.random_seed
+)
+```
+
+- [ ] **Step 2: Point `curve_fitting` at the shared sigmoid**
+
+Delete the local `sigmoid_function` def from `plot_curve_fitting.py` and have
+`src/figure_render/curve_fitting.py` import it:
+
+```python
+from depletion.curve_model import sigmoid_function
+```
+
+- [ ] **Step 3: Create the six modules**
+
+Move the functions listed under Interfaces verbatim (except the two changes above),
+each with the standard header. Keep `Orientation` in `ma_plot.py` beside the two
+functions that switch on it. `matplotlib.use("Agg")` stays in the scripts.
+
+- [ ] **Step 4: Confirm each module imports standalone**
+
+```bash
+RENDER_PY=/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/python
+for m in ma_plot ma_plot_replicates coverage density read_counts curve_fitting; do
+  $RENDER_PY -c "import sys; sys.path.insert(0,'workflow/src'); import figure_render.$m; print('$m ok')"
+done
+```
+Expected: six `ok` lines
+
+- [ ] **Step 5: Reduce the six scripts to CLIs, then confirm they construct**
+
+```bash
+RENDER_PY=/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/python
+for s in plot_ma_plot plot_ma_plot_replicates plot_gene_coverage \
+         plot_insertion_density plot_read_count_distribution plot_curve_fitting; do
+  $RENDER_PY workflow/scripts/figures/$s.py --help > /dev/null && echo "$s ok"
+done
+```
+Expected: six `ok` lines
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add workflow/src/figure_render workflow/scripts/figures
+git commit -m "refactor(figures): extract ma_plot, coverage, density, read_counts, curve_fitting
+
+load_and_sample_data now takes explicit scalars instead of PlotConfig, since
+config dataclasses stay in scripts/. plot_curve_fitting drops its duplicate
+sigmoid_function in favour of depletion.curve_model.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
 
 ---
 
-### Task 2.4: Phase 2 Verification (Figure Data TSVs + PDF/PNG Existence)
+### Task 2.4: Move the ten figure tests to workflow/tests/figure_render/
 
-(Baseline vs after comparison for stages 18_figure_data outputs)
+**Files:**
+- Create: `workflow/tests/figure_render/__init__.py`
+- Move, renaming `test_plot_<x>.py` → `test_<module>.py` to match the module under test:
+  - `test_plot_dispersions.py` → `workflow/tests/figure_render/test_dispersions.py`
+  - `test_plot_insertion_orientation.py` → `.../test_orientation.py`
+  - `test_plot_pbl_pbr_correlation.py` → `.../test_correlation.py`
+  - `test_plot_distribution_of_curve_fitting.py` → `.../test_distribution.py`
+  - `test_plot_ma_plot.py` → `.../test_ma_plot.py`
+  - `test_plot_ma_plot_replicates.py` → `.../test_ma_plot_replicates.py`
+  - `test_plot_gene_coverage.py` → `.../test_coverage.py`
+  - `test_plot_insertion_density.py` → `.../test_density.py`
+  - `test_plot_read_count_distribution.py` → `.../test_read_counts.py`
+  - `test_plot_curve_fitting.py` → `.../test_curve_fitting.py`
+
+**Interfaces:**
+- Consumes: every symbol produced by Tasks 2.1–2.3.
+
+- [ ] **Step 1: Move the files with git mv**
+
+Use `git mv` so history follows, and create `workflow/tests/figure_render/__init__.py`
+(empty).
+
+- [ ] **Step 2: Repoint each test's imports**
+
+Delete the `SCRIPT_DIR` / `sys.path.append` preamble from every moved test —
+`pyproject.toml` already puts `workflow/src` and `workflow/scripts` on the path. Then
+split each import by what it names:
+
+- domain functions come from the module:
+  `from figure_render.ma_plot import load_ma_data, render_ma_figure, Orientation`
+- `PlotConfig` comes from the script, which is still where it lives:
+  `from plot_ma_plot import PlotConfig`
+
+Two tests import `PlotConfig` (`test_ma_plot.py`, `test_distribution.py`) and
+`test_curve_fitting.py` imports it as well — those keep a script-sourced import
+alongside the module-sourced one. Because `workflow/scripts` is on the pytest path but
+its subdirectories are not packages, the bare module name (`plot_ma_plot`) is correct;
+do not write `figures.plot_ma_plot`.
+
+- [ ] **Step 3: Fix the `load_and_sample_data` call in test_curve_fitting.py**
+
+It currently passes a `PlotConfig`. Update the call to the four-scalar signature from
+Task 2.3 Step 1, building the values from the fixture paths the test already has.
+
+- [ ] **Step 4: Run the whole suite**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest workflow/tests -v
+```
+Expected: the 4 `test_figures.py` tests, the 4 `test_curve_model.py` tests, and every
+moved figure test pass. Tests that `pytest.skip` on absent real project data are an
+acceptable pass; a `ModuleNotFoundError` or `ImportError` is not.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add workflow/tests workflow/scripts/figures
+git commit -m "test(figures): move 10 figure tests to workflow/tests/figure_render/
+
+Renamed to match the modules under test, sys.path preambles removed, imports
+split between figure_render.* (domain) and the scripts (PlotConfig).
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 2.5: Phase 2 verification
+
+Figures are the one phase where byte-comparing the *artifact* is invalid: a PDF embeds a
+creation timestamp, so two identical figures differ on disk. Verify the inputs-to-pixels
+path instead, and compare bytes only where a TSV exists.
+
+**Files:**
+- Create: `tmp/refactor_baseline/phase2/`, `tmp/refactor_after/phase2/` (scratch, git-ignored)
+
+- [ ] **Step 1: Render every figure whose input data exists**
+
+`projects/HD_DIT_HAP/results/` has `14_insertion_level_depletion_analysis/` (11 files),
+`15_insertion_level_curve_fitting/` (3), `16_gene_level_depletion_analysis/` (4),
+`17_gene_level_curve_fitting/` (4) and `18_figure_data/` (3). For each figure script
+whose declared inputs are present there, run it with `-o tmp/refactor_after/phase2/<name>`.
+Record in the report which scripts ran and which were skipped for missing inputs —
+`insertion_density_analysis.tsv` in particular has never been generated for this project.
+
+- [ ] **Step 2: Assert each produced both artifacts, non-empty**
+
+```bash
+find tmp/refactor_after/phase2 -name "*.pdf" -o -name "*.review.png" | sort | while read f; do
+  test -s "$f" || { echo "EMPTY: $f"; exit 1; }
+done
+echo "all artifacts non-empty"
+```
+Expected: `all artifacts non-empty`, and a `.pdf` + `.review.png` pair per figure.
+
+- [ ] **Step 3: Byte-compare any TSV side-outputs**
+
+Only `plot_dispersions.py` writes a TSV alongside its figure. If
+`tmp/refactor_baseline/phase2/` holds a pre-refactor copy, `diff` them; if no baseline was
+captured before the extraction, say so in the report rather than implying a comparison
+happened.
+
+- [ ] **Step 4: Full suite plus DAG**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest workflow/tests -q
+snakemake -n --use-conda
+```
+Expected: suite green; DAG resolves with no `ImportError`.
+
+- [ ] **Step 5: Assert the scripts actually got thin**
+
+```bash
+wc -l workflow/scripts/figures/plot_*.py | sort -rn
+```
+Expected: every script well under its former size (they ranged 186–318 lines). Report the
+before/after table. A script still over ~120 lines means logic stayed behind — name it
+in the report rather than quietly passing.
+
+- [ ] **Step 6: Commit the verification record**
+
+```bash
+git add -A tmp/phase2_verified.txt
+git commit -m "test(phase2): verify figures extraction
+
+Artifacts render non-empty for every script with available inputs; suite green;
+DAG resolves. Scripts reduced from 186-318 lines to CLI-only.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
 
 ---
 
