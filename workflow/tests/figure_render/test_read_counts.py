@@ -19,16 +19,13 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_read_count_distribution import (  # noqa: E402
+from figure_render.read_counts import (
     load_cutoff_stats,
     load_distribution_data,
     render_distribution_figure,

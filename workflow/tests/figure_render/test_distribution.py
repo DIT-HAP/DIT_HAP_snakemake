@@ -15,15 +15,12 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_distribution_of_curve_fitting import load_fitting_stats, render_distribution_figure, PlotConfig  # noqa: E402
+from figure_render.distribution import load_fitting_stats, render_distribution_figure
 
 
 # =============================================================================
@@ -93,13 +90,8 @@ def test_empty_data_handling(tmp_path: Path) -> None:
 
     output_stem = tmp_path / "empty_test"
 
-    config = PlotConfig(
-        fitting_stats_path=empty_stats,
-        output_stem=output_stem,
-    )
-
     # Load should return empty dataframe
-    df, metric_cols = load_fitting_stats(config.fitting_stats_path)
+    df, metric_cols = load_fitting_stats(empty_stats)
     assert df.empty
 
     # Render should not crash

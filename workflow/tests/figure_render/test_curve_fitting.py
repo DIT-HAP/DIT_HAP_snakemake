@@ -15,15 +15,12 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_curve_fitting import load_and_sample_data, PlotConfig, render_curve_fitting_figure  # noqa: E402
+from figure_render.curve_fitting import load_and_sample_data, render_curve_fitting_figure
 
 
 # =============================================================================
@@ -57,15 +54,9 @@ def test_baseline_statistics(real_stats_path: Path, real_lfc_path: Path, output_
     if not real_lfc_path.exists():
         pytest.skip(f"Real LFC data not found: {real_lfc_path}")
 
-    config = PlotConfig(
-        fitting_stats_path=real_stats_path,
-        lfc_path=real_lfc_path,
-        output_stem=output_stem,
-        n_curves=32,
-        random_seed=42,
+    sampled_stats, lfc_sampled, time_points = load_and_sample_data(
+        real_stats_path, real_lfc_path, 32, 42
     )
-
-    sampled_stats, lfc_sampled, time_points = load_and_sample_data(config)
 
     # Total rows: 93596 (header excluded from wc -l count of 93597)
     # Successful fits: 93560
@@ -92,15 +83,9 @@ def test_dual_artifacts_created(real_stats_path: Path, real_lfc_path: Path, outp
     if not real_lfc_path.exists():
         pytest.skip(f"Real LFC data not found: {real_lfc_path}")
 
-    config = PlotConfig(
-        fitting_stats_path=real_stats_path,
-        lfc_path=real_lfc_path,
-        output_stem=output_stem,
-        n_curves=32,
-        random_seed=42,
+    sampled_stats, lfc_sampled, time_points = load_and_sample_data(
+        real_stats_path, real_lfc_path, 32, 42
     )
-
-    sampled_stats, lfc_sampled, time_points = load_and_sample_data(config)
     render_curve_fitting_figure(sampled_stats, lfc_sampled, time_points, output_stem)
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
@@ -127,14 +112,10 @@ def test_empty_data_handling(tmp_path: Path) -> None:
 
     output_stem = tmp_path / "empty_test"
 
-    config = PlotConfig(
-        fitting_stats_path=empty_stats,
-        lfc_path=empty_lfc,
-        output_stem=output_stem,
-    )
-
     # Load should return empty dataframe
-    sampled_stats, lfc_sampled, time_points = load_and_sample_data(config)
+    sampled_stats, lfc_sampled, time_points = load_and_sample_data(
+        empty_stats, empty_lfc, 32, 42
+    )
     assert sampled_stats.empty
 
     # Render should not crash

@@ -22,15 +22,12 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_insertion_orientation import load_and_prepare_data, render_orientation_figure  # noqa: E402
+from figure_render.orientation import load_and_prepare_data, render_orientation_figure
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS

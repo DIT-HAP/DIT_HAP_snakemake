@@ -21,15 +21,12 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_gene_coverage import load_coverage_data, render_coverage_figure  # noqa: E402
+from figure_render.coverage import load_coverage_data, render_coverage_figure
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS

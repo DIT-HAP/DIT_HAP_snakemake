@@ -15,19 +15,15 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_dispersions import (  # noqa: E402
+from figure_render.dispersions import (
     DISPERSION_SERIES,
     REQUIRED_COLUMNS,
     X_COLUMN,
-    PlotConfig,
     load_dispersion_data,
     render_dispersion_figure,
 )
@@ -130,12 +126,3 @@ def test_empty_data_handling(tmp_path: Path) -> None:
 
     # Render should not crash
     render_dispersion_figure(df, output_stem)
-
-
-def test_config_rejects_missing_input(tmp_path: Path) -> None:
-    """Assert PlotConfig rejects a non-existent input path."""
-    with pytest.raises(ValueError, match="does not exist"):
-        PlotConfig(
-            dispersion_data_path=tmp_path / "nope.tsv",
-            output_stem=tmp_path / "out",
-        )

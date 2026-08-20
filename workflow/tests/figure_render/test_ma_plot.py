@@ -16,15 +16,12 @@ Version:  2.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-from plot_ma_plot import load_ma_data, render_ma_figure, Orientation, PlotConfig  # noqa: E402
+from figure_render.ma_plot import Orientation, load_ma_data, render_ma_figure
 
 
 # =============================================================================
@@ -122,13 +119,3 @@ def test_empty_data_handling(tmp_path: Path, orientation: Orientation) -> None:
 
     # Render should not crash
     render_ma_figure(empty_basemean, empty_lfc, output_stem, orientation)
-
-
-def test_config_rejects_missing_input(tmp_path: Path) -> None:
-    """Assert PlotConfig rejects a non-existent input path."""
-    with pytest.raises(ValueError, match="does not exist"):
-        PlotConfig(
-            basemean_path=tmp_path / "nope_baseMean.tsv",
-            lfc_path=tmp_path / "nope_LFC.tsv",
-            output_stem=tmp_path / "out",
-        )
