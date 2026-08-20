@@ -12,8 +12,8 @@ def test_zero_amplitude_returns_zeros():
     assert np.array_equal(sigmoid_function(x, 0.0, 1.0, 1.0), np.zeros_like(x))
 
 
-def test_monotonic_decreasing_in_x():
-    """With positive amplitude the Gompertz curve decreases as x grows."""
+def test_monotonic_increasing_in_x():
+    """With positive amplitude the Gompertz curve rises toward A as x grows."""
     x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     y = sigmoid_function(x, 2.0, 0.5, 2.0)
     assert np.all(np.diff(y) >= -1e-12)
