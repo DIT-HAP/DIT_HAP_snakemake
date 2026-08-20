@@ -31,6 +31,7 @@ use("Agg")
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+from logging_setup import setup_logger  # noqa: E402
 from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual  # noqa: E402
 
 
