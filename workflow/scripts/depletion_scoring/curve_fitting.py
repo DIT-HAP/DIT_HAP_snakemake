@@ -85,11 +85,16 @@ from joblib import Parallel, delayed
 from loguru import logger
 from scipy.optimize import minimize
 
+# Bootstrap src/ onto sys.path
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
+from logging_setup import setup_logger  # noqa: E402
+
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
 # Configure matplotlib for publication quality
-SCRIPT_DIR = Path(__file__).parent.resolve()
 
 DL_PENALTY = 6e-3
 TOL = 2e-6
@@ -160,18 +165,8 @@ class SummaryStatistics:
     mean_BIC: float | None = None
 
 # =============================================================================
-# LOGGING SETUP
+# CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False
-    )
-
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================

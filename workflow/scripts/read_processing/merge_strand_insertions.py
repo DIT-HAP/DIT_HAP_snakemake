@@ -60,6 +60,12 @@ import pandas as pd
 # 3. Third-party Imports
 from loguru import logger
 
+# Bootstrap src/ onto sys.path
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
+from logging_setup import setup_logger  # noqa: E402
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
@@ -84,18 +90,6 @@ class MergeResult:
     total_reads_merged: int
     coordinate_strand_pairs: int
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure the loguru logger."""
-    logger.remove()  # Remove default handler
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
 
 setup_logger()
 

@@ -83,6 +83,13 @@ import pandas as pd
 # 3. Third-party Imports
 from loguru import logger
 
+# Bootstrap src/ onto sys.path
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
+from logging_setup import setup_logger  # noqa: E402
+from io_tables import read_insertion_table  # noqa: E402
+
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
@@ -144,19 +151,6 @@ class WeightInputs:
     annotations: pd.DataFrame
 
 # =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for insertion-level weight computation."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
-
-# =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
 # --- Data Loading ---
@@ -168,9 +162,9 @@ def load_inputs(config: WeightsConfig) -> WeightInputs:
     logger.info(f"Loading annotations from {config.annotations_file}")
 
     inputs = WeightInputs(
-        stats=pd.read_csv(config.stats_file, sep="\t", index_col=INDEX_COLUMNS),
-        lfc=pd.read_csv(config.lfc_file, sep="\t", index_col=INDEX_COLUMNS),
-        annotations=pd.read_csv(config.annotations_file, sep="\t", index_col=INDEX_COLUMNS),
+        stats=read_insertion_table(config.stats_file),
+        lfc=read_insertion_table(config.lfc_file),
+        annotations=read_insertion_table(config.annotations_file),
     )
 
     logger.info(

@@ -59,18 +59,6 @@ class PlotConfig:
             raise ValueError(f"n_curves must be positive, got {self.n_curves}")
 
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru to emit uncolorised, timestamped records to stdout."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
 
 
 # =============================================================================

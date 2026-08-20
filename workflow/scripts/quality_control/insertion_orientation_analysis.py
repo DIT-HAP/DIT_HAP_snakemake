@@ -64,7 +64,9 @@ from loguru import logger
 # 4. Local application imports (require the project ``src`` dir on sys.path)
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from utils import read_file  # noqa: E402
+
+from logging_setup import setup_logger  # noqa: E402
+from io_tables import read_table  # noqa: E402
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -95,18 +97,6 @@ class InsertionOrientationAnalysisConfig:
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru to emit uncolorised, timestamped records to stdout."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
 
 
 # =============================================================================
@@ -190,7 +180,7 @@ def main() -> int:
 
         # Per-file control flow: skip a file that fails to process, continue with the rest.
         try:
-            df = read_file(file_path, **READER_KWARGS)
+            df = read_table(file_path, **READER_KWARGS)
             pairs = extract_strand_pairs(df)
         except (ValueError, KeyError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
             logger.error(f"Failed to process {file_path.name}: {e}")

@@ -52,6 +52,12 @@ from pathlib import Path
 import pandas as pd
 from loguru import logger
 
+# Bootstrap src/ onto sys.path
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
+from logging_setup import setup_logger  # noqa: E402
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
@@ -68,18 +74,6 @@ class PBLPBRCorrelationConfig:
                 raise ValueError(f"Input file does not exist: {file_path}")
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru to emit uncolorised, timestamped records to stdout."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
 
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)

@@ -86,6 +86,14 @@ from loguru import logger
 import pybedtools
 from pybedtools import BedTool
 
+# Bootstrap src/ onto sys.path
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
+from logging_setup import setup_logger  # noqa: E402
+from io_tables import read_table  # noqa: E402
+from gene_metadata import resolve_gene_ids  # noqa: E402
+
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
@@ -122,61 +130,8 @@ class Config:
             Path(getattr(self, field_name)).parent.mkdir(parents=True, exist_ok=True)
 
 # =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logging(log_level: str = "INFO") -> None:
-    """Configure loguru for the application."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
-
-# =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
-@logger.catch
-def update_sysID(genes: list, gene_IDs_names_products: pd.DataFrame) -> list:
-    """Resolve gene identifiers to current systematic IDs via name/synonym lookup."""
-    coding = gene_IDs_names_products.query("gene_type == 'protein coding gene'")
-    synonyms2ID = (
-        coding.set_index("gene_systematic_id")["synonyms"]
-        .str.split(",").explode().str.strip().dropna()
-        .reset_index().set_index("synonyms")
-    )
-    names2ID = (
-        coding.set_index("gene_name")["gene_systematic_id"]
-        .drop_duplicates().reset_index().set_index("gene_name")
-    )
-    sysIDs_now = coding["gene_systematic_id"].unique().tolist()
-
-    updated = []
-    for gene in genes:
-        if pd.isna(gene):
-            updated.append(gene)
-            logger.debug(f"{gene} is NA")
-        elif gene in sysIDs_now:
-            updated.append(gene)
-        elif gene in names2ID.index:
-            val = names2ID.loc[gene, "gene_systematic_id"]
-            if isinstance(val, str):
-                updated.append(val)
-                logger.debug(f"{gene} -> {val}")
-            else:
-                updated.append(np.nan)
-                logger.warning(f"{gene} has multiple updates: {val.tolist()}")
-        elif gene in synonyms2ID.index:
-            val = synonyms2ID.loc[gene, "gene_systematic_id"]
-            if isinstance(val, str):
-                updated.append(val)
-                logger.debug(f"{gene} -> {val}")
-            else:
-                updated.append(np.nan)
-                logger.warning(f"{gene} has multiple synonym updates: {val.tolist()}")
-        else:
-            updated.append(gene)
             logger.debug(f"{gene} not found in gene metadata")
     return updated
 
@@ -448,7 +403,7 @@ def run_pipeline(config: Config) -> None:
     gene_to_peptide_length_map = dict(zip(peptide_stats_df["Systematic_ID"], peptide_stats_df["Residues"]))
     logger.info(f"Loaded peptide statistics for {len(gene_to_peptide_length_map):,} proteins")
 
-    gene_IDs_names_products = pd.read_csv(config.gene_ids_file, sep="\t")
+    gene_IDs_names_products = read_table(config.gene_ids_file)
     gene_IDs_names_products["gene_name"] = gene_IDs_names_products["gene_name"].fillna(
         gene_IDs_names_products["gene_systematic_id"]
     )
@@ -458,7 +413,7 @@ def run_pipeline(config: Config) -> None:
     FYPOviability = FYPOviability_df.set_index("Systematic ID")["FYPOviability"].to_dict()
 
     Hayles_viability_df = pd.read_excel(config.hayles_file)
-    Hayles_viability_df["Updated_Systematic_ID"] = update_sysID(
+    Hayles_viability_df["Updated_Systematic_ID"] = resolve_gene_ids(
         Hayles_viability_df["Systematic ID"].tolist(), gene_IDs_names_products
     )
     DeletionLibrary_essentiality = dict(
@@ -659,7 +614,7 @@ Examples:
 def main() -> int:
     """Main entry point of the script."""
     args = parse_args()
-    setup_logging("DEBUG" if args.verbose else "INFO")
+    setup_logger("DEBUG" if args.verbose else "INFO")
 
     try:
         config = Config(

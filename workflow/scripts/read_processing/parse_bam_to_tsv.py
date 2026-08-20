@@ -70,6 +70,12 @@ from pathlib import Path
 
 # 2. Third-party Imports
 from loguru import logger
+
+# Bootstrap src/ onto sys.path
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
+from logging_setup import setup_logger  # noqa: E402
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pysam
@@ -146,18 +152,6 @@ class ReadPairInfo:
     read2: ReadInfo | None = None
     is_proper_pair: str = "N/A"
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logger(log_level: str = "INFO") -> None:
-    """Configure loguru for BAM to Parquet conversion."""
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-        level=log_level,
-        colorize=False,
-    )
 
 setup_logger()
 
