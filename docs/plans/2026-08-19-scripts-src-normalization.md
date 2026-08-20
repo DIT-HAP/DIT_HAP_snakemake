@@ -1330,14 +1330,36 @@ and `dist.review.png` (430736 bytes) were byte-identical before and after extrac
 **Files:**
 - Create: `tmp/refactor_baseline/phase2/`, `tmp/refactor_after/phase2/` (scratch, git-ignored)
 
-- [ ] **Step 1: Render every figure whose input data exists**
+- [ ] **Step 1: Render every figure whose input data exists — all of them do**
 
-`projects/HD_DIT_HAP/results/` has `14_insertion_level_depletion_analysis/` (11 files),
-`15_insertion_level_curve_fitting/` (3), `16_gene_level_depletion_analysis/` (4),
-`17_gene_level_curve_fitting/` (4) and `18_figure_data/` (3). For each figure script
-whose declared inputs are present there, run it with `-o tmp/refactor_after/phase2/<name>`.
-Record in the report which scripts ran and which were skipped for missing inputs —
-`insertion_density_analysis.tsv` in particular has never been generated for this project.
+Inputs live in two places, and missing the second one causes a false "cannot verify":
+
+- `projects/HD_DIT_HAP/results/{14_insertion_level_depletion_analysis,15_insertion_level_curve_fitting,16_gene_level_depletion_analysis,17_gene_level_curve_fitting}/`
+- **`projects/HD_DIT_HAP/results/18_figure_data/arc/`** — holds `insertion_density_analysis.tsv`,
+  `gene_coverage_stats.tsv`, `pbl_pbr_pairs.tsv`, `read_count_distribution.tsv`,
+  `read_count_cutoff_stats.tsv`, `dispersion_data.tsv`, `ma_values.tsv`.
+
+All ten figure scripts are renderable from these. The exact invocations, verified working:
+
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/python
+R=projects/HD_DIT_HAP/results; A=$R/18_figure_data/arc; O=/tmp/refactor_after/phase2
+$PY .../plot_ma_plot.py -b $R/14_insertion_level_depletion_analysis/baseMean.tsv \
+                        -l $R/14_insertion_level_depletion_analysis/LFC.tsv -o $O/ma
+$PY .../plot_ma_plot_replicates.py -i $A/ma_values.tsv -o $O/mar
+$PY .../plot_dispersions.py -i $A/dispersion_data.tsv -o $O/disp
+$PY .../plot_distribution_of_curve_fitting.py \
+        -i $R/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv -o $O/dist
+$PY .../plot_gene_coverage.py -i $A/gene_coverage_stats.tsv -o $O/cov
+$PY .../plot_pbl_pbr_correlation.py -i $A/pbl_pbr_pairs.tsv -o $O/corr
+$PY .../plot_insertion_density.py -i $A/insertion_density_analysis.tsv -o $O/dens -t YES0 -f YES4
+$PY .../plot_read_count_distribution.py -i $A/read_count_distribution.tsv \
+        -s $A/read_count_cutoff_stats.tsv -o $O/rc -t YES0 -c 8
+```
+
+Note `plot_ma_plot.py` emits TWO pairs (`ma` and `ma_horizontal`), so ten scripts yield
+nine comparable PNGs. Quote paths (`"$A/x.tsv"`) — an unquoted expansion inside a
+composite loop variable silently prepends a space and the script reports the file missing.
 
 - [ ] **Step 2: Pixel-compare every PNG against the baseline**
 
