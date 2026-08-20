@@ -893,14 +893,27 @@ with `main()` calling `setup_logger`, building `PlotConfig`, calling the two imp
 functions, and returning 0/1. Keep every existing `-`/`--` flag name and default
 unchanged: the `.smk` rules pass them positionally by name and are out of scope.
 
-**Per-script verification.** After each script is rewritten, run it with `--help` to
-prove the CLI still constructs, and confirm the module imports standalone:
+**Per-script verification.** Confirm the module imports standalone and the CLI constructs:
 
 ```bash
 RENDER_PY=/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/python
 $RENDER_PY workflow/scripts/figures/<script>.py --help
 $RENDER_PY -c "import sys; sys.path.insert(0,'workflow/src'); import figure_render.<module>; print('ok')"
 ```
+
+**`--help` alone is not sufficient, and this is not hypothetical.** Phase 1 shipped all 10
+figure scripts with a missing `setup_logger` import; `--help` passed on every one because
+argparse exits before `main()` runs, and `snakemake -n` never executes a script body
+either. Every figure rule would have crashed with `NameError` in production. So for at
+least one script per module, actually render against real data:
+
+```bash
+R=projects/HD_DIT_HAP/results
+$RENDER_PY workflow/scripts/figures/<script>.py <real input flags> -o /tmp/check/<name>
+```
+
+and confirm a non-empty `.pdf` + `.review.png` pair appears. A verification step that
+cannot fail is not a verification step.
 
 ---
 
@@ -1293,9 +1306,26 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ### Task 2.5: Phase 2 verification
 
-Figures are the one phase where byte-comparing the *artifact* is invalid: a PDF embeds a
-creation timestamp, so two identical figures differ on disk. Verify the inputs-to-pixels
-path instead, and compare bytes only where a TSV exists.
+PDFs embed a creation timestamp, so two renders of an identical figure differ on disk.
+**PNGs do not** — this was measured, not assumed: two consecutive `plot_dispersions.py`
+runs produced `.review.png` files with identical SHA-256, while their `.pdf` siblings
+differed. So verification pixel-compares the PNG against a pre-refactor baseline, which
+catches a real rendering regression, and falls back to existence + non-emptiness only for
+the PDF.
+
+**Capturing the baseline requires a pre-refactor worktree**, because the extraction has
+already happened in the main tree by the time this task runs:
+
+```bash
+git worktree add /tmp/phase2_baseline <commit-before-this-phase> --detach
+```
+
+Note that a pre-Phase-2 tree still carries the Phase 1 `setup_logger` defect for figure
+scripts (fixed in `890eafc`), so patch that import in the worktree — uncommitted, local to
+the worktree — before rendering, or every baseline render dies at `main()`.
+
+Verified for Task 2.2's scripts at the time of writing: `disp.review.png` (113476 bytes)
+and `dist.review.png` (430736 bytes) were byte-identical before and after extraction.
 
 **Files:**
 - Create: `tmp/refactor_baseline/phase2/`, `tmp/refactor_after/phase2/` (scratch, git-ignored)
@@ -1309,22 +1339,33 @@ whose declared inputs are present there, run it with `-o tmp/refactor_after/phas
 Record in the report which scripts ran and which were skipped for missing inputs —
 `insertion_density_analysis.tsv` in particular has never been generated for this project.
 
-- [ ] **Step 2: Assert each produced both artifacts, non-empty**
+- [ ] **Step 2: Pixel-compare every PNG against the baseline**
 
 ```bash
-find tmp/refactor_after/phase2 -name "*.pdf" -o -name "*.review.png" | sort | while read f; do
-  test -s "$f" || { echo "EMPTY: $f"; exit 1; }
+fail=0
+for b in tmp/refactor_baseline/phase2/*.review.png; do
+  n=$(basename "$b"); a="tmp/refactor_after/phase2/$n"
+  if   [ ! -f "$a" ];        then echo "MISSING:   $n"; fail=1
+  elif cmp -s "$b" "$a";     then echo "IDENTICAL: $n ($(stat -c%s "$a") bytes)"
+  else                            echo "DIFFERS:   $n"; fail=1
+  fi
 done
-echo "all artifacts non-empty"
+exit $fail
 ```
-Expected: `all artifacts non-empty`, and a `.pdf` + `.review.png` pair per figure.
+Expected: `IDENTICAL` for every figure rendered in both trees. A `DIFFERS` line is a real
+rendering regression — stop and fix before proceeding, do not park it.
 
-- [ ] **Step 3: Byte-compare any TSV side-outputs**
+- [ ] **Step 3: Assert PDFs exist and are non-empty**
 
-Only `plot_dispersions.py` writes a TSV alongside its figure. If
-`tmp/refactor_baseline/phase2/` holds a pre-refactor copy, `diff` them; if no baseline was
-captured before the extraction, say so in the report rather than implying a comparison
-happened.
+PDFs cannot be compared (embedded timestamp), so they only get an existence check:
+
+```bash
+find tmp/refactor_after/phase2 -name "*.pdf" | sort | while read f; do
+  test -s "$f" || { echo "EMPTY: $f"; exit 1; }
+  echo "ok: $(basename "$f") ($(stat -c%s "$f") bytes)"
+done
+```
+Expected: a non-empty `.pdf` beside every `.review.png`.
 
 - [ ] **Step 4: Full suite plus DAG**
 
