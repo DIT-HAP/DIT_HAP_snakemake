@@ -1259,45 +1259,173 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 Use `git mv` so history follows, and create `workflow/tests/figure_render/__init__.py`
 (empty).
 
-- [ ] **Step 2: Repoint each test's imports**
+- [ ] **Step 2: Repoint each test's imports to the module**
 
 Delete the `SCRIPT_DIR` / `sys.path.append` preamble from every moved test —
-`pyproject.toml` already puts `workflow/src` and `workflow/scripts` on the path. Then
-split each import by what it names:
+`pyproject.toml` already puts `workflow/src` and `workflow/scripts` on the path. Point
+every domain symbol at its new module:
 
-- domain functions come from the module:
-  `from figure_render.ma_plot import load_ma_data, render_ma_figure, Orientation`
-- `PlotConfig` comes from the script, which is still where it lives:
-  `from plot_ma_plot import PlotConfig`
+```python
+from figure_render.ma_plot import Orientation, load_ma_data, render_ma_figure
+```
 
-Two tests import `PlotConfig` (`test_ma_plot.py`, `test_distribution.py`) and
-`test_curve_fitting.py` imports it as well — those keep a script-sourced import
-alongside the module-sourced one. Because `workflow/scripts` is on the pytest path but
-its subdirectories are not packages, the bare module name (`plot_ma_plot`) is correct;
-do not write `figures.plot_ma_plot`.
+**`PlotConfig` cannot be imported this way, and neither can any other script symbol.**
+Two independent obstacles, both verified:
 
-- [ ] **Step 3: Fix the `load_and_sample_data` call in test_curve_fitting.py**
+1. `workflow/scripts` is on the path but `workflow/scripts/figures/` is a subdirectory
+   with no `__init__.py`, so `plot_ma_plot` is not importable as a top-level module.
+2. Even with an `__init__.py`, `workflow/src/figures.py` **shadows** the
+   `workflow/scripts/figures/` directory — `import figures` resolves to the module, and
+   `import figures.plot_ma_plot` fails with
+   `ModuleNotFoundError: 'figures' is not a package`.
+
+So the five tests that assert on `PlotConfig` do NOT move to
+`workflow/tests/figure_render/`. They move to `workflow/tests/scripts/` and reach their
+target through a spec-loader fixture (Step 3). Those five are:
+`test_plot_ma_plot.py`, `test_plot_ma_plot_replicates.py`, `test_plot_dispersions.py`,
+`test_plot_curve_fitting.py`, `test_plot_distribution_of_curve_fitting.py`.
+
+Each of those five splits in two: its rendering assertions go to
+`workflow/tests/figure_render/test_<module>.py` with module imports, and its
+`test_config_rejects_missing_input` goes to `workflow/tests/scripts/test_plot_configs.py`.
+Note `test_plot_dispersions.py` and `test_plot_ma_plot_replicates.py` also import
+module-level constants (`DISPERSION_SERIES`, `REQUIRED_COLUMNS`, `X_COLUMN`;
+`NONSIGNIFICANT_COLOR`, `PADJ_THRESHOLD`, `SIGNIFICANT_COLOR`) — those moved to the
+`src` modules in Tasks 2.2/2.3, so they import from `figure_render.*` normally.
+
+- [ ] **Step 3: Add the script-loading conftest**
+
+Create `workflow/tests/scripts/__init__.py` (empty) and
+`workflow/tests/scripts/conftest.py`:
+
+```python
+"""Fixtures for testing CLI scripts that are not importable as modules.
+
+workflow/scripts/figures/ has no __init__.py, and workflow/src/figures.py shadows
+the directory name on sys.path, so these scripts can only be loaded by file path.
+"""
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+import importlib.util
+from collections.abc import Callable
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+FIGURES_DIR = Path(__file__).resolve().parents[3] / "workflow" / "scripts" / "figures"
+
+# =============================================================================
+# FIXTURES
+# =============================================================================
+@pytest.fixture(scope="session")
+def load_script() -> Callable[[str], ModuleType]:
+    """Return a loader that imports a figure CLI script by filename stem."""
+    def _load(stem: str) -> ModuleType:
+        path = FIGURES_DIR / f"{stem}.py"
+        if not path.exists():
+            raise FileNotFoundError(f"No such script: {path}")
+        spec = importlib.util.spec_from_file_location(f"_script_{stem}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    return _load
+```
+
+`FIGURES_DIR` walks up three parents from `workflow/tests/scripts/conftest.py` to the
+repo root, then back down — verify it resolves before relying on it.
+
+- [ ] **Step 4: Write the consolidated PlotConfig test**
+
+Create `workflow/tests/scripts/test_plot_configs.py` holding the five validation tests,
+each loading its script through the fixture. All five assert the same shape — a
+`ValueError` whose message contains `does not exist` — so parametrize rather than
+repeating the body five times:
+
+```python
+"""Validation tests for the figure scripts' PlotConfig dataclasses."""
+
+# =============================================================================
+# IMPORTS
+# =============================================================================
+from pathlib import Path
+
+import pytest
+
+# =============================================================================
+# TESTS
+# =============================================================================
+@pytest.mark.parametrize(
+    ("stem", "kwargs"),
+    [
+        ("plot_ma_plot", {"basemean_path": "nope_baseMean.tsv", "lfc_path": "nope_LFC.tsv"}),
+        ("plot_ma_plot_replicates", {"ma_values_path": "nope_ma_values.tsv"}),
+        ("plot_dispersions", {"input_path": "nope_dispersion.tsv"}),
+        ("plot_distribution_of_curve_fitting", {"fitting_stats_path": "nope_stats.tsv"}),
+        ("plot_curve_fitting", {"fitting_stats_path": "nope_stats.tsv", "lfc_path": "nope_LFC.tsv"}),
+    ],
+)
+def test_config_rejects_missing_input(load_script, tmp_path: Path, stem: str, kwargs: dict) -> None:
+    """Assert each script's PlotConfig rejects a non-existent input path."""
+    module = load_script(stem)
+    paths = {key: tmp_path / value for key, value in kwargs.items()}
+
+    with pytest.raises(ValueError, match="does not exist"):
+        module.PlotConfig(output_stem=tmp_path / "out", **paths)
+```
+
+The `kwargs` above are the field names each `PlotConfig` actually declares — read every
+one of the five scripts and confirm the names match before running, since a wrong keyword
+raises `TypeError` rather than the `ValueError` the test asserts, which would pass the
+`raises` check for the wrong reason only if you also loosened the match. Do not loosen it.
+
+- [ ] **Step 5: Fix the `load_and_sample_data` call in test_curve_fitting.py**
 
 It currently passes a `PlotConfig`. Update the call to the four-scalar signature from
-Task 2.3 Step 1, building the values from the fixture paths the test already has.
+Task 2.3 Step 1 — `(fitting_stats_path, lfc_path, n_curves, random_seed)` — building the
+values from the fixture paths the test already has.
 
-- [ ] **Step 4: Run the whole suite**
+- [ ] **Step 6: Run the whole suite**
 
 ```bash
 /data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest workflow/tests -v
 ```
-Expected: the 4 `test_figures.py` tests, the 4 `test_curve_model.py` tests, and every
-moved figure test pass. Tests that `pytest.skip` on absent real project data are an
-acceptable pass; a `ModuleNotFoundError` or `ImportError` is not.
+Expected: the 4 `test_figures.py` tests, the 4 `test_curve_model.py` tests, the 5
+parametrized `test_plot_configs.py` cases, and every moved figure test pass. Tests that
+`pytest.skip` on absent real project data are an acceptable pass; a `ModuleNotFoundError`
+or `ImportError` is not.
 
-- [ ] **Step 5: Commit**
+Real project data for the skip-guarded tests is in
+`projects/HD_DIT_HAP/results/18_figure_data/arc/` and the numbered stage directories —
+if a test skips because it points at a path that does not exist, check `arc/` before
+concluding the data is unavailable.
+
+- [ ] **Step 7: Confirm no test file is left behind**
 
 ```bash
-git add workflow/tests workflow/scripts/figures
-git commit -m "test(figures): move 10 figure tests to workflow/tests/figure_render/
+ls workflow/scripts/figures/test_*.py 2>/dev/null && echo "FAIL: tests remain" || echo "ok: none remain"
+```
+Expected: `ok: none remain`.
 
-Renamed to match the modules under test, sys.path preambles removed, imports
-split between figure_render.* (domain) and the scripts (PlotConfig).
+- [ ] **Step 8: Commit**
+
+```bash
+git add -A workflow/tests workflow/scripts/figures
+git commit -m "test(figures): move figure tests out of scripts/ into workflow/tests/
+
+Rendering tests -> workflow/tests/figure_render/, renamed to match the module
+under test, sys.path preambles dropped in favour of the pyproject pythonpath.
+
+The 5 PlotConfig validation tests -> workflow/tests/scripts/test_plot_configs.py,
+parametrized, reaching their targets through a spec-loader conftest fixture:
+scripts/figures/ has no __init__.py AND src/figures.py shadows the directory
+name, so those scripts cannot be imported as modules at all.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
