@@ -32,7 +32,7 @@ from figure_render.coverage import load_coverage_data, render_coverage_figure
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
 REAL_DATA_PATH = Path(
-    "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/gene_coverage_stats.tsv"
+    "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc/gene_coverage_stats.tsv"
 )
 
 # Baseline from the pre-refactor script: category -> (covered, not_covered, total, coverage_pct)

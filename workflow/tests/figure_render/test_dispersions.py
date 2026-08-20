@@ -35,7 +35,7 @@ from figure_render.dispersions import (
 @pytest.fixture
 def real_data_path() -> Path:
     """Path to real dispersion figure-data TSV."""
-    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/dispersion_data.tsv")
+    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc/dispersion_data.tsv")
 
 
 @pytest.fixture

@@ -38,7 +38,9 @@ from figure_render.ma_plot_replicates import (
 @pytest.fixture
 def real_data_path() -> Path:
     """Path to real replicate-branch MA values TSV."""
-    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/ma_values_replicates.tsv")
+    # The replicate branch's MA values are written as ma_values.tsv; the former
+    # ma_values_replicates.tsv name never existed in the repo or any .smk rule.
+    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc/ma_values.tsv")
 
 
 @pytest.fixture

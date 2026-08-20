@@ -30,7 +30,7 @@ from figure_render.correlation import load_and_prepare_data, render_correlation_
 def real_data_path() -> Path:
     """Path to real PBL-PBR pairs TSV (computed layer output)."""
     # Note: paths relative to main checkout, not worktree
-    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/pbl_pbr_pairs.tsv")
+    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc/pbl_pbr_pairs.tsv")
 
 
 @pytest.fixture

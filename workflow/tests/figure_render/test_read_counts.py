@@ -34,7 +34,7 @@ from figure_render.read_counts import (
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
-DATA_DIR = Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data")
+DATA_DIR = Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc")
 
 # Positive-value counts per sample/timepoint, i.e. the sum of every bin in a group.
 BASELINE_BIN_SUMS = {

@@ -33,7 +33,7 @@ from figure_render.orientation import load_and_prepare_data, render_orientation_
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
 REAL_DATA_PATH = Path(
-    "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/strand_pairs.tsv"
+    "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc/strand_pairs.tsv"
 )
 
 # Rows retained after min(axis=1) > 0, and Pearson r on log10 values, per group.
