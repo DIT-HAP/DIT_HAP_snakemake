@@ -4,18 +4,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
-import sys
-from pathlib import Path
 
-# Add src to path so we can import figures
-sys.path.insert(0, str(Path(__file__).parent))
+# Imports now work via pyproject.toml pythonpath
+import cnsplots as cns
+from figures import apply_house_style, save_dual
 
 
 def test_apply_house_style_sets_arial_font():
     """apply_house_style() must set Arial to avoid Helvetica findfont warnings."""
-    import cnsplots as cns
-    from figures import apply_house_style
-
     apply_house_style()
 
     # Helvetica should be removed, Arial should be first
@@ -26,18 +22,12 @@ def test_apply_house_style_sets_arial_font():
 
 def test_apply_house_style_sets_pdf_fonttype_42():
     """PDF fonttype 42 ensures Illustrator can edit text."""
-    import cnsplots as cns
-    from figures import apply_house_style
-
     apply_house_style()
     assert cns.settings.pdf_fonttype == 42
 
 
 def test_save_dual_creates_both_artifacts(tmp_path):
     """save_dual() must write both PDF and PNG."""
-    import cnsplots as cns
-    from figures import apply_house_style, save_dual
-
     apply_house_style()
     cns.figure(width=90, height=90)
     plt.plot([1, 2], [1, 2])
@@ -53,9 +43,6 @@ def test_save_dual_creates_both_artifacts(tmp_path):
 
 def test_save_dual_preserves_dots_in_stem(tmp_path):
     """A stem containing dots must not be truncated: sample names here carry dots."""
-    import cnsplots as cns
-    from figures import apply_house_style, save_dual
-
     apply_house_style()
     cns.figure(width=90, height=90)
     plt.plot([1, 2], [1, 2])
