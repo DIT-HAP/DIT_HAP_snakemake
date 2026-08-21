@@ -1971,13 +1971,21 @@ When a function is *entirely* I/O plus a single computation call, leave nothing 
 per-chunk transform is domain logic and moves to `src`; the chunk loop, the reader, and the
 writer stay in `main()`. This keeps `src` functions pure and testable on a single chunk.
 
-**Environments.** Dependencies are split across envs — check before running:
-- `parse_bam_to_tsv.py` needs **pysam** + pyarrow → `/data/a/yangyusheng/miniforge3/envs/pysam/bin/python`
-- `filter_aligned_reads.py`, `extract_insertion_sites.py` need **pyarrow**
-- `concatenate_timepoint_data.py` needs **biopython** → `/data/a/yangyusheng/miniforge3/envs/biopython/bin/python`
-- the rest run under `/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python`
+**Environment — use `bioinformatics` for everything in this phase.** It is the only env
+carrying all four dependencies this phase needs (measured, not assumed):
 
-Verify with `$PY -c "import pysam, pyarrow, Bio"` before concluding a script cannot be run.
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/bioinformatics/bin/python
+$PY -c "import pysam, pyarrow, Bio, pandas; print('all deps present')"
+```
+
+Do not reach for `envs/pysam` — despite the name it has pysam but **no pandas and no
+pyarrow**, so every script in this phase fails there. There is no `biopython` env; `Bio`
+lives in `bioinformatics`, `data_analysis` and `cnsplots_figures`.
+
+For reference, what each script needs: `parse_bam_to_tsv.py` → pysam + pyarrow;
+`filter_aligned_reads.py` and `extract_insertion_sites.py` → pyarrow;
+`concatenate_timepoint_data.py` → Bio; the rest → pandas only.
 
 **Verification, and an honest statement of its limits.** Capture a baseline worktree first
 (`git worktree add /tmp/phase4_baseline <pre-phase-4-sha> --detach`), then for each script
@@ -2083,18 +2091,16 @@ done
 
 - [ ] **Step 1: Move the per-chunk/per-record transforms to `src`, decoupled from config.**
 - [ ] **Step 2: Keep the streaming loops, readers and writers in `main()`.**
-- [ ] **Step 3: Confirm each module imports in an env that has its dependency**
+- [ ] **Step 3: Confirm each module imports**
 
 ```bash
-/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python -c \
-  "import sys; sys.path.insert(0,'workflow/src'); import read_processing.insertions, read_processing.filtering; print('ok')"
-/data/a/yangyusheng/miniforge3/envs/pysam/bin/python -c \
-  "import sys; sys.path.insert(0,'workflow/src'); import read_processing.bam; print('bam ok')"
-/data/a/yangyusheng/miniforge3/envs/biopython/bin/python -c \
-  "import sys; sys.path.insert(0,'workflow/src'); import read_processing.sequence_extraction; print('seq ok')"
+PY=/data/a/yangyusheng/miniforge3/envs/bioinformatics/bin/python
+for m in sequence_extraction insertions filtering bam; do
+  $PY -c "import sys; sys.path.insert(0,'workflow/src'); import read_processing.$m; print('$m ok')"
+done
 ```
-Report which env you used per module. If a needed env lacks the dependency, say so rather
-than skipping the check silently.
+Expected: four `ok` lines. `bioinformatics` carries pysam, pyarrow, Bio and pandas together,
+so one env covers all four modules.
 
 - [ ] **Step 4: Execute what can be executed; unit-test the rest.**
       `concatenate_timepoint_data.py` has inputs (`8_merged/`, `9_concatenated/`).
@@ -2162,13 +2168,290 @@ The second check is the one that matters most this phase: it proves convention 1
 
 ## Phase 5: Quality Control Domain Extraction
 
-(Create src/qc/ modules, extract from 6 scripts, verify QC outputs)
+Six scripts, 1,948 lines. All emit TSVs, so outputs are byte-comparable. Config coupling is
+moderate (3–12 references per script) — apply Phase 4's convention 1 mechanically.
+
+### Phase 5 Conventions
+
+Same as Phase 4's conventions (verbatim moves, library-only `src` modules, bare sibling
+imports, config dataclasses stay in scripts, config-decoupling by explicit scalars,
+orchestration into `main()`), with one env simplification:
+
+**Environment.** `/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python`
+covers every script here (pandas + numpy only; no pysam, pyarrow or Bio needed).
+
+**Baseline.** `git worktree add /tmp/phase5_baseline <pre-phase-5-sha> --detach` before
+extracting. Real inputs: `projects/HD_DIT_HAP/results/{9_concatenated,12_concatenated,13_filtered,14_insertion_level_depletion_analysis,16_gene_level_depletion_analysis}/`
+and `projects/HD_DIT_HAP/results/18_figure_data/arc/` (which holds this phase's own prior
+outputs: `gene_coverage_stats.tsv`, `pbl_pbr_pairs.tsv`, `strand_pairs.tsv`,
+`read_count_distribution.tsv`, `read_count_cutoff_stats.tsv`, `insertion_density_analysis.tsv`).
+Do not conclude an input is missing without checking `arc/` — that mistake cost a full
+verification round in Phase 2.
+
+`extract_mapping_filtering_statistics.py` reads **log files**, not TSVs; its inputs are
+under `projects/HD_DIT_HAP/logs/`. Check what exists there before claiming it is unrunnable.
+
+---
+
+### Task 5.1: Extract the four small QC modules
+
+**Files:**
+- Create: `workflow/src/qc/__init__.py` (`"""Quality control library modules."""`)
+- Create: `workflow/src/qc/correlation.py` — from `PBL_PBR_correlation_analysis.py`
+- Create: `workflow/src/qc/orientation.py` — from `insertion_orientation_analysis.py`
+- Create: `workflow/src/qc/coverage.py` — from `gene_coverage_analysis.py`
+- Create: `workflow/src/qc/read_counts.py` — from `read_count_distribution_analysis.py`
+- Modify: those four scripts
+
+**Interfaces:**
+- `correlation.read_tsv_file(file_path) -> pd.DataFrame | None`,
+  `correlation.parse_filename(file_path) -> tuple[str, str, str] | None`
+- `orientation.extract_strand_pairs(df) -> pd.DataFrame`
+- `coverage.ViabilityCol` (StrEnum), `coverage.CoverageStat`,
+  `coverage.load_covered_genes(lfc_file, annotation_file) -> set[str]`,
+  `coverage.load_gene_viability(viability_file) -> pd.DataFrame`,
+  `coverage.compute_coverage_stats(viability, covered_genes) -> list[CoverageStat]`,
+  `coverage.write_coverage_table(stats, output_file) -> None` — a format serialiser for
+  `list[CoverageStat]`, so it moves with its module rather than dissolving into `main()`
+- `read_counts.load_and_validate_data(file_path) -> pd.DataFrame`,
+  `read_counts.parse_sample_name(file_path) -> str`,
+  `read_counts.calculate_cutoff_statistics(df, initial_time_point: str, cutoff: float) -> dict[str, float | int]`,
+  `read_counts.compute_binned_distribution(df, sample: str, bins: int) -> pd.DataFrame`,
+  `read_counts.log_summary_table(stats_df) -> None`
+
+Note `qc/correlation.py` and `figure_render/correlation.py` share a filename in different
+packages — that is fine and intentional (compute vs render). Same for `qc/coverage.py` /
+`figure_render/coverage.py`, `qc/orientation.py` / `figure_render/orientation.py`, and
+`qc/read_counts.py` / `figure_render/read_counts.py`. Do not rename to avoid the echo; the
+package prefix disambiguates and the parallel naming is a feature.
+
+- [ ] **Step 1: Decouple config-reading functions** per Phase 4 convention 1.
+- [ ] **Step 2: Move the listed symbols verbatim; dissolve orchestration into `main()`.**
+- [ ] **Step 3: Confirm modules import**
+
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python
+for m in correlation orientation coverage read_counts; do
+  $PY -c "import sys; sys.path.insert(0,'workflow/src'); import qc.$m; print('$m ok')"
+done
+```
+
+- [ ] **Step 4: Execute all four and byte-compare** against the baseline worktree. Flags from
+      `workflow/rules/quality_control.smk`.
+- [ ] **Step 5: Commit.**
+
+---
+
+### Task 5.2: Extract insertion density and mapping statistics
+
+`insertion_density_analysis.py` is this phase's largest script (601 lines) and holds the
+most computation: six independent statistic calculators plus a Gini coefficient.
+
+**Files:**
+- Create: `workflow/src/qc/density.py` — from `insertion_density_analysis.py`
+- Create: `workflow/src/qc/mapping_stats.py` — from `extract_mapping_filtering_statistics.py`
+- Modify: those two scripts
+
+**Interfaces:**
+- `density.AnalysisResult`, `density.load_insertion_data(...)` (decoupled from config),
+  `load_annotation_data(annotations_path) -> pd.DataFrame`,
+  `filter_in_gene_insertions(insertion_data, ...) -> pd.DataFrame`,
+  `calculate_insertion_statistics(gene_insertions) -> dict[str, int | float]`,
+  `calculate_gap_statistics(gene_insertions) -> dict[str, int | float | str]`,
+  `calculate_gini_coefficient(values: np.ndarray) -> float`,
+  `calculate_read_statistics(gene_insertions) -> dict[str, int | float]`,
+  `calculate_strand_statistics(gene_insertions) -> dict[str, int | float]`,
+  `analyze_gene_insertions(gene_id: str, gene_insertions) -> dict[str, str | int | float]`,
+  `generate_summary_statistics(results_df) -> dict[str, int | float]`
+- `mapping_stats.FilteringStatistics`, `mapping_stats.AnalysisResult`,
+  `parse_log_file(log_file: Path) -> dict[str, FilteringStatistics]`,
+  `extract_summary_data(log_files: list[Path]) -> dict[str, FilteringStatistics]`,
+  `create_dataframe(statistics: dict[str, FilteringStatistics]) -> pd.DataFrame`
+
+`save_results` in `extract_mapping_filtering_statistics.py` is orchestration + I/O →
+dissolve into `main()`.
+
+- [ ] **Step 1: Move verbatim, decoupling config reads.** `calculate_gini_coefficient` is
+      pure maths on an ndarray — it must move unchanged; a subtle edit there would silently
+      shift every gene's evenness score.
+- [ ] **Step 2: Confirm modules import.**
+- [ ] **Step 3: Execute both and byte-compare.** Density inputs:
+      `12_concatenated/` or `13_filtered/` plus `10_annotated/`; compare against
+      `18_figure_data/arc/insertion_density_analysis.tsv` if the rule writes there.
+      Mapping stats reads logs under `projects/HD_DIT_HAP/logs/` — list that directory first
+      and report what you find rather than assuming.
+- [ ] **Step 4: Commit.**
+
+---
+
+### Task 5.3: Add tests for the extracted QC core, then verify
+
+`quality_control` had **zero** tests. The statistic calculators are pure functions on small
+frames — the easiest high-value tests in the whole refactor.
+
+**Files:**
+- Create: `workflow/tests/qc/__init__.py`
+- Create: `workflow/tests/qc/test_density.py`
+- Create: `workflow/tests/qc/test_read_counts.py`
+- Create: `workflow/tests/qc/test_coverage.py`
+
+- [ ] **Step 1: Write tests asserting specific values, not absence of exceptions.** Cover at
+      minimum:
+      - `calculate_gini_coefficient`: a perfectly even array → 0.0 (within 1e-12); a
+        maximally skewed array → approaches 1.0; a single-element array (document whatever
+        it currently returns rather than asserting a value you think is right).
+      - `calculate_gap_statistics`: two insertions with a known coordinate gap → that exact
+        gap; a single insertion → whatever the current code yields for the no-gap case.
+      - `calculate_strand_statistics`: 3 plus / 1 minus → the exact ratio the code computes.
+      - `calculate_cutoff_statistics`: a frame straddling the cutoff → exact retained count.
+      - `compute_binned_distribution`: known values and `bins=4` → expected bin counts.
+      - `compute_coverage_stats`: 2 covered of 3 viable genes → exact `CoverageStat` fields.
+
+      Derive every expected value by reading the implementation, not by running it and
+      pasting the output — a test that merely records current behaviour cannot detect that
+      the behaviour was already wrong. Where you cannot derive it confidently, say so in the
+      report and assert the looser property you *can* justify.
+
+- [ ] **Step 2: Run the suite; no skips.**
+- [ ] **Step 3: Phase 5 verification** — byte-compare loop (as Task 3.5, `phase5` paths),
+      then:
+
+```bash
+grep -rn "^def main\|^def parse_args\|setup_logger(" workflow/src/qc/ && echo FAIL || echo "ok: library-only"
+grep -rn "config\." workflow/src/qc/ && echo "FAIL: config leaked" || echo "ok: decoupled"
+wc -l workflow/scripts/quality_control/*.py | sort -rn
+```
+
+- [ ] **Step 4: Commit** with the before/after table and per-file comparison in the report.
 
 ---
 
 ## Phase 6: Reference Data Domain Extraction
 
-(Create src/reference_data/genome_region.py, extract from 1 script, dry-run only)
+One script, 645 lines — the single largest in the tree, and the most config-coupled (18
+`config.` references). It builds the PomBase genome-region BED files every other stage
+depends on.
+
+### Task 6.1: Extract genome region processing
+
+**Files:**
+- Create: `workflow/src/reference_data/__init__.py` (`"""Reference data library modules."""`)
+- Create: `workflow/src/reference_data/genome_region.py`
+- Modify: `workflow/scripts/reference_data/extract_genome_region.py`
+
+**Interfaces:**
+- Consumes: `gene_metadata.resolve_gene_ids` (already wired in Phase 1 — this script's local
+  `update_sysID` was replaced there; confirm it is still importing the shared one and did not
+  regain a local copy), `io_tables.read_table`, `logging_setup.setup_logger`
+- Produces (moved verbatim):
+  - `get_gff_transcript_id(...)`
+  - `parse_gff_data(gff_file_path: Path) -> pd.DataFrame`
+  - `calculate_accumulated_cds_bases(transcript_features_df) -> pd.DataFrame`
+  - `gff_features_to_bed(...)`
+  - `select_primary_transcripts(all_coding_features_bed_df) -> pd.DataFrame`
+  - `build_intergenic_bed(primary_transcripts_bed_df, fai_file_path: Path) -> pd.DataFrame`
+  - `annotate_intergenic_region_flanks(...)`
+  - `find_overlapping_regions(feature) -> pybedtools.Interval`
+  - `build_genome_intervals(...)`
+
+`run_pipeline(config)` is orchestration: it reads 18 config fields and writes 6 output files.
+Dissolve it into `main()` per Phase 4 convention 2 — the computation steps move to the module,
+the sequencing and every `to_csv`/BED write stay in `main()`, preserving output paths and
+arguments exactly. This is the highest-risk dissolution in the refactor because six
+downstream stages consume these BEDs; if `run_pipeline` is too tangled to split confidently,
+report that rather than guessing.
+
+**Environment.** Needs **pybedtools**: `/data/a/yangyusheng/miniforge3/envs/pybedtools/bin/python`
+(has pybedtools + pysam + pandas; verified). `bioinformatics` does NOT have pybedtools.
+
+- [ ] **Step 1: Confirm Phase 1's `resolve_gene_ids` wiring survived**
+
+```bash
+grep -n "resolve_gene_ids\|def update_sysID" workflow/scripts/reference_data/extract_genome_region.py
+```
+Expected: an import/call of `resolve_gene_ids`, and NO local `def update_sysID`. If a local
+copy is back, report it — that would mean a later commit reverted Phase 1.
+
+- [ ] **Step 2: Move the listed functions verbatim into the module.**
+- [ ] **Step 3: Dissolve `run_pipeline` into `main()`**, decoupling the 18 config reads into
+      explicit parameters on the moved functions.
+- [ ] **Step 4: Confirm module imports and CLI constructs**
+
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/pybedtools/bin/python
+$PY -c "import sys; sys.path.insert(0,'workflow/src'); import reference_data.genome_region; print('ok')"
+$PY workflow/scripts/reference_data/extract_genome_region.py --help > /dev/null && echo "help ok"
+```
+
+- [ ] **Step 5: Execute and byte-compare the BED outputs**
+
+This script's outputs live in `resources/pombase_data/<release>/genome_region/`. The
+`rule all` target is `coding_gene_primary_transcripts.bed`. Check what already exists:
+
+```bash
+ls resources/pombase_data/*/genome_region/ 2>/dev/null
+```
+If the outputs and the GFF/fai inputs are present, run the script in the baseline worktree
+and the current tree and `diff` every BED. If the inputs are absent, say so explicitly and
+name them — do not report this script as verified on the strength of `--help` alone. That is
+precisely the mistake Phase 1 made across 10 scripts.
+
+- [ ] **Step 6: Commit.**
+
+---
+
+### Task 6.2: Final whole-refactor verification
+
+- [ ] **Step 1: Structural invariants across the whole tree**
+
+```bash
+echo "--- every src module is library-only ---"
+grep -rn "^def main\|^def parse_args\|setup_logger(" workflow/src/ --include="*.py" \
+  | grep -v "logging_setup.py:.*def setup_logger" && echo FAIL || echo ok
+
+echo "--- no config coupling anywhere in src ---"
+grep -rn "config\." workflow/src/ --include="*.py" && echo FAIL || echo ok
+
+echo "--- setup_logger defined exactly once ---"
+test "$(grep -rc "^def setup_logger" workflow/src/logging_setup.py)" = "1" && echo ok || echo FAIL
+grep -rn "^def setup_logger\|^def setup_logging" workflow/scripts/ --include="*.py" && echo "FAIL: script-local copy" || echo ok
+
+echo "--- sigmoid_function defined exactly once ---"
+grep -rn "^def sigmoid_function" workflow/ --include="*.py"
+
+echo "--- no test files left under scripts/ ---"
+find workflow/scripts -name "test_*.py" | grep . && echo FAIL || echo ok
+
+echo "--- every script is thin ---"
+find workflow/scripts -name "*.py" | xargs wc -l | sort -rn | head -12
+```
+
+- [ ] **Step 2: Full suite**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest workflow/tests -q
+```
+Report the count. Any skip must be justified in the report with the reason and the data
+checked (including `18_figure_data/arc/`).
+
+- [ ] **Step 3: Write the final summary table** — per phase: scripts touched, lines before,
+      lines after, modules created, outputs byte-compared, outputs that could not be
+      compared and why.
+
+- [ ] **Step 4: State the DAG position plainly.** If `snakemake` is unavailable in every
+      reachable env, say the DAG was never validated by this refactor and name the mitigation
+      (no `.smk` file modified; CLI flags byte-identical pre/post). Do not imply a check that
+      did not happen.
+
+- [ ] **Step 5: Deferred-cleanup list.** Collect every minor finding parked across all phases
+      into one section of the report so it can be triaged as a follow-up:
+      duplicate `SCRIPT_DIR` in `insertion_level_depletion_analysis_no_replicates.py`;
+      possibly-unused `INDEX_COLUMNS` in `compute_insertion_weights.py`; unused local `fig`
+      in `figure_render/correlation.py`; the three dead matplotlib functions in
+      `depletion_scoring/` (`create_fitted_plot`, `generate_fitting_plots`,
+      `generate_MA_plots`); the two scripts no rule invokes (`plot_dispersions.py`,
+      `plot_ma_plot_replicates.py`); and fixtures hardcoding `18_figure_data/arc/` rather
+      than preferring fresh pipeline output.
 
 ---
 
