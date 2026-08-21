@@ -87,38 +87,6 @@ class Config:
         self.output_counts.parent.mkdir(parents=True, exist_ok=True)
         self.output_annotations.parent.mkdir(parents=True, exist_ok=True)
 
-
-# =============================================================================
-# CORE LOGIC (FUNCTIONS / CLASSES)
-# =============================================================================
-@logger.catch
-def concatenate(config: Config) -> None:
-    """Concatenate per-sample count and annotation TSV files."""
-    counts_df = {}
-    for f in config.counts_files:
-        key = Path(f).name.split(".")[0]
-        counts_df[key] = pd.read_csv(f, sep="\t", index_col=[0, 1, 2, 3])
-        logger.info(f"Loaded counts {key}: {counts_df[key].shape[0]:,} rows")
-    counts = pd.concat(counts_df, axis=1).rename_axis(["Sample", "Timepoint"], axis=1)
-    logger.info(f"Combined counts shape: {counts.shape[0]:,} rows × {counts.shape[1]} columns")
-
-    annotations_df = {}
-    for f in config.annotation_files:
-        key = Path(f).name.split(".")[0]
-        annotations_df[key] = pd.read_csv(f, index_col=[0, 1, 2, 3], sep="\t")
-        logger.info(f"Loaded annotations {key}: {annotations_df[key].shape[0]:,} rows")
-    annotations = (
-        pd.concat(list(annotations_df.values()), axis=0)
-        .reset_index()
-        .drop_duplicates()
-        .set_index(["Chr", "Coordinate", "Strand", "Target"])
-    )
-
-    counts.to_csv(config.output_counts, sep="\t", index=True)
-    annotations.to_csv(config.output_annotations, sep="\t", index=True)
-    logger.success(f"Counts: {counts.shape[0]:,} rows → {config.output_counts}")
-    logger.success(f"Annotations: {annotations.shape[0]:,} rows → {config.output_annotations}")
-
 # =============================================================================
 # MAIN EXECUTION
 # =============================================================================
@@ -161,7 +129,32 @@ def main() -> int:
 
         logger.info(f"Concatenating {len(config.counts_files):,} count files and "
                     f"{len(config.annotation_files):,} annotation files")
-        concatenate(config)
+
+        counts_df = {}
+        for f in config.counts_files:
+            key = Path(f).name.split(".")[0]
+            counts_df[key] = pd.read_csv(f, sep="\t", index_col=[0, 1, 2, 3])
+            logger.info(f"Loaded counts {key}: {counts_df[key].shape[0]:,} rows")
+        counts = pd.concat(counts_df, axis=1).rename_axis(["Sample", "Timepoint"], axis=1)
+        logger.info(f"Combined counts shape: {counts.shape[0]:,} rows × {counts.shape[1]} columns")
+
+        annotations_df = {}
+        for f in config.annotation_files:
+            key = Path(f).name.split(".")[0]
+            annotations_df[key] = pd.read_csv(f, index_col=[0, 1, 2, 3], sep="\t")
+            logger.info(f"Loaded annotations {key}: {annotations_df[key].shape[0]:,} rows")
+        annotations = (
+            pd.concat(list(annotations_df.values()), axis=0)
+            .reset_index()
+            .drop_duplicates()
+            .set_index(["Chr", "Coordinate", "Strand", "Target"])
+        )
+
+        counts.to_csv(config.output_counts, sep="\t", index=True)
+        annotations.to_csv(config.output_annotations, sep="\t", index=True)
+        logger.success(f"Counts: {counts.shape[0]:,} rows → {config.output_counts}")
+        logger.success(f"Annotations: {annotations.shape[0]:,} rows → {config.output_annotations}")
+
         logger.success("Script completed successfully!")
 
     except Exception as e:

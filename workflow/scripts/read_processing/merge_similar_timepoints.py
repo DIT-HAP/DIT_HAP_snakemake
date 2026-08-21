@@ -89,26 +89,6 @@ class Config:
 setup_logger()
 
 # =============================================================================
-# CORE LOGIC (FUNCTIONS / CLASSES)
-# =============================================================================
-@logger.catch
-def merge_timepoints(config: Config) -> None:
-    """Merge similar timepoints by summing read counts into one column."""
-    df = pd.read_csv(config.input_file, sep="\t", index_col=[0, 1, 2, 3])
-    logger.info(f"Loaded {df.shape[0]:,} rows, columns: {list(df.columns)}")
-
-    logger.info(f"Summing {config.similar_timepoints} -> '{config.merged_timepoint}'")
-    df[config.merged_timepoint] = df[config.similar_timepoints].sum(axis=1)
-
-    logger.info(f"Dropping columns: {config.drop_columns}")
-    df.drop(columns=config.drop_columns, inplace=True)
-    df.sort_index(axis=1, inplace=True)
-
-    df.to_csv(config.output_file, sep="\t", index=True)
-    logger.success(f"Merged -> {df.shape[0]:,} rows, columns: {list(df.columns)}")
-    logger.success(f"Saved to {config.output_file}")
-
-# =============================================================================
 # MAIN EXECUTION
 # =============================================================================
 def parse_args() -> argparse.Namespace:
@@ -151,7 +131,21 @@ def main() -> int:
             drop_columns=args.drop_columns,
         )
         logger.info(f"Merging timepoints in {config.input_file}")
-        merge_timepoints(config)
+
+        df = pd.read_csv(config.input_file, sep="\t", index_col=[0, 1, 2, 3])
+        logger.info(f"Loaded {df.shape[0]:,} rows, columns: {list(df.columns)}")
+
+        logger.info(f"Summing {config.similar_timepoints} -> '{config.merged_timepoint}'")
+        df[config.merged_timepoint] = df[config.similar_timepoints].sum(axis=1)
+
+        logger.info(f"Dropping columns: {config.drop_columns}")
+        df.drop(columns=config.drop_columns, inplace=True)
+        df.sort_index(axis=1, inplace=True)
+
+        df.to_csv(config.output_file, sep="\t", index=True)
+        logger.success(f"Merged -> {df.shape[0]:,} rows, columns: {list(df.columns)}")
+        logger.success(f"Saved to {config.output_file}")
+
         logger.success("Script completed successfully!")
     except Exception as e:
         logger.exception(f"An unexpected error occurred: {e}")

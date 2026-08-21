@@ -65,6 +65,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
+from read_processing.merge import MergeResult, merge_insertion_data  # noqa: E402
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -83,91 +84,7 @@ class InputOutputConfig:
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(kw_only=True, slots=True, frozen=True)
-class MergeResult:
-    """Summary statistics produced by the merge operation."""
-    total_sites_processed: int
-    total_reads_merged: int
-    coordinate_strand_pairs: int
-
-
 setup_logger()
-
-# =============================================================================
-# CORE LOGIC (FUNCTIONS / CLASSES)
-# =============================================================================
-@logger.catch
-def merge_insertion_data(pbl_df: pd.DataFrame, pbr_df: pd.DataFrame) -> pd.DataFrame:
-    """Merge PBL and PBR insertion data into a strand-resolved table."""
-    logger.info("Merging PBL and PBR insertion data")
-
-    merged_df = pd.merge(
-        pbl_df,
-        pbr_df,
-        how="outer",
-        on=["Chr", "Coordinate"],
-        suffixes=("_PBL", "_PBR"),
-    ).fillna(0)
-
-    # Create plus strand data
-    plus_df = merged_df[["Chr", "Coordinate", "-_PBL", "+_PBR"]].copy()
-    plus_df["Strand"] = "+"
-    plus_df.rename(columns={"-_PBL": "PBL", "+_PBR": "PBR"}, inplace=True)
-
-    # Create minus strand data
-    minus_df = merged_df[["Chr", "Coordinate", "+_PBL", "-_PBR"]].copy()
-    minus_df["Strand"] = "-"
-    minus_df.rename(columns={"+_PBL": "PBL", "-_PBR": "PBR"}, inplace=True)
-
-    # Combine and finalize
-    final_df = pd.concat([plus_df, minus_df], axis=0)
-    final_df = final_df.set_index(["Chr", "Coordinate", "Strand"])
-    final_df = final_df.astype(int).sort_index()
-    final_df["Reads"] = final_df["PBL"] + final_df["PBR"]
-
-    logger.success(f"Merged data: {len(final_df):,} coordinate-strand pairs")
-    return final_df
-
-
-@logger.catch
-def save_merged_data(merged_df: pd.DataFrame, output_path: Path) -> None:
-    """Save merged data to a TSV file and log read-count breakdown."""
-    logger.info(f"Writing merged data to: {output_path}")
-    merged_df.to_csv(output_path, sep="\t", index=True, header=True)
-
-    total_reads = merged_df["Reads"].sum()
-    pbl_reads = merged_df["PBL"].sum()
-    pbr_reads = merged_df["PBR"].sum()
-
-    logger.info(f"Total reads: {total_reads:,}")
-    logger.info(f"PBL reads: {pbl_reads:,} ({pbl_reads/total_reads*100:.1f}%)")
-    logger.info(f"PBR reads: {pbr_reads:,} ({pbr_reads/total_reads*100:.1f}%)")
-    logger.success(f"Output saved to: {output_path}")
-
-
-@logger.catch
-def main_processing_function(config: InputOutputConfig) -> MergeResult:
-    """Load, merge, and save strand-specific insertions, returning summary stats."""
-    # Load data
-    pbl_data = pd.read_csv(config.input_pbl, sep="\t", header=0)
-    pbr_data = pd.read_csv(config.input_pbr, sep="\t", header=0)
-
-    # Merge data
-    merged_df = merge_insertion_data(pbl_data, pbr_data)
-
-    # Save results
-    save_merged_data(merged_df, config.output_file)
-
-    # Calculate results summary
-    total_sites_processed = len(merged_df)
-    total_reads_merged = merged_df["Reads"].sum()
-    coordinate_strand_pairs = len(merged_df)
-
-    return MergeResult(
-        total_sites_processed=total_sites_processed,
-        total_reads_merged=total_reads_merged,
-        coordinate_strand_pairs=coordinate_strand_pairs,
-    )
 
 # =============================================================================
 # MAIN EXECUTION
@@ -196,7 +113,32 @@ def main() -> int:
 
         logger.info(f"Starting processing of PBL: {config.input_pbl} and PBR: {config.input_pbr}")
 
-        results = main_processing_function(config)
+        # Load data
+        pbl_data = pd.read_csv(config.input_pbl, sep="\t", header=0)
+        pbr_data = pd.read_csv(config.input_pbr, sep="\t", header=0)
+
+        # Merge data
+        merged_df = merge_insertion_data(pbl_data, pbr_data)
+
+        # Save results
+        logger.info(f"Writing merged data to: {config.output_file}")
+        merged_df.to_csv(config.output_file, sep="\t", index=True, header=True)
+
+        total_reads = merged_df["Reads"].sum()
+        pbl_reads = merged_df["PBL"].sum()
+        pbr_reads = merged_df["PBR"].sum()
+
+        logger.info(f"Total reads: {total_reads:,}")
+        logger.info(f"PBL reads: {pbl_reads:,} ({pbl_reads/total_reads*100:.1f}%)")
+        logger.info(f"PBR reads: {pbr_reads:,} ({pbr_reads/total_reads*100:.1f}%)")
+        logger.success(f"Output saved to: {config.output_file}")
+
+        # Calculate results summary
+        results = MergeResult(
+            total_sites_processed=len(merged_df),
+            total_reads_merged=total_reads,
+            coordinate_strand_pairs=len(merged_df),
+        )
 
         logger.info("Processing completed:")
         logger.info(f"  - Total sites processed: {results.total_sites_processed:,}")
