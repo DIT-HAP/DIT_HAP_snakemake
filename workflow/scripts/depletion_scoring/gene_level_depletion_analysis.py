@@ -64,9 +64,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
 
@@ -75,20 +72,15 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
-
-# =============================================================================
-# GLOBAL CONSTANTS & ENUMS
-# =============================================================================
-INSERTION_INDEX_COLUMNS = [0, 1, 2, 3]
-
-TIMEPOINT_AXIS = "Timepoint"
-LFC_COLUMN = "LFC"
-WEIGHT_COLUMN = "Weight"
-CONTRIBUTION_COLUMN = "Contribution"
-
-GENE_ID = "Systematic ID"
-GENE_METADATA_COLUMNS = ["Name", "FYPOviability", "DeletionLibrary_essentiality"]
-GENE_GROUP_COLUMNS = [GENE_ID, *GENE_METADATA_COLUMNS]
+from depletion.gene_level import (  # noqa: E402
+    GENE_ID,
+    load_lfc_long,
+    load_weights_long,
+    load_gene_metadata,
+    aggregate_to_gene_level,
+    generate_summary,
+    display_summary,
+)
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -104,92 +96,6 @@ class AnalysisConfig:
         for path in (self.lfc_path, self.weights_path, self.annotations_path):
             if not path.exists():
                 raise ValueError(f"Input file {path} does not exist")
-
-
-# =============================================================================
-# CORE LOGIC (FUNCTIONS / CLASSES)
-# =============================================================================
-# --- Data Loading ---
-@logger.catch
-def load_lfc_long(lfc_path: Path) -> pd.DataFrame:
-    """Load insertion-level LFC and reshape to long format (site, Timepoint, LFC)."""
-    logger.info(f"Loading LFC data from {lfc_path}")
-    lfc_df = pd.read_csv(lfc_path, index_col=INSERTION_INDEX_COLUMNS, sep="\t")
-    logger.info(f"Loaded {lfc_df.shape[0]:,} insertions")
-    return lfc_df.rename_axis(TIMEPOINT_AXIS, axis=1).stack().to_frame(LFC_COLUMN)
-
-
-@logger.catch
-def load_weights_long(weights_path: Path) -> pd.DataFrame:
-    """Load the pre-normalised, long-format insertion weight table."""
-    logger.info(f"Loading insertion weights from {weights_path}")
-    weights = pd.read_csv(weights_path, sep="\t")
-    logger.info(f"Loaded {len(weights):,} insertion-timepoint-gene weight rows")
-    return weights
-
-
-@logger.catch
-def load_gene_metadata(annotations_path: Path) -> pd.DataFrame:
-    """Load one metadata row per gene (Name, FYPOviability, DeletionLibrary_essentiality)."""
-    logger.info(f"Loading annotations from {annotations_path}")
-    annotations_df = pd.read_csv(annotations_path, index_col=INSERTION_INDEX_COLUMNS, sep="\t")
-
-    # PomBase releases may leave DeletionLibrary_essentiality blank for genes that were
-    # previously annotated as "Not_determined". A bare NaN causes pandas groupby to
-    # silently drop those genes (default dropna=True). Treat missing values the same
-    # way as the explicit "Not_determined" label so no gene is lost.
-    na_ess = annotations_df["DeletionLibrary_essentiality"].isna().sum()
-    if na_ess > 0:
-        logger.warning(
-            f"Found {na_ess} insertions with missing DeletionLibrary_essentiality; "
-            "filling with 'Not_determined' to prevent silent gene loss in groupby"
-        )
-        annotations_df["DeletionLibrary_essentiality"] = (
-            annotations_df["DeletionLibrary_essentiality"].fillna("Not_determined")
-        )
-
-    return annotations_df[GENE_GROUP_COLUMNS].drop_duplicates(GENE_ID)
-
-# --- Gene-Level Aggregation ---
-@logger.catch
-def aggregate_to_gene_level(lfc_long: pd.DataFrame, weights: pd.DataFrame,
-                           gene_metadata: pd.DataFrame) -> pd.DataFrame:
-    """Weighted-sum insertion LFC to gene level; each gene-timepoint's weights already sum to 1."""
-    merged = weights.merge(
-        lfc_long, on=[*lfc_long.index.names[:-1], TIMEPOINT_AXIS], how="inner"
-    )
-    logger.info(f"Matched {len(merged):,} of {len(weights):,} weight rows to an observed LFC")
-
-    merged = merged.merge(gene_metadata, on=GENE_ID, how="left")
-    merged[CONTRIBUTION_COLUMN] = merged[LFC_COLUMN] * merged[WEIGHT_COLUMN]
-
-    gene_lfc = merged.groupby([*GENE_GROUP_COLUMNS, TIMEPOINT_AXIS])[CONTRIBUTION_COLUMN].sum(min_count=1)
-    gene_wide = gene_lfc.unstack(TIMEPOINT_AXIS).round(3).dropna(how="all")
-
-    logger.info(f"Completed analysis for {len(gene_wide):,} genes")
-    return gene_wide.reset_index()
-
-# --- Summary Statistics ---
-def generate_summary(gene_df: pd.DataFrame) -> dict[str, int]:
-    """Generate summary statistics for the analysis."""
-    return {
-        'Total genes analyzed': len(gene_df),
-        'FYPOviability: Essential genes': len(gene_df[gene_df['FYPOviability'] == 'inviable']),
-        'FYPOviability: Non-essential genes': len(gene_df[gene_df['FYPOviability'] == 'viable']),
-        'DeletionLibrary_essentiality: Essential genes': len(gene_df[gene_df['DeletionLibrary_essentiality'] == 'E']),
-        'DeletionLibrary_essentiality: Non-essential genes': len(gene_df[gene_df['DeletionLibrary_essentiality'] == 'V'])
-    }
-
-def display_summary(stats: dict[str, int]) -> None:
-    """Display summary statistics."""
-    logger.info("\n" + "="*60)
-    logger.info("GENE-LEVEL DEPLETION ANALYSIS SUMMARY")
-    logger.info("="*60)
-
-    for key, value in stats.items():
-        logger.info(f"{key:<40}: {value}")
-
-    logger.info("="*60)
 
 # =============================================================================
 # MAIN EXECUTION

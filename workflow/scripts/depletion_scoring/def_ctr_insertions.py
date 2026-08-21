@@ -61,9 +61,6 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-# 2. Data Processing Imports
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
 
@@ -72,12 +69,11 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
-from io_tables import read_insertion_table  # noqa: E402
-
-# =============================================================================
-# GLOBAL CONSTANTS & ENUMS
-# =============================================================================
-CONTROL_DISTANCE_THRESHOLD = 500  # Minimum distance (bp) from gene boundaries for control insertions
+from depletion.ctr_insertions import (  # noqa: E402
+    ControlSelectionResult,
+    load_and_preprocess_data,
+    get_control_insertions,
+)
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
@@ -98,84 +94,7 @@ class InputOutputConfig:
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(kw_only=True, slots=True, frozen=True)
-class ControlSelectionResult:
-    """Summary statistics of the control insertion selection run."""
-    total_insertions_processed: int
-    control_insertions_selected: int
-    success_rate: float
-
-
 setup_logger()
-
-# =============================================================================
-# CORE LOGIC (FUNCTIONS / CLASSES)
-# =============================================================================
-@logger.catch
-def load_and_preprocess_data(counts_file: Path, annotations_file: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load and preprocess insertion count and genomic annotation tables."""
-    counts_df = pd.read_csv(
-        counts_file, index_col=[0, 1, 2, 3], header=[0, 1], sep="\t"
-    )
-
-    # Remove rows with any NA value
-    counts_df = counts_df.dropna(axis=0, how="any").copy()
-
-    # Load and process annotations
-    insertion_annotations = pd.read_csv(
-        annotations_file, index_col=[0, 1, 2, 3], sep="\t"
-    )
-
-    return counts_df, insertion_annotations
-
-
-@logger.catch
-def get_control_insertions(counts_df: pd.DataFrame, insertion_annotations: pd.DataFrame) -> pd.DataFrame:
-    """Select control insertions based on stringent genomic criteria."""
-    ctr_insertions = insertion_annotations.query(
-        f"Type == 'Intergenic region' and Distance_to_region_start > {CONTROL_DISTANCE_THRESHOLD} and Distance_to_region_end > {CONTROL_DISTANCE_THRESHOLD}"
-    )
-
-    ctr_insertions = ctr_insertions[ctr_insertions.index.isin(counts_df.index)].drop_duplicates(keep="first")
-
-    return ctr_insertions
-
-
-@logger.catch
-def save_results(control_insertions: pd.DataFrame, output_file: Path) -> None:
-    """Save selected control insertions to a tab-separated file."""
-    control_insertions.to_csv(output_file, sep="\t", index=True)
-    logger.info(f"Saved {len(control_insertions)} control insertions to {output_file}")
-
-
-@logger.catch
-def process_control_insertions(config: InputOutputConfig) -> ControlSelectionResult:
-    """Execute the complete control insertion selection pipeline."""
-    logger.info(f"Starting processing of {config.input_file}")
-
-    # Load data
-    counts_df, insertion_annotations = load_and_preprocess_data(
-        config.input_file, config.annotation_file
-    )
-
-    total_insertions = len(counts_df)
-    logger.info(f"Loaded {total_insertions} insertions for processing")
-
-    # Select control insertions
-    control_insertions = get_control_insertions(counts_df, insertion_annotations)
-    control_count = len(control_insertions)
-
-    # Save results
-    save_results(control_insertions, config.output_file)
-
-    # Calculate success metrics
-    success_rate = (control_count / total_insertions * 100) if total_insertions > 0 else 0.0
-
-    return ControlSelectionResult(
-        total_insertions_processed=total_insertions,
-        control_insertions_selected=control_count,
-        success_rate=success_rate,
-    )
 
 # =============================================================================
 # MAIN EXECUTION
@@ -206,7 +125,32 @@ def main() -> int:
         )
 
         # Run the core analysis
-        results = process_control_insertions(config)
+        logger.info(f"Starting processing of {config.input_file}")
+
+        # Load data
+        counts_df, insertion_annotations = load_and_preprocess_data(
+            config.input_file, config.annotation_file
+        )
+
+        total_insertions = len(counts_df)
+        logger.info(f"Loaded {total_insertions} insertions for processing")
+
+        # Select control insertions
+        control_insertions = get_control_insertions(counts_df, insertion_annotations)
+        control_count = len(control_insertions)
+
+        # Save results
+        control_insertions.to_csv(config.output_file, sep="\t", index=True)
+        logger.info(f"Saved {len(control_insertions)} control insertions to {config.output_file}")
+
+        # Calculate success metrics
+        success_rate = (control_count / total_insertions * 100) if total_insertions > 0 else 0.0
+
+        results = ControlSelectionResult(
+            total_insertions_processed=total_insertions,
+            control_insertions_selected=control_count,
+            success_rate=success_rate,
+        )
 
         logger.success(f"Analysis complete. Results: {json.dumps(asdict(results))}")
 
