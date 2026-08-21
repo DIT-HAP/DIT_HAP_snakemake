@@ -1550,7 +1550,376 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Phase 3: Depletion Scoring Domain Extraction
 
-(Create src/depletion/ modules, extract from 7 scripts, move 1 test, verify stages 14-17)
+Seven scripts, 2,582 lines. Unlike Phase 2 these produce **TSV** outputs, so verification
+byte-compares the data itself — the strongest check available in this refactor.
+
+### Phase 3 Conventions (apply to every task below)
+
+Identical to Phase 2's conventions, with these deltas:
+
+**Extraction rule.** Move function bodies VERBATIM. Do not reformat, reorder, or fix
+anything — including code that looks wrong. This is a scientific pipeline; silent
+numerical drift corrupts published results.
+
+**Module header.** Same 7-section library layout as Phase 2 (title/Input/Output/metadata
+docstring → IMPORTS → CONSTANTS → CORE LOGIC). No `main()`, no `parse_args()`, no
+`setup_logger()`.
+
+**Import style.** Bare sibling names from `src/`: `from logging_setup import setup_logger`,
+`from io_tables import read_insertion_table`, `from depletion.curve_model import
+sigmoid_function`. Never `from ..x` or `from src.x`.
+
+**What stays in the script.** The module docstring, the **config** dataclass, `parse_args()`,
+`main()`. Config dataclasses are the ones that validate CLI paths in `__post_init__`:
+`WeightsConfig`, `CurveFittingConfig`, `ImputationConfig`, `AnalysisConfig`,
+`InputOutputConfig`. They stay.
+
+**What moves.** Domain logic plus the **result/data** dataclasses that functions return or
+pass between themselves: `WeightInputs`, `FittingResult`, `SummaryStatistics`,
+`ControlSelectionResult`, `ImputationResult`, `AnalysisResult`. Enums are domain vocabulary
+and move too: `Scheme`, `AnnotCol`, `StatsCol`.
+
+**Config-coupled functions must take scalars.** A `src` module must never import a config
+dataclass from a script. Two functions currently violate this and are named in their tasks.
+
+**Verification is per-script and mandatory.** `--help` proves nothing (Phase 1 shipped 10
+broken scripts that all passed `--help`). Every script must be **executed** against real
+data and its TSV output byte-compared to a pre-refactor baseline. Capture the baseline
+FIRST, from a worktree at the pre-Phase-3 commit:
+
+```bash
+git worktree add /tmp/phase3_baseline <pre-phase-3-sha> --detach
+```
+
+Real data: `projects/HD_DIT_HAP/results/{13_filtered,14_insertion_level_depletion_analysis,15_insertion_level_curve_fitting,16_gene_level_depletion_analysis,17_gene_level_curve_fitting}/`.
+Compute env (pandas 3, pydeseq2, scipy, joblib):
+`/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python`.
+Read the invoking rule in `workflow/rules/depletion_scoring.smk` for each script's exact
+flags rather than guessing them.
+
+**Known dead code — leave it alone.** `curve_fitting.py` holds `create_fitted_plot` and
+`generate_fitting_plots`; `insertion_level_depletion_analysis_no_replicates.py` holds
+`generate_MA_plots`. All three are matplotlib figure code, called nowhere in the repo, and
+superseded by Phase 2's `plot_curve_fitting.py` / `plot_ma_plot.py`. Per user decision they
+stay in the scripts for now — do NOT move them into `src/`, do NOT delete them, do NOT
+"fix" them. They are on the final cleanup list.
+
+---
+
+### Task 3.1: Extract curve fitting and retire the sigmoid duplicate
+
+`curve_fitting.py` is the largest script (623 lines) and holds the last duplicate of
+`sigmoid_function`, which Task 2.1 already canonicalised in `src/depletion/curve_model.py`.
+
+**Files:**
+- Create: `workflow/src/depletion/curve_fitting.py`
+- Modify: `workflow/scripts/depletion_scoring/curve_fitting.py`
+
+**Interfaces:**
+- Consumes: `depletion.curve_model.sigmoid_function`
+- Produces (moved verbatim unless noted):
+  - `FittingResult`, `SummaryStatistics` (result dataclasses)
+  - `sigmoid_derivative(x, A, DR, DL) -> np.ndarray`
+  - `time_at_p_effect(p, A, DR, DL) -> float`
+  - `objective_function(params, x, y, ...) -> float`
+  - `constraint_function1(params, t_last) -> float`
+  - `constraint_function2(params) -> float`
+  - `fit_single_curve(x_values, y_values, ...) -> FittingResult`
+  - `fit_and_augment(x_values, y_data, ...)`
+  - `process_depletion_data(input_file: Path, time_points: list[float], ...)`
+  - `generate_summary_statistics(results_df) -> SummaryStatistics`
+  - `display_summary_table(stats: SummaryStatistics) -> None`
+
+- [ ] **Step 1: Delete the duplicate sigmoid, import the canonical one**
+
+Remove `def sigmoid_function` from the script (it is at `curve_fitting.py:174`). The new
+`src/depletion/curve_fitting.py` imports it:
+
+```python
+from depletion.curve_model import sigmoid_function
+```
+
+Confirm byte-identity before deleting, so you know the swap is safe:
+
+```bash
+diff <(sed -n '/^def sigmoid_function/,/^$/p' workflow/scripts/depletion_scoring/curve_fitting.py) \
+     <(sed -n '/^def sigmoid_function/,/^$/p' workflow/src/depletion/curve_model.py)
+```
+Expected: differs only in the docstring line, if at all. If the bodies differ, STOP and
+report — that would mean the two copies had drifted and Task 2.1's premise was wrong.
+
+- [ ] **Step 2: Move the listed functions and dataclasses**
+
+Verbatim, into `src/depletion/curve_fitting.py`. Leave `CurveFittingConfig`, `parse_args`,
+`main`, and the two dead plotting functions in the script. Because the dead plotting
+functions stay, `import matplotlib.pyplot as plt` stays in the script too.
+
+- [ ] **Step 3: Confirm the module imports and the script runs**
+
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python
+$PY -c "import sys; sys.path.insert(0,'workflow/src'); import depletion.curve_fitting; print('ok')"
+$PY workflow/scripts/depletion_scoring/curve_fitting.py --help > /dev/null && echo "help ok"
+```
+
+- [ ] **Step 4: Execute against real data and byte-compare**
+
+Read the `insertion_level_curve_fitting` rule in `workflow/rules/depletion_scoring.smk`
+for the exact flags, then run the script in both the baseline worktree and the current
+tree, writing to separate directories, and `diff` every TSV produced. Report the exact
+command used and the diff result per file.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add workflow/src/depletion/curve_fitting.py workflow/scripts/depletion_scoring/curve_fitting.py
+git commit -m "refactor(depletion): extract curve fitting, retire sigmoid duplicate
+
+The last duplicate of sigmoid_function is gone; curve fitting now imports the
+canonical one from depletion.curve_model (Task 2.1). Dead plotting functions
+left in the script per user decision, pending final cleanup.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3.2: Extract weights, gene level, and control insertions
+
+Three pandas-only scripts with no heavy dependencies — batched because they share a shape.
+
+**Files:**
+- Create: `workflow/src/depletion/weights.py` — from `compute_insertion_weights.py`
+- Create: `workflow/src/depletion/gene_level.py` — from `gene_level_depletion_analysis.py`
+- Create: `workflow/src/depletion/ctr_insertions.py` — from `def_ctr_insertions.py`
+- Modify: those three scripts
+
+**Interfaces:**
+- Produces:
+  - `weights.Scheme`, `weights.AnnotCol`, `weights.StatsCol` (StrEnums), `weights.WeightInputs`
+  - `weights.load_inputs(stats_file: Path, lfc_file: Path, annotations_file: Path, scheme: Scheme) -> WeightInputs` — **signature change, see Step 1**
+  - `weights.filter_in_gene(inputs) -> WeightInputs`
+  - `weights.neg_log10(values) -> pd.DataFrame`
+  - `weights.r2_confidence_frame(stats) -> pd.DataFrame`
+  - `weights.raw_weights(scheme, inputs) -> pd.DataFrame`
+  - `weights.normalise_per_gene_timepoint(weights, inputs) -> pd.DataFrame`
+  - `weights.display_summary(weights) -> None`
+  - `gene_level.load_lfc_long(lfc_path) -> pd.DataFrame`
+  - `gene_level.load_weights_long(weights_path) -> pd.DataFrame`
+  - `gene_level.load_gene_metadata(annotations_path) -> pd.DataFrame`
+  - `gene_level.aggregate_to_gene_level(lfc_long, weights, gene_metadata) -> pd.DataFrame`
+  - `gene_level.generate_summary(gene_df) -> dict[str, int]`
+  - `gene_level.display_summary(stats) -> None`
+  - `ctr_insertions.ControlSelectionResult`
+  - `ctr_insertions.load_and_preprocess_data(counts_file: Path, annotations_file: Path) -> tuple[pd.DataFrame, pd.DataFrame]`
+  - `ctr_insertions.get_control_insertions(counts_df, insertion_annotations) -> pd.DataFrame`
+
+Note `weights.display_summary` and `gene_level.display_summary` share a name in different
+modules and are never imported together — that is fine, do not rename either.
+
+- [ ] **Step 1: Decouple `load_inputs` from `WeightsConfig`**
+
+It currently reads `config.stats_file`, `config.lfc_file`, `config.annotations_file`,
+`config.scheme`. Replace the parameter with those four as explicit scalars in that order
+and substitute the attribute reads with the parameter names. Nothing else in the body
+changes. `WeightsConfig` stays in the script; its `main()` call site becomes:
+
+```python
+inputs = load_inputs(config.stats_file, config.lfc_file, config.annotations_file, config.scheme)
+```
+
+- [ ] **Step 2: Dissolve `process_control_insertions` and `save_results` into `main()`**
+
+`def_ctr_insertions.py`'s `process_control_insertions(config)` both computes and writes,
+and `save_results` is a one-line `to_csv`. Neither belongs in a library. Move only
+`load_and_preprocess_data` and `get_control_insertions` into
+`src/depletion/ctr_insertions.py`; inline their orchestration and the write into `main()`,
+preserving the exact same call order, the same `ControlSelectionResult` construction, and
+the same output path and `to_csv` arguments. If the existing `to_csv` passes any non-default
+argument, carry it over exactly — a changed separator or index flag silently corrupts the
+output.
+
+- [ ] **Step 3: Move the remaining functions verbatim**
+
+Per the Interfaces list. `Scheme` moves to `weights.py`; the script's `parse_args()` imports
+it for its `--scheme` choices.
+
+- [ ] **Step 4: Confirm modules import and all three scripts run**
+
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python
+for m in weights gene_level ctr_insertions; do
+  $PY -c "import sys; sys.path.insert(0,'workflow/src'); import depletion.$m; print('$m ok')"
+done
+```
+
+- [ ] **Step 5: Execute all three against real data and byte-compare**
+
+Flags come from `workflow/rules/depletion_scoring.smk`. Available inputs include
+`13_filtered/raw_reads.filtered.tsv`, `13_filtered/control_insertions.tsv`,
+`14_insertion_level_depletion_analysis/{LFC,padj}.tsv`,
+`15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv`,
+`16_gene_level_depletion_analysis/transformed_weights.tsv`. Run each script in the baseline
+worktree and the current tree; `diff` every TSV. Report per-file results.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add workflow/src/depletion workflow/scripts/depletion_scoring
+git commit -m "refactor(depletion): extract weights, gene_level, ctr_insertions
+
+load_inputs takes 4 scalars instead of WeightsConfig (config dataclasses stay
+in scripts). def_ctr_insertions' process_control_insertions/save_results
+dissolved into main(), since they mixed compute with I/O.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3.3: Extract imputation and both insertion-level branches
+
+**Files:**
+- Create: `workflow/src/depletion/imputation.py` — from `impute_missing_values_using_FR.py`
+- Create: `workflow/src/depletion/insertion_level_replicates.py` — from `insertion_level_depletion_analysis_has_replicates.py`
+- Create: `workflow/src/depletion/insertion_level_no_replicates.py` — from `insertion_level_depletion_analysis_no_replicates.py`
+- Modify: those three scripts
+
+The two insertion-level branches get **separate modules**, not one shared file: the
+replicate branch depends on `pydeseq2` while the no-replicate branch is pure pandas, and
+merging them would force every consumer to import pydeseq2.
+
+**Interfaces:**
+- Produces:
+  - `imputation.ImputationResult`
+  - `imputation.filter_insertions(insertion_annotations) -> tuple[pd.Index, pd.Index]`
+  - `imputation.transfer_FR_index(idxs: tuple) -> tuple`
+  - `imputation.impute_missing_values(in_gene_counts_df) -> tuple[pd.DataFrame, list[tuple]]`
+  - `imputation.calculate_imputation_statistics(counts_df, in_gene_insertions, ...) -> ImputationResult`
+  - `imputation.print_imputation_statistics(result) -> None`
+  - `insertion_level_replicates.AnalysisResult`
+  - `insertion_level_replicates.load_and_preprocess_data(counts_file, control_insertions_file) -> tuple[...]`
+  - `insertion_level_replicates.create_deseq_dataset(counts_df, metadata, control_insertions, initial_timepoint="0h") -> DeseqDataSet`
+  - `insertion_level_replicates.perform_differential_analysis(dds, timepoints, initial_timepoint="0h") -> dict[str, DeseqStats]`
+  - `insertion_level_replicates.write_dispersion_data_tsv(dds, output_path) -> None`
+  - `insertion_level_replicates.concatenate_results(stat_res, timepoints) -> pd.DataFrame`
+  - `insertion_level_replicates.transform_index_to_multiindex(dds, layer_name) -> pd.DataFrame`
+  - `insertion_level_no_replicates.AnalysisResult`
+  - `insertion_level_no_replicates.load_and_preprocess_data(...)`
+  - `insertion_level_no_replicates.perform_median_normalization(...)`
+  - `insertion_level_no_replicates.calculate_MA_values(...)`
+
+`write_dispersion_data_tsv` writes a file but is a **format serialiser** for a pydeseq2
+object, not orchestration — it moves with its module. Both branches define
+`load_and_preprocess_data` and `AnalysisResult`; separate modules, so no collision. Do not
+rename them.
+
+- [ ] **Step 1: Move the functions and result dataclasses verbatim**
+
+Leave `ImputationConfig` / `InputOutputConfig`, `parse_args()`, `main()`, and
+`generate_MA_plots` (dead, per conventions) in the scripts.
+
+- [ ] **Step 2: Confirm modules import**
+
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python
+for m in imputation insertion_level_replicates insertion_level_no_replicates; do
+  $PY -c "import sys; sys.path.insert(0,'workflow/src'); import depletion.$m; print('$m ok')"
+done
+```
+If `pydeseq2` is missing from this env, try
+`/data/a/yangyusheng/miniforge3/envs/pydeseq2/bin/python` for the replicate branch and say
+which env you used for which module.
+
+- [ ] **Step 3: Execute against real data and byte-compare**
+
+The replicate branch is the pipeline's most numerically sensitive script (DESeq2 dispersion
+estimation). Byte-compare **every** TSV it writes — `14_insertion_level_depletion_analysis/`
+holds 11 files. Any single differing file is a STOP condition: report it rather than
+proceeding.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add workflow/src/depletion workflow/scripts/depletion_scoring
+git commit -m "refactor(depletion): extract imputation and both insertion-level branches
+
+The replicate and no-replicate branches get separate modules: the former needs
+pydeseq2, the latter is pure pandas, and merging would force every consumer to
+import pydeseq2.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3.4: Move the depletion test and add coverage for the extracted core
+
+**Files:**
+- Move: `workflow/scripts/depletion_scoring/test_insertion_level_depletion_analysis_has_replicates.py`
+  → `workflow/tests/depletion/test_insertion_level_replicates.py`
+
+- [ ] **Step 1: Move with `git mv` and repoint imports**
+
+Delete the `SCRIPT_DIR` / `sys.path.append` preamble; `pyproject.toml` already provides the
+path. Domain symbols import from `depletion.insertion_level_replicates`. If the test asserts
+on a config dataclass, use the spec-loader pattern from
+`workflow/tests/scripts/conftest.py` — scripts are not importable as modules (no
+`__init__.py`, and `src/figures.py` shadows `scripts/figures/`).
+
+- [ ] **Step 2: Run the suite**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest workflow/tests -q
+```
+Expected: the existing 68 still pass, plus the moved test. **A skip is a failure here** —
+Phase 2 shipped 26 silently-skipped tests because fixtures pointed one directory above the
+real data. If a test skips, find the data (check `18_figure_data/arc/` and the numbered
+stage dirs) and fix the fixture; do not accept the skip.
+
+- [ ] **Step 3: Confirm nothing is left behind, then commit**
+
+```bash
+ls workflow/scripts/depletion_scoring/test_*.py 2>/dev/null && echo "FAIL: tests remain" || echo "ok"
+git add -A workflow/tests workflow/scripts/depletion_scoring
+git commit -m "test(depletion): move insertion-level test to workflow/tests/depletion/
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3.5: Phase 3 verification
+
+- [ ] **Step 1: Byte-compare every TSV, baseline vs current**
+
+```bash
+fail=0
+for b in $(find /tmp/refactor_baseline/phase3 -name "*.tsv" | sort); do
+  n=${b#/tmp/refactor_baseline/phase3/}; a="/tmp/refactor_after/phase3/$n"
+  if   [ ! -f "$a" ];    then echo "MISSING:   $n"; fail=1
+  elif cmp -s "$b" "$a"; then echo "IDENTICAL: $n ($(stat -c%s "$a") bytes)"
+  else                        echo "DIFFERS:   $n"; fail=1
+  fi
+done
+exit $fail
+```
+Every file must be `IDENTICAL`. A `DIFFERS` on a depletion TSV means the refactor changed
+a computed result — stop and fix, never park it.
+
+- [ ] **Step 2: Structural checks**
+
+```bash
+grep -rn "^def main\|^def parse_args\|setup_logger(" workflow/src/depletion/ && echo "FAIL" || echo "ok: library-only"
+grep -rn "^def sigmoid_function" workflow/ --include="*.py"   # expect exactly ONE hit, in curve_model.py
+wc -l workflow/scripts/depletion_scoring/*.py | sort -rn
+```
+
+- [ ] **Step 3: Suite plus report**
+
+Run `pytest workflow/tests -q`, then write the before/after line-count table and the
+per-file TSV comparison into the report. State explicitly that the Snakemake DAG was not
+verified if `snakemake` is unavailable in your env — do not imply a check you did not run.
 
 ---
 
