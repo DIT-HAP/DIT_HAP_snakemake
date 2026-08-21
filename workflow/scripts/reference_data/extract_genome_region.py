@@ -132,10 +132,6 @@ class Config:
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
-            logger.debug(f"{gene} not found in gene metadata")
-    return updated
-
-
 @logger.catch
 def get_gff_transcript_id(
     row: pd.Series,
