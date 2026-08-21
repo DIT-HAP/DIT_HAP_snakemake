@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
 Tests for Insertion-Level Depletion Analysis (Replicated Samples)
 ===================================================================
@@ -20,7 +17,6 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,17 +24,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-sys.path.append(str(SCRIPT_DIR.resolve()))
-
-# The script under test imports pydeseq2 at module scope, which only the
+# The module under test imports pydeseq2 at module scope, which only the
 # computation env provides. Skip cleanly elsewhere so collection errors do not
 # abort the whole suite in the rendering env.
 pytest.importorskip("pydeseq2", reason="requires the pydeseq2 computation env")
 
-from insertion_level_depletion_analysis_has_replicates import (  # noqa: E402
-    write_dispersion_data_tsv,
-)
+from depletion.insertion_level_replicates import write_dispersion_data_tsv
 
 
 # =============================================================================
