@@ -1925,7 +1925,238 @@ verified if `snakemake` is unavailable in your env — do not imply a check you 
 
 ## Phase 4: Read Processing Domain Extraction
 
-(Create src/read_processing/ modules, extract from 9 scripts, verify where inputs exist)
+Nine scripts, 3,046 lines. This is the hardest phase for two reasons: **every** script is
+config-coupled (unlike Phase 2, where one function was), and the upstream scripts consume
+BAM/parquet inputs that may no longer exist for the reference project.
+
+### Phase 4 Conventions
+
+Same library rules as Phases 2–3 (verbatim moves; IMPORTS → CONSTANTS → CORE LOGIC; no
+`main`/`parse_args`/`setup_logger`; bare sibling imports; config dataclasses stay in
+scripts). Three additions specific to this phase:
+
+**1. The config-decoupling rule.** Every `src` function that currently reads `config.x`
+must take the values it uses as explicit parameters instead, in the order they appear in
+the config dataclass. A `src` module must never import a config dataclass from a script.
+Apply this mechanically:
+
+```python
+# before, in the script
+def build_filter_mask(chunk: pd.DataFrame, config: InputOutputConfig) -> pd.Series:
+    ... config.thresholds ... config.paired ...
+
+# after, in src/read_processing/filtering.py
+def build_filter_mask(chunk: pd.DataFrame, thresholds: FilterThresholds, paired: bool) -> pd.Series:
+    ... thresholds ... paired ...
+```
+
+The call site in `main()` passes `config.thresholds, config.paired`. Do not invent new
+defaults, do not reorder the remaining parameters, and do not bundle scalars into a new
+dataclass — that would just re-create the coupling under another name.
+
+**2. Orchestration functions dissolve into `main()`.** Several functions are pure
+orchestration plus file I/O and have no domain logic to extract:
+`main_processing_function`, `merge_timepoints`, `concatenate`, `filter_read_pairs`,
+`count_insertion_sites`, `process_chunks`, `process_bam_file`, `save_*`. Move their
+*inner computation* into `src`, and inline the read/write/orchestration into `main()`,
+preserving the exact call order, the exact output paths, and every non-default argument to
+`to_csv`/`to_parquet`/`write_table`. A changed separator, index flag, or compression level
+silently corrupts output that downstream stages then consume.
+
+When a function is *entirely* I/O plus a single computation call, leave nothing behind in
+`src` for it — put the computation in `src` and the I/O in `main()`.
+
+**3. Chunked-streaming scripts keep their loop in the script.** `filter_aligned_reads.py`,
+`extract_insertion_sites.py` and `parse_bam_to_tsv.py` stream in chunks/batches. The
+per-chunk transform is domain logic and moves to `src`; the chunk loop, the reader, and the
+writer stay in `main()`. This keeps `src` functions pure and testable on a single chunk.
+
+**Environments.** Dependencies are split across envs — check before running:
+- `parse_bam_to_tsv.py` needs **pysam** + pyarrow → `/data/a/yangyusheng/miniforge3/envs/pysam/bin/python`
+- `filter_aligned_reads.py`, `extract_insertion_sites.py` need **pyarrow**
+- `concatenate_timepoint_data.py` needs **biopython** → `/data/a/yangyusheng/miniforge3/envs/biopython/bin/python`
+- the rest run under `/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python`
+
+Verify with `$PY -c "import pysam, pyarrow, Bio"` before concluding a script cannot be run.
+
+**Verification, and an honest statement of its limits.** Capture a baseline worktree first
+(`git worktree add /tmp/phase4_baseline <pre-phase-4-sha> --detach`), then for each script
+run it in both trees and byte-compare outputs.
+
+Available real data under `projects/HD_DIT_HAP/results/`: `6_filtered/` (36 files),
+`7_insertions/` (36), `8_merged/` (18), `9_concatenated/` (9), `10_annotated/` (3),
+`11_merged/` (3), `12_concatenated/` (2), `13_filtered/` (4). Note `1_fastp/` is EMPTY and
+`3_mapped/` holds a single file.
+
+So the three upstream scripts (`parse_bam_to_tsv`, `filter_aligned_reads`,
+`extract_insertion_sites`) may have no runnable input. For those:
+- If an input exists, run and byte-compare it.
+- If not, **say so explicitly in the report, naming the missing input**, and fall back to
+  unit-testing the extracted per-chunk functions on a synthetic chunk you construct.
+- Never write "verified" for a script you did not execute. A phase report that overstates
+  coverage is worse than one that admits a gap — Phase 1 was reported as verified and had
+  shipped 10 broken scripts.
+
+---
+
+### Task 4.1: Extract the four pandas-only scripts
+
+Batched: same shape, same env, no heavy dependencies.
+
+**Files:**
+- Create: `workflow/src/read_processing/__init__.py` (`"""Read processing library modules."""`)
+- Create: `workflow/src/read_processing/annotation.py` — from `annotate_genomic_features.py`
+- Create: `workflow/src/read_processing/merge.py` — from `merge_strand_insertions.py` + `merge_similar_timepoints.py`
+- Create: `workflow/src/read_processing/concat.py` — from `concat_counts_and_annotations.py`
+- Create: `workflow/src/read_processing/hard_filtering.py` — from `reads_hard_filtering.py`
+- Modify: those five scripts
+
+**Interfaces:**
+- `annotation.AnalysisResult`, `annotation.load_insertion_data(input_path) -> pd.DataFrame`,
+  `load_genome_regions(region_path)`, `calculate_codon_distances_vectorized(annotated_df)`,
+  `calculate_affected_residue_vectorized(annotated_df)`,
+  `assign_insertion_direction_vectorized(annotated_df) -> pd.Series`,
+  `drop_boundary_duplicates(sub_df)`, `annotate_insertions(...)`
+- `merge.MergeResult`, `merge.merge_insertion_data(pbl_df, pbr_df) -> pd.DataFrame`
+- `concat` — see Step 2; `concatenate(config)` is orchestration
+- `hard_filtering.AnalysisResult`, `hard_filtering.load_insertion_data(input_file)`,
+  `validate_timepoint_exists(df, timepoint) -> None`,
+  `apply_hard_filtering(df, timepoint: str, cutoff: float, ...) -> tuple[pd.DataFrame, AnalysisResult]`
+  — **decoupled from `InputOutputConfig` per convention 1; read the dataclass for the exact
+  field names and order, and pass exactly the fields the body uses**
+
+`merge_strand_insertions.py` and `merge_similar_timepoints.py` share one module because both
+are merge operations on insertion tables; their functions do not collide.
+
+- [ ] **Step 1: Decouple every config-reading function** per convention 1.
+- [ ] **Step 2: Dissolve orchestration** — `main_processing_function`, `save_annotations`,
+      `save_merged_data`, `merge_timepoints`, `concatenate` — into each script's `main()`
+      per convention 2, preserving output paths and all `to_csv` arguments exactly.
+- [ ] **Step 3: Move the remaining functions verbatim.**
+- [ ] **Step 4: Confirm modules import**
+
+```bash
+PY=/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python
+for m in annotation merge concat hard_filtering; do
+  $PY -c "import sys; sys.path.insert(0,'workflow/src'); import read_processing.$m; print('$m ok')"
+done
+```
+
+- [ ] **Step 5: Execute all five scripts and byte-compare.** Flags from
+      `workflow/rules/read_processing.smk`. Inputs: `9_concatenated/`, `10_annotated/`,
+      `11_merged/`, `12_concatenated/`, `13_filtered/`. Report per-file diffs.
+- [ ] **Step 6: Commit.**
+
+---
+
+### Task 4.2: Extract the sequence-extraction and chunked-streaming scripts
+
+**Files:**
+- Create: `workflow/src/read_processing/sequence_extraction.py` — from `concatenate_timepoint_data.py`
+- Create: `workflow/src/read_processing/insertions.py` — from `extract_insertion_sites.py`
+- Create: `workflow/src/read_processing/filtering.py` — from `filter_aligned_reads.py`
+- Create: `workflow/src/read_processing/bam.py` — from `parse_bam_to_tsv.py`
+- Modify: those four scripts
+
+**Interfaces:**
+- `sequence_extraction.AnalysisResult`, `load_reference_data(genome_path) -> dict`,
+  `extract_target_sequence(chrom: str, coordinate: int, ref_dict: dict) -> str`,
+  `process_concatenation_data(...)` — decoupled from config
+- `insertions.InsertionCounts` (the `type` alias — it moves with the functions that use it),
+  `insertions.ExtractionStats`, `calculate_insertion_coordinates_vectorized(valid_df)`,
+  `create_validation_mask(df) -> pd.Series`,
+  `count_insertions_vectorized(valid_df) -> InsertionCounts`,
+  `extract_insertion_sites(chunk, chunk_num) -> tuple[InsertionCounts, int, int]`,
+  `create_output_dataframe(insertion_counts) -> tuple[pd.DataFrame, int, int]`
+- `filtering.FilterThresholds`, `filtering.AnalysisResult`,
+  `load_config_from_yaml(config_file) -> dict[str, Any]`,
+  `strip_read_prefix(column: str) -> str`, `coerce_column_dtypes(chunk) -> pd.DataFrame`,
+  `build_filter_mask(...)`, `process_chunk(...)` — both decoupled from config
+- `bam.ReadInfo`, `bam.ReadPairInfo`,
+  `extract_read_info(read: pysam.AlignedSegment | None, tag_list) -> ReadInfo`,
+  `determine_proper_pair_status(...)`, `process_read_pair(...)`,
+  `format_output_line(pair_info, tag_list) -> list`, `build_header(tag_list) -> list[str]`,
+  `build_schema(header_fields) -> pa.Schema`, `flush_batch(...)`
+
+`process_chunks`, `count_insertion_sites`, `write_empty_output`, `filter_read_pairs` and
+`process_bam_file` are the chunk loops and stay in their scripts per convention 3.
+
+- [ ] **Step 1: Move the per-chunk/per-record transforms to `src`, decoupled from config.**
+- [ ] **Step 2: Keep the streaming loops, readers and writers in `main()`.**
+- [ ] **Step 3: Confirm each module imports in an env that has its dependency**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/statistics_and_figure_plotting/bin/python -c \
+  "import sys; sys.path.insert(0,'workflow/src'); import read_processing.insertions, read_processing.filtering; print('ok')"
+/data/a/yangyusheng/miniforge3/envs/pysam/bin/python -c \
+  "import sys; sys.path.insert(0,'workflow/src'); import read_processing.bam; print('bam ok')"
+/data/a/yangyusheng/miniforge3/envs/biopython/bin/python -c \
+  "import sys; sys.path.insert(0,'workflow/src'); import read_processing.sequence_extraction; print('seq ok')"
+```
+Report which env you used per module. If a needed env lacks the dependency, say so rather
+than skipping the check silently.
+
+- [ ] **Step 4: Execute what can be executed; unit-test the rest.**
+      `concatenate_timepoint_data.py` has inputs (`8_merged/`, `9_concatenated/`).
+      The other three may not — follow the honesty rule in the conventions: name the missing
+      input, then unit-test the extracted transforms on a synthetic chunk.
+- [ ] **Step 5: Commit.**
+
+---
+
+### Task 4.3: Add tests for the extracted read-processing core
+
+**Files:**
+- Create: `workflow/tests/read_processing/__init__.py`
+- Create: `workflow/tests/read_processing/test_insertions.py`
+- Create: `workflow/tests/read_processing/test_filtering.py`
+- Create: `workflow/tests/read_processing/test_annotation.py`
+
+`read_processing` had **zero** tests before this refactor. The extraction is the first point
+at which its logic is testable in isolation, and the three upstream scripts may be
+unverifiable by output comparison — which makes unit tests the only safety net they get.
+
+- [ ] **Step 1: Test the pure transforms on synthetic frames.** Cover at minimum:
+      `create_validation_mask` (a row that passes, a row that fails each condition),
+      `calculate_insertion_coordinates_vectorized` (coordinate arithmetic on both strands),
+      `count_insertions_vectorized` (two reads at one site aggregate; two sites stay
+      separate), `strip_read_prefix`, `coerce_column_dtypes`, `build_filter_mask` (one row
+      inside every threshold, one outside each), `assign_insertion_direction_vectorized`,
+      `drop_boundary_duplicates`.
+
+      Each test asserts a specific expected value, not merely "does not crash". A test that
+      only checks for absence of exceptions is not a test.
+
+- [ ] **Step 2: Run and confirm no skips**
+
+```bash
+/data/a/yangyusheng/miniforge3/envs/cnsplots_figures/bin/pytest workflow/tests -q
+```
+If a test needs pyarrow/pysam and that env lacks it, mark it with
+`pytest.importorskip("pyarrow")` at the top — but report how many tests that affects, since
+a skipped test protects nothing.
+
+- [ ] **Step 3: Commit.**
+
+---
+
+### Task 4.4: Phase 4 verification
+
+- [ ] **Step 1: Byte-compare every output produced in both trees.** Same loop as Task 3.5,
+      with `phase4` paths. Every file `IDENTICAL`; any `DIFFERS` is a STOP.
+- [ ] **Step 2: Structural checks**
+
+```bash
+grep -rn "^def main\|^def parse_args\|setup_logger(" workflow/src/read_processing/ && echo FAIL || echo "ok: library-only"
+grep -rn "config\." workflow/src/read_processing/ && echo "FAIL: config leaked into src" || echo "ok: no config coupling"
+wc -l workflow/scripts/read_processing/*.py | sort -rn
+```
+The second check is the one that matters most this phase: it proves convention 1 held.
+
+- [ ] **Step 3: Report** — the before/after line-count table, the per-file comparison, the
+      list of scripts that could NOT be executed with the specific missing input for each,
+      and the unit-test count that covers them instead. State plainly whether the Snakemake
+      DAG was checked.
 
 ---
 
