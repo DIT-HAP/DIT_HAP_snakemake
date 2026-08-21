@@ -70,6 +70,12 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
 from io_tables import read_insertion_table  # noqa: E402
+from depletion.insertion_level_no_replicates import (  # noqa: E402
+    AnalysisResult,
+    load_and_preprocess_data,
+    perform_median_normalization,
+    calculate_MA_values,
+)
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -94,59 +100,9 @@ class InputOutputConfig:
         self.output_LFC_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(kw_only=True, slots=True, frozen=True)
-class AnalysisResult:
-    """Results container for insertion-level depletion analysis."""
-    status: str
-    message: str
-
-
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
-@logger.catch
-def load_and_preprocess_data(
-    counts_file: Path, control_insertions_file: Path
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load counts and control insertions data from TSV files."""
-    counts_df = pd.read_csv(
-        counts_file, sep="\t", index_col=[0, 1, 2, 3], header=[0, 1]
-    )
-    control_insertions_df = pd.read_csv(
-        control_insertions_file, sep="\t", index_col=[0, 1, 2, 3]
-    )
-    return counts_df, control_insertions_df
-
-
-@logger.catch
-def perform_median_normalization(
-    counts_df: pd.DataFrame, control_insertions_df: pd.DataFrame
-) -> pd.DataFrame:
-    """Normalize counts using median values from control insertions."""
-    median_values = counts_df.loc[control_insertions_df.index].median()
-    min_median_values = median_values.min()
-    normalized_counts = counts_df.mul(min_median_values).div(median_values)
-    return normalized_counts
-
-
-@logger.catch
-def calculate_MA_values(
-    normalized_counts: pd.DataFrame, init_timepoint: str
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Calculate M (log-fold change) and A (average abundance) values for MA plots."""
-    M_values = (
-        -(normalized_counts + 1)
-        .div((normalized_counts.xs(init_timepoint, level=1, axis=1) + 1), axis=0)
-        .map(np.log2)
-    )
-
-    A_values = (normalized_counts + 1).mul(
-        (normalized_counts.xs(init_timepoint, level=1, axis=1) + 1), axis=0
-    ).map(np.log2) * 0.5
-
-    return M_values, A_values
-
-
 @logger.catch
 def generate_MA_plots(M_values: pd.DataFrame, A_values: pd.DataFrame, output_path: Path):
     """Generate MA plots for each timepoint and save as PDF."""
