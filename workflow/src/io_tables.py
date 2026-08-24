@@ -16,14 +16,10 @@ INSERTION_INDEX: list[str] = ["Chr", "Coordinate", "Strand", "Target"]
 # CORE LOGIC
 # =============================================================================
 def read_table(path: Path, **kwargs) -> pd.DataFrame:
-<<<<<<< HEAD
     """Read a table into a pandas DataFrame based on file extension.
 
     Supports TSV, BED, CSV, XLSX. Passes **kwargs to underlying pandas reader.
     """
-=======
-    """Read a table into a pandas DataFrame based on file extension."""
->>>>>>> 2d62dfd (feat(src): add shared foundation modules (logging, IO, gene ID resolution))
     suffix = path.suffix.lower()
     name_lower = path.name.lower()
 
@@ -40,29 +36,21 @@ def read_table(path: Path, **kwargs) -> pd.DataFrame:
 
 
 def read_insertion_table(path: Path, **kwargs) -> pd.DataFrame:
-<<<<<<< HEAD
     """Read an insertion table with the standard 4-level index.
 
     Index: Chr, Coordinate, Strand, Target.
     Passes **kwargs to read_table (e.g., usecols).
     """
-=======
-    """Read an insertion table with the standard 4-level index."""
->>>>>>> 2d62dfd (feat(src): add shared foundation modules (logging, IO, gene ID resolution))
     if "index_col" not in kwargs:
         kwargs["index_col"] = [0, 1, 2, 3]
     return read_table(path, **kwargs)
 
 
 def write_table(df: pd.DataFrame, path: Path, **kwargs) -> None:
-<<<<<<< HEAD
     """Write a DataFrame to a file based on extension.
 
     Supports TSV, CSV, XLSX. Passes **kwargs to underlying pandas writer.
     """
-=======
-    """Write a DataFrame to a file based on extension."""
->>>>>>> 2d62dfd (feat(src): add shared foundation modules (logging, IO, gene ID resolution))
     suffix = path.suffix.lower()
     name_lower = path.name.lower()
 

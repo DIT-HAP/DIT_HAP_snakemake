@@ -16,7 +16,6 @@ def resolve_gene_ids(
     gene_metadata: pd.DataFrame,
     gene_filter: str = "gene_type == 'protein coding gene'",
 ) -> list[str | float]:
-<<<<<<< HEAD
     """Resolve gene identifiers to current PomBase systematic IDs.
 
     Looks up each gene in three mappings: current systematic IDs, gene names,
@@ -31,9 +30,6 @@ def resolve_gene_ids(
     Returns:
         List of resolved systematic IDs (same length as input).
     """
-=======
-    """Resolve gene identifiers to current PomBase systematic IDs via name and synonym lookup."""
->>>>>>> 2d62dfd (feat(src): add shared foundation modules (logging, IO, gene ID resolution))
     # Normalize gene_name column
     gene_metadata = gene_metadata.copy()
     gene_metadata["gene_name"] = gene_metadata["gene_name"].fillna(
