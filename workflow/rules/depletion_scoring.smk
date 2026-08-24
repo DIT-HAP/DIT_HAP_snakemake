@@ -199,72 +199,46 @@ rule plot_insertion_level_curve_fitting:
 # -----------------------------------------------------
 # The branch decision lives here, not in gene_level_depletion_analysis: with
 # replicates, DESeq2's padj is the weighting signal; without replicates, there
-# are no p-values at all, so rule 15's curve-fitting R2 is the only option.
-if config.get("use_DEseq2_for_biological_replicates", False):
-
-    rule compute_insertion_weights:
-        input:
-            stats="projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
-            lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-            annotations=rules.concat_counts_and_annotations.output.annotations,
-        output:
-            report(
-                "projects/{project_name}/results/16_gene_level_depletion_analysis/insertion_weights.tsv",
-                category="Insertion-level results",
-                labels={
-                    "name": "Insertion-level Aggregation Weights",
-                    "type": "Statistics Table",
-                    "format": "TSV",
-                },
-            ),
-        log:
-            "projects/{project_name}/logs/depletion_scoring/compute_insertion_weights.log",
-        params:
-            scheme="naive",
-        conda:
-            "../envs/statistics_and_computation.yml"
-        message:
-            "*** Computing insertion-level weights (naive, from padj)..."
-        shell:
-            """
-            python workflow/scripts/depletion_scoring/compute_insertion_weights.py \
-                --scheme {params.scheme} \
-                -s {input.stats} -l {input.lfc} -a {input.annotations} \
-                -o {output} &> {log}
-            """
-
-else:
-
-    rule compute_insertion_weights:
-        input:
-            stats=rules.insertion_level_curve_fitting.output.stats,
-            lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-            annotations=rules.concat_counts_and_annotations.output.annotations,
-        output:
-            report(
-                "projects/{project_name}/results/16_gene_level_depletion_analysis/insertion_weights.tsv",
-                category="Insertion-level results",
-                labels={
-                    "name": "Insertion-level Aggregation Weights",
-                    "type": "Statistics Table",
-                    "format": "TSV",
-                },
-            ),
-        log:
-            "projects/{project_name}/logs/depletion_scoring/compute_insertion_weights.log",
-        params:
-            scheme="r2",
-        conda:
-            "../envs/statistics_and_computation.yml"
-        message:
-            "*** Computing insertion-level weights (r2, from curve fitting)..."
-        shell:
-            """
-            python workflow/scripts/depletion_scoring/compute_insertion_weights.py \
-                --scheme {params.scheme} \
-                -s {input.stats} -l {input.lfc} -a {input.annotations} \
-                -o {output} &> {log}
-            """
+# are no p-values at all, so rule 15's curve-fitting R2 is the only option. The
+# `stats` input follows that same switch, so only one rule is needed.
+rule compute_insertion_weights:
+    input:
+        stats=branch(
+            config.get("use_DEseq2_for_biological_replicates", False),
+            "projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
+            rules.insertion_level_curve_fitting.output.stats,
+        ),
+        lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
+        annotations=rules.concat_counts_and_annotations.output.annotations,
+    output:
+        report(
+            "projects/{project_name}/results/16_gene_level_depletion_analysis/insertion_weights.tsv",
+            category="Insertion-level results",
+            labels={
+                "name": "Insertion-level Aggregation Weights",
+                "type": "Statistics Table",
+                "format": "TSV",
+            },
+        ),
+    log:
+        "projects/{project_name}/logs/depletion_scoring/compute_insertion_weights.log",
+    params:
+        has_replicates=(
+            "--has-replicates"
+            if config.get("use_DEseq2_for_biological_replicates", False)
+            else "--no-has-replicates"
+        ),
+    conda:
+        "../envs/statistics_and_computation.yml"
+    message:
+        "*** Computing insertion-level weights..."
+    shell:
+        """
+        python workflow/scripts/depletion_scoring/compute_insertion_weights.py \
+            {params.has_replicates} \
+            -s {input.stats} -l {input.lfc} -a {input.annotations} \
+            -o {output} &> {log}
+        """
 
 
 # Gene-level depletion analysis

@@ -67,8 +67,8 @@ if config.get("use_DEseq2_for_biological_replicates", False):
     }
 
 # Curve-fitting / gene-level outputs (15-17) need config["time_points"] — see
-# insertion_level_curve_fitting and compute_insertion_weights's scheme branch
-# in depletion_scoring.smk. Skip these entirely when time_points is
+# insertion_level_curve_fitting and compute_insertion_weights's replicates
+# branch in depletion_scoring.smk. Skip these entirely when time_points is
 # absent (e.g. Spikein, run QC-only).
 if config.get("time_points"):
     RELEASE_MAP |= {

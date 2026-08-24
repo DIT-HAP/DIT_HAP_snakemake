@@ -4,16 +4,17 @@ Compute the per-insertion, per-timepoint weights that gene-level depletion
 analysis uses to collapse insertion log2 fold changes into a gene LFC. This is
 the single owner of the weighting algorithm: the aggregation script consumes the
 ``Weight`` column produced here and never transforms it further, so a new
-weighting scheme only has to be added in this file.
+weighting formula only has to be added in this file.
 
-Which scheme is available depends on the upstream branch. With biological
-replicates, DESeq2 supplies adjusted p-values and the ``naive`` scheme weights
-each insertion by ``-log10(padj)``. Without replicates there are no p-values at
-all, so the ``r2`` scheme falls back on curve-fitting goodness of fit and weights
-by ``-log10(1 - R2)``. Both are clipped into the open interval
-(1e-6, 1 - 1e-6) before the log, which keeps a maximally-insignificant insertion
-at a tiny floor weight rather than zero — a gene whose insertions all sit at that
-floor collapses to an arithmetic mean instead of dividing by zero.
+Which statistic the weights come from is decided by one thing — whether the
+upstream branch had biological replicates, passed in as ``has_replicates``. With
+replicates, DESeq2 supplies adjusted p-values and each insertion is weighted by
+``-log10(padj)``. Without replicates there are no p-values at all, so the weights
+fall back on curve-fitting goodness of fit, ``-log10(1 - R2)``. Both are clipped
+into the open interval (1e-6, 1 - 1e-6) before the log, which keeps a
+maximally-insignificant insertion at a tiny floor weight rather than zero — a
+gene whose insertions all sit at that floor collapses to an arithmetic mean
+instead of dividing by zero.
 
 Weights are emitted in long format, keyed by insertion, timepoint and gene,
 because a small number of insertions are annotated to two genes and the
@@ -23,10 +24,10 @@ part, and each gene-timepoint group's weights sum to 1.
 
 Input
 -----
-- ``stats`` (DataFrame): the scheme's source statistic, with a 4-level index
-  (Chr, Coordinate, Strand, Target). For ``naive``, ``padj.tsv`` with one column
-  per timepoint. For ``r2``, the curve-fitting statistics table carrying an
-  ``R2`` column and one ``*_fitted`` column per timepoint.
+- ``stats`` (DataFrame): the source statistic, with a 4-level index
+  (Chr, Coordinate, Strand, Target). With replicates, ``padj.tsv`` with one
+  column per timepoint. Without replicates, the curve-fitting statistics table
+  carrying an ``R2`` column and one ``*_fitted`` column per timepoint.
 - ``lfc`` (DataFrame): insertion-level LFC, same 4-level index, one column per
   timepoint. Cells with no LFC are excluded from the normalising denominator.
 - ``annotations`` (DataFrame): genomic annotations, same 4-level index, with
@@ -72,12 +73,6 @@ WEIGHT_COLUMN = "Weight"
 FITTED_SUFFIX = "_fitted"
 
 
-class Scheme(StrEnum):
-    """Weighting schemes, one per upstream branch."""
-    NAIVE = "naive"  # replicates: -log10(padj)
-    R2 = "r2"        # no replicates: -log10(1 - R2)
-
-
 class AnnotCol(StrEnum):
     """Annotation columns used for in-gene filtering and gene grouping."""
     TYPE = "Type"
@@ -104,9 +99,10 @@ class WeightInputs:
 # =============================================================================
 # --- Data Loading ---
 @logger.catch
-def load_inputs(stats_file: Path, lfc_file: Path, annotations_file: Path, scheme: Scheme) -> WeightInputs:
-    """Load the scheme's source statistic, insertion LFC and annotations."""
-    logger.info(f"Loading {scheme} source statistic from {stats_file}")
+def load_inputs(stats_file: Path, lfc_file: Path, annotations_file: Path, has_replicates: bool) -> WeightInputs:
+    """Load the source statistic, insertion LFC and annotations."""
+    statistic = "padj" if has_replicates else "curve-fitting R2"
+    logger.info(f"Loading {statistic} source statistic from {stats_file}")
     logger.info(f"Loading insertion LFC from {lfc_file}")
     logger.info(f"Loading annotations from {annotations_file}")
 
@@ -191,19 +187,23 @@ def r2_confidence_frame(stats: pd.DataFrame) -> pd.DataFrame:
 
 
 @logger.catch
-def raw_weights(scheme: Scheme, inputs: WeightInputs) -> pd.DataFrame:
-    """Compute un-normalised insertion-by-timepoint weights for one scheme."""
-    match scheme:
-        case Scheme.NAIVE:
-            weights = neg_log10(inputs.stats)
-        case Scheme.R2:
-            weights = neg_log10(r2_confidence_frame(inputs.stats))
-        case _:
-            raise ValueError(f"Unknown weighting scheme: {scheme}")
+def raw_weights(inputs: WeightInputs, has_replicates: bool) -> pd.DataFrame:
+    """Compute un-normalised insertion-by-timepoint weights.
+
+    With replicates the stats table is already one padj column per timepoint, so
+    it goes straight through ``-log10``. Without replicates there is a single R2
+    per insertion, which first has to be broadcast across the timepoints.
+    """
+    if has_replicates:
+        weights = neg_log10(inputs.stats)
+        label = "padj"
+    else:
+        weights = neg_log10(r2_confidence_frame(inputs.stats))
+        label = "1 - R2"
 
     values = weights.to_numpy()
     logger.info(
-        f"{scheme}: raw weights mean={np.nanmean(values):.4g}, "
+        f"-log10({label}): raw weights mean={np.nanmean(values):.4g}, "
         f"min={np.nanmin(values):.4g}, max={np.nanmax(values):.4g}"
     )
     return weights
@@ -226,12 +226,12 @@ def normalise_per_gene_timepoint(weights: pd.DataFrame, inputs: WeightInputs) ->
     # A zero sum would divide by zero. The clip ceiling in neg_log10 makes this
     # unreachable today (every weight is strictly positive), so treat it as a
     # loud failure rather than silently substituting uniform weights: a future
-    # gated scheme needs to decide its own fallback deliberately.
+    # weighting formula needs to decide its own fallback deliberately.
     zero_sum_groups = int(merged.loc[weight_sums == 0].groupby(group_keys).ngroups)
     if zero_sum_groups:
         raise ValueError(
             f"{zero_sum_groups:,} gene-timepoint groups have a zero weight sum; "
-            f"scheme needs an explicit fallback before it can be normalised"
+            f"the weighting formula needs an explicit fallback before it can be normalised"
         )
 
     merged[WEIGHT_COLUMN] /= weight_sums
