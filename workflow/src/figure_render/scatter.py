@@ -17,8 +17,10 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import cnsplots as cns
 import pandas as pd
@@ -43,6 +45,28 @@ REGPLOT_SCATTER_KWS: dict[str, object] = {
     "linewidths": 0.25,
     "rasterized": True,
 }
+
+# Verified for ~5k points with categorical colour-coding. Deliberately NOT shared
+# with REGPLOT_SCATTER_KWS: cns.scatterplot always passes edgecolor=None to
+# seaborn internally, so supplying 'edgecolor' here raises on the duplicate.
+SCATTERPLOT_KWS: dict[str, object] = {
+    "s": 6,
+    "alpha": 0.4,
+    "rasterized": True,
+}
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class ScatterPanel:
+    """One panel of a scatter grid: which columns, how to label, which reference line."""
+
+    x: str
+    y: str
+    xlabel: str
+    ylabel: str
+    title: str
+    reference: Literal["identity", "zero", "unit_identity", "none"] = "none"
+    log_scale: bool = False
 
 
 # =============================================================================
@@ -134,6 +158,88 @@ def render_grouped_regression_figure(
 
         # regplot resets the axis labels it manages, so reapply after drawing.
         _apply_labels()
+
+    logger.info(f"Saving figure to {output_stem}...")
+    save_dual(output_stem)
+    logger.success("Figure rendering complete!")
+
+
+def _draw_reference_line(ax, df: pd.DataFrame, panel: ScatterPanel) -> None:
+    """Draw the panel's reference line, sized to the data where the mode requires it."""
+    match panel.reference:
+        case "identity":
+            max_val = max(df[panel.x].max(), df[panel.y].max(), 1)
+            ax.plot([0, max_val], [0, max_val], color="red", linestyle="--", alpha=0.6, linewidth=1)
+        case "unit_identity":
+            ax.plot([0, 1], [0, 1], color="red", linestyle="--", alpha=0.6, linewidth=1)
+        case "zero":
+            ax.axhline(0, color="red", linestyle="--", alpha=0.6, linewidth=1)
+        case "none":
+            pass
+
+
+@logger.catch(reraise=True)
+def render_scatter_grid_figure(
+    df: pd.DataFrame,
+    output_stem: Path,
+    *,
+    panels: Sequence[ScatterPanel],
+    hue: str | None = None,
+    hue_order: Sequence[str] | None = None,
+    scatter_kws: Mapping[str, object] | None = None,
+) -> None:
+    """Render one scatter panel per ScatterPanel spec, with optional hue colouring."""
+    logger.info(f"Rendering scatter grid with {len(panels)} panels...")
+
+    if not panels:
+        logger.warning("No panels requested!")
+        return
+
+    # Validated even when df is empty, so a typo'd column name is caught rather
+    # than silently rendering a placeholder panel.
+    for panel in panels:
+        require_columns(df, [panel.x, panel.y], context=f"scatter panel '{panel.title}'")
+
+    apply_house_style()
+
+    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
+    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX)
+
+    kws = dict(SCATTERPLOT_KWS if scatter_kws is None else scatter_kws)
+    labels = panel_labels(len(panels))
+
+    for label, panel in zip(labels, panels, strict=True):
+        ax = multipanel.panel(label=label)
+
+        if df.empty:
+            logger.warning(f"  Panel {label}: {panel.title} has no valid data")
+            ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_xlabel(panel.xlabel)
+            ax.set_ylabel(panel.ylabel)
+            ax.set_title(panel.title)
+            continue
+
+        logger.info(f"  Panel {label}: {panel.title} (n={len(df)})")
+
+        if hue is not None and hue in df.columns:
+            # Levels absent from the data must be dropped, or a project lacking
+            # one of them raises inside seaborn.
+            observed = set(df[hue].unique())
+            order = [level for level in (hue_order or sorted(observed)) if level in observed]
+            cns.scatterplot(data=df, x=panel.x, y=panel.y, hue=hue, hue_order=order, ax=ax, **kws)
+            ax.legend(fontsize=6, loc="best", frameon=False)
+        else:
+            cns.scatterplot(data=df, x=panel.x, y=panel.y, ax=ax, **kws)
+
+        ax.set_xlabel(panel.xlabel)
+        ax.set_ylabel(panel.ylabel)
+        ax.set_title(panel.title)
+
+        _draw_reference_line(ax, df, panel)
+
+        if panel.log_scale:
+            ax.set_xscale("symlog")
+            ax.set_yscale("symlog")
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
