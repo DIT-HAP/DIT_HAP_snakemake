@@ -22,6 +22,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 from loguru import logger
 from matplotlib import use
 
@@ -31,7 +33,8 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.orientation import load_and_prepare_data, render_orientation_figure  # noqa: E402
+from figure_render.scatter import render_grouped_regression_figure  # noqa: E402
+from figure_render._schema import require_columns  # noqa: E402
 
 
 # =============================================================================
@@ -50,6 +53,43 @@ class PlotConfig:
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
 
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+REQUIRED_COLUMNS = ["sample", "timepoint", "plus_count", "minus_count"]
+
+X_COLUMN = "log10_plus_count"
+Y_COLUMN = "log10_minus_count"
+X_LABEL = "log$_{10}$ (+) strand"
+Y_LABEL = "log$_{10}$ (-) strand"
+
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+@logger.catch
+def load_and_prepare_data(input_path: Path) -> pd.DataFrame:
+    """Load the strand pairs TSV, keep strictly-positive pairs, and add log10 columns."""
+    logger.info(f"Loading data from {input_path}...")
+    df = pd.read_csv(input_path, sep="\t")
+
+    require_columns(df, REQUIRED_COLUMNS, context=f"strand pairs TSV {input_path.name}")
+
+    logger.info(f"Loaded {len(df)} rows")
+
+    # The computation layer already applies min > 0, but re-filtering keeps the
+    # renderer safe against a hand-made input and guarantees finite log10 values.
+    positive = df[(df["plus_count"] > 0) & (df["minus_count"] > 0)].copy()
+    logger.info(f"After filtering to positive values: {len(positive)} rows")
+
+    if positive.empty:
+        logger.warning("No valid data points after filtering!")
+        return positive
+
+    positive[X_COLUMN] = np.log10(positive["plus_count"])
+    positive[Y_COLUMN] = np.log10(positive["minus_count"])
+
+    return positive
 
 
 # =============================================================================
@@ -84,7 +124,17 @@ def main() -> int:
 
     try:
         df = load_and_prepare_data(config.input_path)
-        render_orientation_figure(df, config.output_stem)
+
+        render_grouped_regression_figure(
+            df,
+            config.output_stem,
+            x=X_COLUMN,
+            y=Y_COLUMN,
+            xlabel=X_LABEL,
+            ylabel=Y_LABEL,
+            row_key="sample",
+            col_key="timepoint",
+        )
     except Exception as e:
         logger.error(f"Error during rendering: {e}")
         return 1

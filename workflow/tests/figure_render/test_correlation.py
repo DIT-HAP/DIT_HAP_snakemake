@@ -15,12 +15,27 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.correlation import load_and_prepare_data, render_correlation_figure
+from figure_render.scatter import render_grouped_regression_figure
+
+
+def _load_correlation_script() -> ModuleType:
+    """Load the correlation CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_pbl_pbr_correlation.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_pbl_pbr_correlation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_correlation_script()
+load_and_prepare_data = _SCRIPT.load_and_prepare_data
 
 
 # =============================================================================
@@ -68,7 +83,16 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
         pytest.skip(f"Real data not found: {real_data_path}")
 
     df = load_and_prepare_data(real_data_path)
-    render_correlation_figure(df, output_stem)
+    render_grouped_regression_figure(
+        df,
+        output_stem,
+        x="log10_pbl",
+        y="log10_pbr",
+        xlabel="log$_{10}$ PBL",
+        ylabel="log$_{10}$ PBR",
+        row_key="sample",
+        col_key="timepoint",
+    )
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -95,7 +119,7 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     """Assert empty data case is handled gracefully."""
     # Create empty TSV with correct schema
     empty_tsv = tmp_path / "empty.tsv"
-    empty_df = pd.DataFrame(columns=['sample', 'timepoint', 'condition', 'pbl', 'pbr'])
+    empty_df = pd.DataFrame(columns=['sample', 'timepoint', 'pbl', 'pbr'])
     empty_df.to_csv(empty_tsv, sep='\t', index=False)
 
     output_stem = tmp_path / "empty_test"
@@ -105,4 +129,13 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     assert df.empty
 
     # Render should not crash
-    render_correlation_figure(df, output_stem)
+    render_grouped_regression_figure(
+        df,
+        output_stem,
+        x="log10_pbl",
+        y="log10_pbr",
+        xlabel="log$_{10}$ PBL",
+        ylabel="log$_{10}$ PBR",
+        row_key="sample",
+        col_key="timepoint",
+    )

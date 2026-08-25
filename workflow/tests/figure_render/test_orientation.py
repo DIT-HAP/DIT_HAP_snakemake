@@ -22,12 +22,27 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.orientation import load_and_prepare_data, render_orientation_figure
+from figure_render.scatter import render_grouped_regression_figure
+
+
+def _load_orientation_script() -> ModuleType:
+    """Load the orientation CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_insertion_orientation.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_insertion_orientation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_orientation_script()
+load_and_prepare_data = _SCRIPT.load_and_prepare_data
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -143,7 +158,16 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
     # One panel per group is enough to exercise the layout without rendering
     # 694k rasterised points, which takes minutes.
     subset = df[df["sample"] == "HD1328-4_YES"]
-    render_orientation_figure(subset, output_stem)
+    render_grouped_regression_figure(
+        subset,
+        output_stem,
+        x="log10_plus_count",
+        y="log10_minus_count",
+        xlabel="log$_{10}$ (+) strand",
+        ylabel="log$_{10}$ (-) strand",
+        row_key="sample",
+        col_key="timepoint",
+    )
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -176,7 +200,16 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     df = load_and_prepare_data(empty_tsv)
     assert df.empty
 
-    render_orientation_figure(df, tmp_path / "empty_test")
+    render_grouped_regression_figure(
+        df,
+        tmp_path / "empty_test",
+        x="log10_plus_count",
+        y="log10_minus_count",
+        xlabel="log$_{10}$ (+) strand",
+        ylabel="log$_{10}$ (-) strand",
+        row_key="sample",
+        col_key="timepoint",
+    )
 
 
 def test_nonpositive_rows_dropped(tmp_path: Path) -> None:
