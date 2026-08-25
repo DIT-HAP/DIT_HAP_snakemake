@@ -172,6 +172,7 @@ def create_dataframe(statistics: dict[str, FilteringStatistics]) -> pd.DataFrame
 
     if "filtered_read_pairs_pbl" in df.columns and "filtered_read_pairs_pbr" in df.columns:
         df["total_filtered_pairs"] = df[["filtered_read_pairs_pbl", "filtered_read_pairs_pbr"]].sum(axis=1)
+        df["pbl_pbr_ratio"] = df["filtered_read_pairs_pbl"] / df["filtered_read_pairs_pbr"].replace(0, pd.NA)
 
     # Calculate overall retention rate
     if "total_original_pairs" in df.columns and "total_filtered_pairs" in df.columns:

@@ -38,8 +38,7 @@ def apply_house_style() -> None:
     # Fonttype 42 embeds TrueType, editable in Illustrator
     cns.settings.pdf_fonttype = 42
 
-    # Ecotyper1: colour-blind-safe, print-validated
-    cns.setup_matplotlib(color_cycle="Ecotyper1")
+    cns.setup_matplotlib(color_cycle="Cell")
 
 
 def save_dual(stem: Path | str) -> None:

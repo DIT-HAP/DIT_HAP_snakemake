@@ -77,9 +77,7 @@ sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
 from qc.mapping_stats import (  # noqa: E402
-    FilteringStatistics,
     AnalysisResult,
-    parse_log_file,
     extract_summary_data,
     create_dataframe,
 )
@@ -166,7 +164,15 @@ def main() -> int:
             df = df.rename_axis("Sample", axis=0).sort_index()
 
             # Save to file
-            df.to_csv(config.output_file, sep="\t", index=True, float_format="%.2f")
+            selected_columns = [
+                "total_original_pairs",
+                "total_filtered_pairs",
+                "overall_retention_rate",
+                "pbl_pbr_ratio",
+                "retention_rate_pbl",
+                "retention_rate_pbr"
+            ]
+            df[selected_columns].to_csv(config.output_file, sep="\t", index=True, float_format="%.2f")
             logger.success(f"Statistics saved to: {config.output_file}")
 
             # Display summary

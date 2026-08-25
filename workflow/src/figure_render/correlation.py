@@ -20,6 +20,7 @@ Version:  1.0.0
 # =============================================================================
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import cnsplots as cns
 import numpy as np
 import pandas as pd
@@ -130,5 +131,6 @@ def render_correlation_figure(df: pd.DataFrame, output_stem: Path) -> None:
 
     # Save dual artifacts
     logger.info(f"Saving figure to {output_stem}...")
+    plt.tight_layout()
     save_dual(output_stem)
     logger.success("Figure rendering complete!")
