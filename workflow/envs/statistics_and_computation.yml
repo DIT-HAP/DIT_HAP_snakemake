@@ -1,6 +1,7 @@
 # workflow/envs/statistics_and_computation.yml
 # Computation environment: numerical analysis, depletion scoring, curve fitting.
 # NO plotting libraries — those live in cnsplots.yml.
+name: statistics_and_computation
 channels:
   - conda-forge
   - bioconda

@@ -11,6 +11,7 @@
 # real bounds; otherwise conda resolves matplotlib freely and pip silently
 # downgrades it afterwards, leaving on-disk state that diverges from the
 # recorded conda state in a way Snakemake's env hashing cannot detect.
+name: cnsplots
 channels:
   - conda-forge
   - defaults

@@ -1,3 +1,4 @@
+name: pybedtools
 channels:
   - bioconda
   - conda-forge
