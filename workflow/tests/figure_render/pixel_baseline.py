@@ -86,69 +86,152 @@ def render_all_baseline_figures(out_dir: Path) -> dict[str, Path]:
     return rendered
 
 
+def _load_script(stem: str):
+    """Load a figure CLI script by stem; workflow/scripts/figures has no __init__.py."""
+    import importlib.util
+
+    path = PROJECT_ROOT / "workflow" / "scripts" / "figures" / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(f"_script_{stem}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _render_correlation(stem: Path) -> None:
-    from figure_render.correlation import load_and_prepare_data, render_correlation_figure
-    df = load_and_prepare_data(ARC_DIR / "pbl_pbr_pairs.tsv")
-    render_correlation_figure(df, stem)
+    from figure_render.scatter import render_grouped_regression_figure
+    script = _load_script("plot_pbl_pbr_correlation")
+    df = script.load_and_prepare_data(ARC_DIR / "pbl_pbr_pairs.tsv")
+    render_grouped_regression_figure(
+        df, stem, x=script.X_COLUMN, y=script.Y_COLUMN,
+        xlabel=script.X_LABEL, ylabel=script.Y_LABEL,
+        row_key="sample", col_key="timepoint",
+    )
 
 
 def _render_orientation(stem: Path) -> None:
-    from figure_render.orientation import load_and_prepare_data, render_orientation_figure
-    df = load_and_prepare_data(ARC_DIR / "strand_pairs.tsv")
-    render_orientation_figure(df, stem)
+    from figure_render.scatter import render_grouped_regression_figure
+    script = _load_script("plot_insertion_orientation")
+    df = script.load_and_prepare_data(ARC_DIR / "strand_pairs.tsv")
+    render_grouped_regression_figure(
+        df, stem, x=script.X_COLUMN, y=script.Y_COLUMN,
+        xlabel=script.X_LABEL, ylabel=script.Y_LABEL,
+        row_key="sample", col_key="timepoint",
+    )
 
 
 def _render_read_counts(stem: Path) -> None:
-    from figure_render.read_counts import (
-        load_cutoff_stats, load_distribution_data, render_distribution_figure,
+    from figure_render.histogram import render_prebinned_histogram_figure
+    script = _load_script("plot_read_count_distribution")
+    df = script.load_distribution_data(ARC_DIR / "read_count_distribution.tsv")
+    stats = script.load_cutoff_stats(ARC_DIR / "read_count_cutoff_stats.tsv")
+    initial_time_point = "YES0"
+    cutoff = 8.0
+    render_prebinned_histogram_figure(
+        df, stem,
+        row_key="sample", col_key="timepoint",
+        left_column="bin_left", right_column="bin_right", count_column="count",
+        xlabel=script.X_LABEL, ylabel=script.Y_LABEL,
+        marker_value=float(np.log10(cutoff)),
+        marker_label=f"Cutoff = {cutoff:.2g}",
+        marker_on_col_value=initial_time_point,
+        footer_lines=script.build_retention_footer(df, stats),
+        footer_header=f"Cutoff applied to '{initial_time_point}' (>= {cutoff:.2g}):",
     )
-    df = load_distribution_data(ARC_DIR / "read_count_distribution.tsv")
-    stats = load_cutoff_stats(ARC_DIR / "read_count_cutoff_stats.tsv")
-    render_distribution_figure(df, stats, stem, "YES0", 8.0)
 
 
 def _render_density(stem: Path) -> None:
-    from figure_render.density import load_density_data, render_density_figure
-    df = load_density_data(ARC_DIR / "insertion_density_analysis.tsv")
-    render_density_figure(df, stem, "YES0", "YES4")
+    from figure_render.scatter import render_scatter_grid_figure
+    script = _load_script("plot_insertion_density")
+    df = script.load_density_data(ARC_DIR / "insertion_density_analysis.tsv")
+    render_scatter_grid_figure(
+        df, stem,
+        panels=script.build_density_panels("YES0", "YES4"),
+        hue=script.VIABILITY_COLUMN,
+        hue_order=script.VIABILITY_HUE_ORDER,
+    )
 
 
 def _render_coverage(stem: Path) -> None:
-    from figure_render.coverage import load_coverage_data, render_coverage_figure
-    df = load_coverage_data(ARC_DIR / "gene_coverage_stats.tsv")
-    render_coverage_figure(df, stem)
+    from figure_render.composition import render_composition_figure
+    script = _load_script("plot_gene_coverage")
+    df = script.load_coverage_data(ARC_DIR / "gene_coverage_stats.tsv")
+    render_composition_figure(
+        df, stem,
+        category_column="category", percentage_column="coverage_pct",
+        part_column="covered", whole_column="not_covered", total_column="total",
+        part_label=script.COVERED_LABEL, whole_label=script.NOT_COVERED_LABEL,
+        xlabel=script.X_LABEL, ylabel=script.Y_LABEL, title=script.TITLE,
+        donut_unit=script.DONUT_UNIT,
+    )
 
 
 def _render_dispersions(stem: Path) -> None:
-    from figure_render.dispersions import load_dispersion_data, render_dispersion_figure
-    df = load_dispersion_data(ARC_DIR / "dispersion_data.tsv")
-    render_dispersion_figure(df, stem)
+    from figure_render.series import render_series_scatter_figure
+    script = _load_script("plot_dispersions")
+    df = script.load_dispersion_data(ARC_DIR / "dispersion_data.tsv")
+    render_series_scatter_figure(
+        df, stem,
+        x=script.X_COLUMN, series=script.DISPERSION_SERIES,
+        xlabel=script.X_LABEL, ylabel=script.Y_LABEL, title=script.TITLE,
+    )
 
 
 def _render_ma_replicates(stem: Path) -> None:
-    from figure_render.ma_plot_replicates import load_ma_data, render_ma_figure
-    df = load_ma_data(ARC_DIR / "ma_values.tsv")
-    render_ma_figure(df, stem)
+    from figure_render.ma import Orientation, render_ma_figure
+    script = _load_script("plot_ma_plot_replicates")
+    df = script.load_ma_data(ARC_DIR / "ma_values.tsv")
+    panels, colors = script.build_ma_panels(df)
+    render_ma_figure(
+        panels, stem,
+        abundance_label=script.ABUNDANCE_LABEL, effect_label=script.EFFECT_LABEL,
+        title_prefix=script.TITLE_PREFIX,
+        orientation=Orientation.HORIZONTAL, stack=True,
+        point_colors=colors,
+        panel_width=script.PANEL_WIDTH, panel_height=script.PANEL_HEIGHT,
+        share_axes=False,
+    )
 
 
 def _render_ma_plot(stem: Path) -> None:
-    from figure_render.ma_plot import Orientation, load_ma_data, render_ma_figure
-    basemean, lfc = load_ma_data(DEPLETION_DIR / "baseMean.tsv", DEPLETION_DIR / "LFC.tsv")
-    render_ma_figure(basemean, lfc, stem, Orientation.VERTICAL)
+    from figure_render.ma import Orientation, render_ma_figure
+    script = _load_script("plot_ma_plot")
+    basemean_df, lfc_df = script.load_ma_data(
+        DEPLETION_DIR / "baseMean.tsv", DEPLETION_DIR / "LFC.tsv",
+    )
+    panels = script.build_ma_panels(basemean_df, lfc_df)
+    render_ma_figure(
+        panels, stem,
+        abundance_label=script.ABUNDANCE_LABEL, effect_label=script.EFFECT_LABEL,
+        title_prefix=script.TITLE_PREFIX, orientation=Orientation.VERTICAL,
+    )
 
 
 def _render_distribution(stem: Path) -> None:
-    from figure_render.distribution import load_fitting_stats, render_distribution_figure
-    df, metric_cols = load_fitting_stats(FITTING_DIR / "insertion_level_fitting_statistics.tsv")
-    render_distribution_figure(df, metric_cols, stem, 30)
+    from figure_render.histogram import render_histogram_grid_figure
+    script = _load_script("plot_distribution_of_curve_fitting")
+    df, metric_cols = script.load_fitting_stats(
+        FITTING_DIR / "insertion_level_fitting_statistics.tsv",
+    )
+    render_histogram_grid_figure(df, stem, value_columns=metric_cols, bins=30)
 
 
 def _render_curve_fitting(stem: Path) -> None:
-    from figure_render.curve_fitting import load_and_sample_data, render_curve_fitting_figure
-    stats, lfc, time_points = load_and_sample_data(
+    from depletion.curve_model import sigmoid_function
+    from figure_render.curves import render_fitted_curves_figure
+    script = _load_script("plot_curve_fitting")
+    joined, time_points, timepoint_columns = script.load_and_sample_data(
         FITTING_DIR / "insertion_level_fitting_statistics.tsv",
         DEPLETION_DIR / "LFC.tsv",
         32,
         42,
     )
-    render_curve_fitting_figure(stats, lfc, time_points, stem)
+    render_fitted_curves_figure(
+        joined, stem,
+        x_values=time_points,
+        value_columns=timepoint_columns,
+        model=sigmoid_function,
+        model_params=script.MODEL_PARAM_COLUMNS,
+        annotations=script.ANNOTATION_COLUMNS,
+        xlabel=script.X_LABEL,
+        ylabel=script.Y_LABEL,
+    )
