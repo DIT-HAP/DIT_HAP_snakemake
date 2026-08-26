@@ -16,20 +16,46 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.ma_plot_replicates import (
-    NONSIGNIFICANT_COLOR,
-    PADJ_THRESHOLD,
-    REQUIRED_COLUMNS,
-    SIGNIFICANT_COLOR,
-    load_ma_data,
-    render_ma_figure,
-    significance_colors,
-)
+from figure_render.ma import Orientation, render_ma_figure
+
+
+def _load_ma_plot_replicates_script() -> ModuleType:
+    """Load the replicate-branch MA plot CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_ma_plot_replicates.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_ma_plot_replicates", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_ma_plot_replicates_script()
+load_ma_data = _SCRIPT.load_ma_data
+significance_colors = _SCRIPT.significance_colors
+build_ma_panels = _SCRIPT.build_ma_panels
+PADJ_THRESHOLD = _SCRIPT.PADJ_THRESHOLD
+SIGNIFICANT_COLOR = _SCRIPT.SIGNIFICANT_COLOR
+NONSIGNIFICANT_COLOR = _SCRIPT.NONSIGNIFICANT_COLOR
+REQUIRED_COLUMNS = _SCRIPT.REQUIRED_COLUMNS
+
+
+def _render(df: pd.DataFrame, output_stem: Path) -> None:
+    """Render via the panels+colors form the script's main() uses."""
+    panels, colors = build_ma_panels(df)
+    render_ma_figure(
+        panels, output_stem,
+        abundance_label=_SCRIPT.ABUNDANCE_LABEL, effect_label=_SCRIPT.EFFECT_LABEL,
+        title_prefix=_SCRIPT.TITLE_PREFIX,
+        orientation=Orientation.HORIZONTAL, stack=True,
+        point_colors=colors,
+        panel_width=_SCRIPT.PANEL_WIDTH, panel_height=_SCRIPT.PANEL_HEIGHT, share_axes=False,
+    )
 
 
 # =============================================================================
@@ -95,7 +121,7 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
         pytest.skip(f"Real data not found: {real_data_path}")
 
     df = load_ma_data(real_data_path)
-    render_ma_figure(df, output_stem)
+    _render(df, output_stem)
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -130,4 +156,4 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     assert df.empty
 
     # Render should not crash
-    render_ma_figure(df, output_stem)
+    _render(df, output_stem)

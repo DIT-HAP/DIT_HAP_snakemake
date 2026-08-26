@@ -22,6 +22,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
 from loguru import logger
 from matplotlib import use
 
@@ -30,7 +31,8 @@ use("Agg")
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.coverage import load_coverage_data, render_coverage_figure  # noqa: E402
+from figure_render.composition import render_composition_figure  # noqa: E402
+from figure_render._schema import require_columns  # noqa: E402
 
 
 # =============================================================================
@@ -49,6 +51,33 @@ class PlotConfig:
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
 
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+REQUIRED_COLUMNS = ["category", "covered", "not_covered", "total", "coverage_pct"]
+
+COVERED_LABEL = "Covered"
+NOT_COVERED_LABEL = "Not covered"
+
+X_LABEL = "Gene viability"
+Y_LABEL = "Coverage (%)"
+TITLE = "Gene coverage by viability"
+DONUT_UNIT = "genes"
+
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+@logger.catch
+def load_coverage_data(input_path: Path) -> pd.DataFrame:
+    """Load the coverage statistics TSV and validate its schema."""
+    logger.info(f"Loading coverage statistics from {input_path}...")
+    df = pd.read_csv(input_path, sep="\t")
+
+    require_columns(df, REQUIRED_COLUMNS, context=f"coverage TSV {input_path.name}")
+
+    logger.info(f"Loaded {len(df)} viability categories")
+    return df
 
 
 # =============================================================================
@@ -83,7 +112,14 @@ def main() -> int:
 
     try:
         df = load_coverage_data(config.input_path)
-        render_coverage_figure(df, config.output_stem)
+
+        render_composition_figure(
+            df, config.output_stem,
+            category_column="category", percentage_column="coverage_pct",
+            part_column="covered", whole_column="not_covered", total_column="total",
+            part_label=COVERED_LABEL, whole_label=NOT_COVERED_LABEL,
+            xlabel=X_LABEL, ylabel=Y_LABEL, title=TITLE, donut_unit=DONUT_UNIT,
+        )
     except Exception as e:
         logger.error(f"Error during rendering: {e}")
         return 1

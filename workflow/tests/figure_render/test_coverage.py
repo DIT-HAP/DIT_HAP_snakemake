@@ -21,12 +21,39 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.coverage import load_coverage_data, render_coverage_figure
+from figure_render.composition import render_composition_figure
+
+
+def _load_gene_coverage_script() -> ModuleType:
+    """Load the gene coverage CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_gene_coverage.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_gene_coverage", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_gene_coverage_script()
+load_coverage_data = _SCRIPT.load_coverage_data
+
+
+def _render(df: pd.DataFrame, output_stem: Path) -> None:
+    """Render via the same call the script's main() makes."""
+    render_composition_figure(
+        df, output_stem,
+        category_column="category", percentage_column="coverage_pct",
+        part_column="covered", whole_column="not_covered", total_column="total",
+        part_label=_SCRIPT.COVERED_LABEL, whole_label=_SCRIPT.NOT_COVERED_LABEL,
+        xlabel=_SCRIPT.X_LABEL, ylabel=_SCRIPT.Y_LABEL, title=_SCRIPT.TITLE, donut_unit=_SCRIPT.DONUT_UNIT,
+    )
+
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -105,7 +132,7 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
         pytest.skip(f"Real data not found: {real_data_path}")
 
     df = load_coverage_data(real_data_path)
-    render_coverage_figure(df, output_stem)
+    _render(df, output_stem)
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -124,7 +151,7 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     df = load_coverage_data(empty_tsv)
     assert df.empty
 
-    render_coverage_figure(df, tmp_path / "empty_test")
+    _render(df, tmp_path / "empty_test")
 
     pdf_path = tmp_path / "empty_test.pdf"
     assert pdf_path.exists(), "PDF artifact not created for empty data"
@@ -144,7 +171,7 @@ def test_zero_total_category_handled(tmp_path: Path) -> None:
     ).to_csv(zero_tsv, sep="\t", index=False)
 
     df = load_coverage_data(zero_tsv)
-    render_coverage_figure(df, tmp_path / "zero_test")
+    _render(df, tmp_path / "zero_test")
 
     pdf_path = tmp_path / "zero_test.pdf"
     assert pdf_path.exists(), "PDF artifact not created when a category has zero genes"

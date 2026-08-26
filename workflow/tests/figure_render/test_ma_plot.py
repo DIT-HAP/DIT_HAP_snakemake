@@ -16,12 +16,28 @@ Version:  2.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.ma_plot import Orientation, load_ma_data, render_ma_figure
+from figure_render.ma import Orientation, render_ma_figure
+
+
+def _load_ma_plot_script() -> ModuleType:
+    """Load the MA plot CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_ma_plot.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_ma_plot", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_ma_plot_script()
+load_ma_data = _SCRIPT.load_ma_data
+build_ma_panels = _SCRIPT.build_ma_panels
 
 
 # =============================================================================
@@ -97,7 +113,11 @@ def test_dual_artifacts_created(small_index: pd.MultiIndex, output_stem: Path, o
         {"YES0": [0.0, 0.0, 0.0], "YES1": [0.5, -0.3, 0.0]}, index=small_index
     )
 
-    render_ma_figure(basemean_df, lfc_df, output_stem, orientation)
+    render_ma_figure(
+        build_ma_panels(basemean_df, lfc_df), output_stem,
+        abundance_label="mean of normalized counts", effect_label="log2 fold change",
+        title_prefix="MA plot", orientation=orientation,
+    )
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -118,4 +138,8 @@ def test_empty_data_handling(tmp_path: Path, orientation: Orientation) -> None:
     output_stem = tmp_path / "empty_test"
 
     # Render should not crash
-    render_ma_figure(empty_basemean, empty_lfc, output_stem, orientation)
+    render_ma_figure(
+        build_ma_panels(empty_basemean, empty_lfc), output_stem,
+        abundance_label="mean of normalized counts", effect_label="log2 fold change",
+        title_prefix="MA plot", orientation=orientation,
+    )

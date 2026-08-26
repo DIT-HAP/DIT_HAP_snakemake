@@ -43,6 +43,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
 from loguru import logger
 from matplotlib import use
 
@@ -51,7 +52,7 @@ use("Agg")
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.ma_plot import Orientation, load_ma_data, render_ma_figure  # noqa: E402
+from figure_render.ma import Orientation, render_ma_figure  # noqa: E402
 
 
 # =============================================================================
@@ -72,6 +73,41 @@ class PlotConfig:
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
 
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+INSERTION_INDEX_COLUMNS = [0, 1, 2, 3]
+
+ABUNDANCE_LABEL = "mean of normalized counts"
+EFFECT_LABEL = "log2 fold change"
+TITLE_PREFIX = "MA plot"
+
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+@logger.catch
+def load_ma_data(basemean_path: Path, lfc_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load the wide baseMean/LFC tables and validate that their columns match."""
+    logger.info(f"Loading baseMean from {basemean_path}...")
+    basemean_df = pd.read_csv(basemean_path, sep="\t", index_col=INSERTION_INDEX_COLUMNS)
+
+    logger.info(f"Loading LFC from {lfc_path}...")
+    lfc_df = pd.read_csv(lfc_path, sep="\t", index_col=INSERTION_INDEX_COLUMNS)
+
+    missing_cols = [col for col in lfc_df.columns if col not in basemean_df.columns]
+    if missing_cols:
+        raise ValueError(f"Timepoints present in LFC but missing from baseMean: {missing_cols}")
+
+    logger.info(f"Loaded {len(lfc_df)} insertions across {len(lfc_df.columns)} timepoints")
+    return basemean_df, lfc_df
+
+
+def build_ma_panels(
+    basemean_df: pd.DataFrame, lfc_df: pd.DataFrame
+) -> list[tuple[str, pd.Series, pd.Series]]:
+    """Reshape the wide tables into (title, abundance, effect) triples, one per timepoint."""
+    return [(timepoint, basemean_df[timepoint], lfc_df[timepoint]) for timepoint in lfc_df.columns]
 
 
 # =============================================================================
@@ -111,11 +147,20 @@ def main() -> int:
     try:
         # Load data
         basemean_df, lfc_df = load_ma_data(config.basemean_path, config.lfc_path)
+        panels = build_ma_panels(basemean_df, lfc_df)
 
-        # Render both orientations
-        render_ma_figure(basemean_df, lfc_df, config.output_stem, Orientation.VERTICAL)
+        render_ma_figure(
+            panels, config.output_stem,
+            abundance_label=ABUNDANCE_LABEL, effect_label=EFFECT_LABEL,
+            title_prefix=TITLE_PREFIX, orientation=Orientation.VERTICAL,
+        )
+
         horizontal_stem = config.output_stem.with_name(f"{config.output_stem.name}_horizontal")
-        render_ma_figure(basemean_df, lfc_df, horizontal_stem, Orientation.HORIZONTAL)
+        render_ma_figure(
+            panels, horizontal_stem,
+            abundance_label=ABUNDANCE_LABEL, effect_label=EFFECT_LABEL,
+            title_prefix=TITLE_PREFIX, orientation=Orientation.HORIZONTAL,
+        )
 
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

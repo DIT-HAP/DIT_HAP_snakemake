@@ -46,6 +46,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
 from loguru import logger
 from matplotlib import use
 
@@ -55,7 +56,8 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.dispersions import load_dispersion_data, render_dispersion_figure  # noqa: E402
+from figure_render.series import Series, render_series_scatter_figure  # noqa: E402
+from figure_render._schema import require_columns  # noqa: E402
 
 
 # =============================================================================
@@ -74,6 +76,42 @@ class PlotConfig:
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
 
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+INSERTION_INDEX_COLUMNS = [0, 1, 2, 3]
+
+X_COLUMN = "normed_mean"
+
+# Series order, labels and colours mirror pydeseq2's plot_dispersions(): it passes
+# [genewise, MAP, fitted] with labels ["Estimated", "Final", "Fitted"] and the
+# matplotlib colour string "kbr" mapped positionally.
+DISPERSION_SERIES = [
+    Series(column="genewise_dispersion", label="Estimated", color="k"),
+    Series(column="MAP_dispersion", label="Final", color="b"),
+    Series(column="fitted_dispersion", label="Fitted", color="r"),
+]
+
+REQUIRED_COLUMNS = [X_COLUMN, *(item.column for item in DISPERSION_SERIES)]
+
+X_LABEL = "mean of normalized counts"
+Y_LABEL = "dispersion"
+TITLE = "DESeq2 dispersion estimates"
+
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+@logger.catch
+def load_dispersion_data(dispersion_data_path: Path) -> pd.DataFrame:
+    """Load the dispersion figure-data TSV and validate its schema."""
+    logger.info(f"Loading dispersion data from {dispersion_data_path}...")
+    df = pd.read_csv(dispersion_data_path, sep="\t", index_col=INSERTION_INDEX_COLUMNS)
+
+    require_columns(df, REQUIRED_COLUMNS, context=f"dispersion TSV {dispersion_data_path.name}")
+
+    logger.info(f"Loaded {len(df)} rows")
+    return df
 
 
 # =============================================================================
@@ -113,7 +151,11 @@ def main() -> int:
         df = load_dispersion_data(config.dispersion_data_path)
 
         # Render figure
-        render_dispersion_figure(df, config.output_stem)
+        render_series_scatter_figure(
+            df, config.output_stem,
+            x=X_COLUMN, series=DISPERSION_SERIES,
+            xlabel=X_LABEL, ylabel=Y_LABEL, title=TITLE,
+        )
 
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

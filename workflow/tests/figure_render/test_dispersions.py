@@ -15,18 +15,38 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.dispersions import (
-    DISPERSION_SERIES,
-    REQUIRED_COLUMNS,
-    X_COLUMN,
-    load_dispersion_data,
-    render_dispersion_figure,
-)
+from figure_render.series import render_series_scatter_figure
+
+
+def _load_dispersions_script() -> ModuleType:
+    """Load the dispersions CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_dispersions.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_dispersions", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_dispersions_script()
+load_dispersion_data = _SCRIPT.load_dispersion_data
+X_COLUMN = _SCRIPT.X_COLUMN
+REQUIRED_COLUMNS = _SCRIPT.REQUIRED_COLUMNS
+
+
+def _render(df: pd.DataFrame, output_stem: Path) -> None:
+    """Render via the same call the script's main() makes."""
+    render_series_scatter_figure(
+        df, output_stem,
+        x=X_COLUMN, series=_SCRIPT.DISPERSION_SERIES,
+        xlabel=_SCRIPT.X_LABEL, ylabel=_SCRIPT.Y_LABEL, title=_SCRIPT.TITLE,
+    )
 
 
 # =============================================================================
@@ -68,8 +88,8 @@ def test_baseline_statistics(real_data_path: Path) -> None:
 
     # Log-scale axes require strictly positive values
     assert (df[X_COLUMN] > 0).all(), "normed_mean must be positive for log-scale x-axis"
-    for col, _, _ in DISPERSION_SERIES:
-        assert (df[col].dropna() > 0).all(), f"{col} must be positive for log-scale y-axis"
+    for series in _SCRIPT.DISPERSION_SERIES:
+        assert (df[series.column].dropna() > 0).all(), f"{series.column} must be positive for log-scale y-axis"
 
 
 def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None:
@@ -78,7 +98,7 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
         pytest.skip(f"Real data not found: {real_data_path}")
 
     df = load_dispersion_data(real_data_path)
-    render_dispersion_figure(df, output_stem)
+    _render(df, output_stem)
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -125,4 +145,4 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     assert df.empty
 
     # Render should not crash
-    render_dispersion_figure(df, output_stem)
+    _render(df, output_stem)

@@ -22,12 +22,39 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.density import load_density_data, render_density_figure
+from figure_render.scatter import render_scatter_grid_figure
+
+
+def _load_insertion_density_script() -> ModuleType:
+    """Load the insertion density CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_insertion_density.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_insertion_density", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_insertion_density_script()
+load_density_data = _SCRIPT.load_density_data
+build_density_panels = _SCRIPT.build_density_panels
+
+
+def _render(df: pd.DataFrame, output_stem: Path) -> None:
+    """Render via the same call the script's main() makes, for YES0/YES4."""
+    render_scatter_grid_figure(
+        df, output_stem,
+        panels=build_density_panels("YES0", "YES4"),
+        hue=_SCRIPT.VIABILITY_COLUMN,
+        hue_order=_SCRIPT.VIABILITY_HUE_ORDER,
+    )
+
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -127,7 +154,7 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
         pytest.skip(f"Real data not found: {real_data_path}")
 
     df = load_density_data(real_data_path)
-    render_density_figure(df, output_stem, "YES0", "YES4")
+    _render(df, output_stem)
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -146,7 +173,7 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     df = load_density_data(empty_tsv)
     assert df.empty
 
-    render_density_figure(df, tmp_path / "empty_test", "YES0", "YES4")
+    _render(df, tmp_path / "empty_test")
 
     pdf_path = tmp_path / "empty_test.pdf"
     assert pdf_path.exists(), "PDF artifact not created for empty data"
