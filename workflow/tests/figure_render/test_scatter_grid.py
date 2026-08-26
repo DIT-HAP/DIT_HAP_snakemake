@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from figure_render.scatter import ScatterPanel, render_scatter_grid_figure
+from figure_render.scatter import ScatterPanel, render_scatter_grid_figure, render_scatter_panel
 
 
 # =============================================================================
@@ -154,3 +154,37 @@ def test_missing_panel_column_raises(arbitrary_frame: pd.DataFrame, tmp_path: Pa
 
     with pytest.raises(ValueError, match="absent"):
         render_scatter_grid_figure(arbitrary_frame, tmp_path / "bad", panels=panels)
+
+
+def test_render_scatter_panel_draws_on_given_axes(arbitrary_frame: pd.DataFrame) -> None:
+    """Assert the single-axes primitive draws a scatter and reference line onto ax."""
+    import matplotlib.pyplot as plt
+
+    panel = ScatterPanel(
+        x="metric_a", y="metric_b", xlabel="A", ylabel="B", title="A vs B", reference="identity",
+    )
+
+    _, ax = plt.subplots()
+    render_scatter_panel(ax, arbitrary_frame, panel)
+
+    assert ax.get_xlabel() == "A"
+    assert ax.get_ylabel() == "B"
+    assert ax.get_title() == "A vs B"
+    assert len(ax.collections) > 0, "No scatter points drawn"
+    assert len(ax.lines) > 0, "No identity reference line drawn"
+    plt.close(ax.figure)
+
+
+def test_render_scatter_panel_handles_empty_data() -> None:
+    """Assert an empty frame draws a placeholder instead of raising."""
+    import matplotlib.pyplot as plt
+
+    panel = ScatterPanel(x="metric_a", y="metric_b", xlabel="A", ylabel="B", title="Empty")
+    empty = pd.DataFrame(columns=["metric_a", "metric_b"])
+
+    _, ax = plt.subplots()
+    render_scatter_panel(ax, empty, panel)
+
+    assert ax.get_title() == "Empty"
+    assert len(ax.texts) > 0, "No 'No valid data' placeholder drawn"
+    plt.close(ax.figure)

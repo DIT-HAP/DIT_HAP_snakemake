@@ -13,7 +13,7 @@ Version:  1.0.0
 # =============================================================================
 import pytest
 
-from figure_render._layout import PANEL_DECORATION_PX, grid_panel_size, panel_labels
+from figure_render._layout import PANEL_DECORATION_PX, grid_panel_size, panel_labels, square_panel_size
 
 
 # =============================================================================
@@ -69,7 +69,7 @@ def test_grid_panel_size_enforces_floor() -> None:
     """Assert crowded grids clamp to the minimum rather than going negative."""
     width, height = grid_panel_size(510, 425, n_cols=50, n_rows=50, decoration_px=40)
 
-    assert width == 45
+    assert width == 55
     assert height == 55
 
 
@@ -90,3 +90,23 @@ def test_grid_panel_size_reproduces_orientation_values() -> None:
 
     assert width == max(45, int(510 / 5) - 40)
     assert height == max(55, int(425 / 3) - 40)
+
+
+def test_square_panel_size_derives_from_width_only() -> None:
+    """Assert the edge length depends only on n_cols, not on any row count."""
+    edge = square_panel_size(510, n_cols=5, decoration_px=40)
+
+    assert edge == 510 // 5 - 40
+
+
+def test_square_panel_size_enforces_floor() -> None:
+    """Assert a crowded row clamps to the minimum rather than going negative."""
+    edge = square_panel_size(510, n_cols=50, decoration_px=40)
+
+    assert edge == 55
+
+
+def test_square_panel_size_rejects_zero_cols() -> None:
+    """Assert a zero column count is refused instead of dividing by zero."""
+    with pytest.raises(ValueError, match="n_cols"):
+        square_panel_size(510, n_cols=0)

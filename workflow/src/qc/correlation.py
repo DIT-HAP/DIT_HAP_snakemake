@@ -17,7 +17,7 @@ from loguru import logger
 # =============================================================================
 @logger.catch
 def read_tsv_file(file_path: Path) -> pd.DataFrame | None:
-    """Read a TSV file and return only strictly-positive PBL/PBR pairs, or None if invalid."""
+    """Read a TSV file and return Chr/Coordinate/Strand plus strictly-positive PBL/PBR pairs, or None if invalid."""
     logger.info(f"Reading TSV file: {file_path}")
 
     df = pd.read_csv(file_path, sep='\t', index_col=[0, 1, 2])
@@ -40,7 +40,8 @@ def read_tsv_file(file_path: Path) -> pd.DataFrame | None:
         logger.warning(f"Warning: No valid data points in {file_path}")
         return None
 
-    return df_clean
+    # Restore Chr/Coordinate/Strand from the row index as plain columns
+    return df_clean.reset_index()
 
 
 @logger.catch

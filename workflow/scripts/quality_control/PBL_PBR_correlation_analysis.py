@@ -29,7 +29,8 @@ Input
 Output
 ------
 - A single long-format TSV file (``-o``/``--output``) with columns:
-  ``sample``, ``timepoint``, ``condition``, ``pbl``, ``pbr``.
+  ``sample``, ``timepoint``, ``condition``, ``chr``, ``coordinate``, ``strand``,
+  ``pbl``, ``pbr``.
 
 Usage
 -----
@@ -130,11 +131,14 @@ def main() -> int:
             continue
 
         # Create long-format dataframe with vectorized operations
-        pairs_df = df[['PBL', 'PBR']].rename(columns={'PBL': 'pbl', 'PBR': 'pbr'})
+        pairs_df = df.rename(columns={
+            'Chr': 'chr', 'Coordinate': 'coordinate', 'Strand': 'strand',
+            'PBL': 'pbl', 'PBR': 'pbr',
+        })
         pairs_df = pairs_df.assign(sample=sample, timepoint=timepoint, condition=condition)
 
-        # Reorder columns to match spec: sample, timepoint, condition, pbl, pbr
-        pairs_df = pairs_df[['sample', 'timepoint', 'condition', 'pbl', 'pbr']]
+        # Reorder columns to match spec: sample, timepoint, condition, chr, coordinate, strand, pbl, pbr
+        pairs_df = pairs_df[['sample', 'timepoint', 'condition', 'chr', 'coordinate', 'strand', 'pbl', 'pbr']]
 
         all_dataframes.append(pairs_df)
         logger.info(f"  - Extracted {len(pairs_df)} pairs from {filename}")
