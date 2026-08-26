@@ -13,11 +13,8 @@ min_version("9.0")
 # ---------------------------------------------------------------------------
 # Select the active project (edit this line to switch experiments).
 # Each project lives under projects/{project}/ with its own config/ and outputs.
-# project = "HD_DIT_HAP_generationRAW"
-# project = "HD_DIT_HAP_generationPLUS1"
-project = "HD_DIT_HAP"
-# project = "LD_DIT_HAP_generationRAW"
-# project = "LD_DIT_HAP_generationPLUS1"
+project = "LD_DIT_HAP"
+# project = "HD_DIT_HAP"
 # project = "HD_diploid"
 # project = "LD_haploid"
 # project = "Spikein"
@@ -82,25 +79,26 @@ wildcard_constraints:
 # ---------------------------------------------------------------------------
 rule all:
     input:
+        # --- smoke-test target (uncomment one to run) ---
+        f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf"
         # --- reference data ---
-        f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
+        # f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
 
         # --- read processing ---
-        # expand(f"results/{project_name}/10_annotated/{{sample}}_{{timepoint}}_{{condition}}.annotated.tsv", sample=samples, timepoint=timepoints, condition=conditions),
-        # expand(f"results/{project_name}/11_concat_timepoints/{{sample}}_{{condition}}.counts.tsv", sample=samples, condition=conditions),
+        # expand(f"projects/{project_name}/results/10_annotated/{{sample}}_{{timepoint}}_{{condition}}.annotated.tsv", sample=samples, timepoint=timepoints, condition=conditions),
+        # expand(f"projects/{project_name}/results/11_concat_timepoints/{{sample}}_{{condition}}.counts.tsv", sample=samples, condition=conditions),
         
         # --- depletion scoring ---
-        # f"results/{project_name}/13_filtered/raw_reads.filtered.tsv",
-        f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-        # f"results/{project_name}/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
-        # f"results/{project_name}/16_gene_level_depletion_analysis/gene_level_statistics.tsv",
-        # f"results/{project_name}/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
-        
+        # f"projects/{project_name}/results/13_filtered/raw_reads.filtered.tsv",
+        # f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
+        # f"projects/{project_name}/results/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
+        # f"projects/{project_name}/results/16_gene_level_depletion_analysis/gene_level_statistics.tsv",
+        # f"projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
         # --- quality control ---
-        # f"reports/{project_name}/multiqc/quality_control_multiqc_report.html",
-        # f"reports/{project_name}/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
-        # f"reports/{project_name}/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
-        # f"reports/{project_name}/gene_coverage_analysis",
+        # f"projects/{project_name}/reports/multiqc/quality_control_multiqc_report.html",
+        # f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
+        # f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
+        # f"projects/{project_name}/reports/gene_coverage_analysis",
         
         # --- packaging ---
         # see workflow/rules/packaging.smk's package_release for the release/
@@ -109,9 +107,7 @@ rule all:
         #     --report projects/{project_name}/reports/snakemake_report/report.zip \
         #     --report-after-run -- all`
         
-        # --- smoke-test target (uncomment one to run) ---
-        # f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
-
+        
 # ---------------------------------------------------------------------------
 # Rule modules
 # ---------------------------------------------------------------------------
@@ -121,3 +117,4 @@ include: "workflow/rules/depletion_scoring.smk"
 include: "workflow/rules/quality_control.smk"
 include: "workflow/rules/packaging.smk"
 include: "workflow/rules/figures.smk"
+include: "workflow/rules/datavzrd.smk"
