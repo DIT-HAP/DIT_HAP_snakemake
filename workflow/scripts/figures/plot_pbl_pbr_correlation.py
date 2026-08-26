@@ -69,7 +69,7 @@ class PlotConfig:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_and_prepare_data(input_path: Path) -> pd.DataFrame:
     """Load the pairs TSV, keep strictly-positive pairs, and add log10 columns."""
     logger.info(f"Loading data from {input_path}...")
@@ -84,12 +84,12 @@ def load_and_prepare_data(input_path: Path) -> pd.DataFrame:
 
     if positive.empty:
         logger.warning("No valid data points after filtering!")
-        return positive
 
     # regplot annotates r and P from the columns it is handed, so the log10
     # columns must be explicit: passing raw values would report raw-space
     # correlation (r ~ -0.03) instead of the log-space PCC (r = 0.85) that this
-    # figure has always shown.
+    # figure has always shown. Computed unconditionally (a no-op on an empty
+    # frame) so the renderer's column validation still finds these columns.
     positive[X_COLUMN] = np.log10(positive["pbl"])
     positive[Y_COLUMN] = np.log10(positive["pbr"])
 

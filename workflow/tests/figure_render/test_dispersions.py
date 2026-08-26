@@ -110,7 +110,7 @@ def test_dual_artifacts_created(real_data_path: Path, output_stem: Path) -> None
     assert png_path.stat().st_size > 0, "PNG artifact is empty"
 
 
-def test_missing_column_rejected(tmp_path: Path) -> None:
+def test_missing_column_raises(tmp_path: Path) -> None:
     """Assert a TSV missing a dispersion column is refused, not silently plotted."""
     bad_tsv = tmp_path / "bad.tsv"
     bad_df = pd.DataFrame(
@@ -126,9 +126,10 @@ def test_missing_column_rejected(tmp_path: Path) -> None:
     )
     bad_df.to_csv(bad_tsv, sep='\t', index=False)
 
-    # The loader raises ValueError, which @logger.catch logs and converts into a
-    # None return, so the caller never receives a partially-valid frame.
-    assert load_dispersion_data(bad_tsv) is None
+    # The loader raises ValueError, which @logger.catch(reraise=True) logs and
+    # then re-raises, so the caller never receives a partially-valid frame.
+    with pytest.raises(ValueError, match="MAP_dispersion"):
+        load_dispersion_data(bad_tsv)
 
 
 def test_empty_data_handling(tmp_path: Path) -> None:

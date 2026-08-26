@@ -147,6 +147,28 @@ def test_empty_frame_does_not_crash(tmp_path: Path) -> None:
     )
 
 
+def test_empty_frame_with_bad_column_still_raises(tmp_path: Path) -> None:
+    """Assert column validation runs before the empty-frame guard.
+
+    An empty frame with a typo'd column name must not be silently accepted:
+    require_columns has to run before the `if df.empty: return`, or the typo
+    passes through with no artifact and no error.
+    """
+    empty = pd.DataFrame(columns=["batch", "stage", "left_signal", "right_signal"])
+
+    with pytest.raises(ValueError, match="absent_column"):
+        render_grouped_regression_figure(
+            empty,
+            tmp_path / "empty_bad",
+            x="absent_column",
+            y="right_signal",
+            xlabel="left",
+            ylabel="right",
+            row_key="batch",
+            col_key="stage",
+        )
+
+
 def test_missing_x_column_raises(arbitrary_frame: pd.DataFrame, tmp_path: Path) -> None:
     """Assert a bad column name fails loudly rather than drawing an empty panel."""
     with pytest.raises(ValueError, match="absent_column"):

@@ -109,6 +109,8 @@ def test_dual_artifacts_created(real_stats_path: Path, real_lfc_path: Path, outp
         model=sigmoid_function,
         model_params=["A", "DR", "DL"],
         annotations=["R2", "RMSE"],
+        xlabel=_SCRIPT.X_LABEL,
+        ylabel=_SCRIPT.Y_LABEL,
     )
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
@@ -150,4 +152,6 @@ def test_empty_data_handling(tmp_path: Path) -> None:
         model=sigmoid_function,
         model_params=["A", "DR", "DL"],
         annotations=["R2", "RMSE"],
+        xlabel=_SCRIPT.X_LABEL,
+        ylabel=_SCRIPT.Y_LABEL,
     )

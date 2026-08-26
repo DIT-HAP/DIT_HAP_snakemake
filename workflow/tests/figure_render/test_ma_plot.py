@@ -91,7 +91,11 @@ def test_baseline_statistics(real_basemean_path: Path, real_lfc_path: Path) -> N
 
 
 def test_load_ma_data_rejects_mismatched_timepoints(small_index: pd.MultiIndex, tmp_path: Path) -> None:
-    """Assert a timepoint present in LFC but absent from baseMean is rejected."""
+    """Assert a timepoint present in LFC but absent from baseMean is rejected.
+
+    The loader raises ValueError, which @logger.catch(reraise=True) logs and then
+    re-raises rather than swallowing into a None return.
+    """
     basemean_df = pd.DataFrame({"YES0": [10.0, 20.0, 30.0]}, index=small_index)
     lfc_df = pd.DataFrame({"YES0": [0.0, 0.0, 0.0], "YES1": [0.5, -0.3, 0.0]}, index=small_index)
 
@@ -100,7 +104,8 @@ def test_load_ma_data_rejects_mismatched_timepoints(small_index: pd.MultiIndex, 
     basemean_df.to_csv(basemean_path, sep="\t")
     lfc_df.to_csv(lfc_path, sep="\t")
 
-    assert load_ma_data(basemean_path, lfc_path) is None
+    with pytest.raises(ValueError, match="YES1"):
+        load_ma_data(basemean_path, lfc_path)
 
 
 @pytest.mark.parametrize("orientation", [Orientation.VERTICAL, Orientation.HORIZONTAL])

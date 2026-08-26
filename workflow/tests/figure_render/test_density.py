@@ -179,13 +179,15 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     assert pdf_path.exists(), "PDF artifact not created for empty data"
 
 
-def test_missing_required_column_returns_none(tmp_path: Path) -> None:
-    """Assert a density statistics TSV missing a required column is rejected (logger.catch swallows the raise)."""
+def test_missing_required_column_raises(tmp_path: Path) -> None:
+    """Assert a density statistics TSV missing a required column raises ValueError.
+
+    load_density_data is decorated with @logger.catch(reraise=True), matching the
+    established convention in plot_pbl_pbr_correlation.py / plot_read_count_distribution.py:
+    the ValueError is logged and then re-raised rather than swallowed into a None return.
+    """
     bad_tsv = tmp_path / "bad.tsv"
     pd.DataFrame({"insertion_density_per_kb_initial": [1.0, 2.0]}).to_csv(bad_tsv, sep="\t", index=False)
 
-    # load_density_data is decorated with @logger.catch, matching the established
-    # convention in plot_pbl_pbr_correlation.py / plot_read_count_distribution.py:
-    # the ValueError is logged and the function returns None rather than propagating.
-    result = load_density_data(bad_tsv)
-    assert result is None
+    with pytest.raises(ValueError, match="insertion_density_per_kb_final"):
+        load_density_data(bad_tsv)

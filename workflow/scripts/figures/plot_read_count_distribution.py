@@ -76,7 +76,7 @@ Y_LABEL = "Frequency"
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_distribution_data(input_path: Path) -> pd.DataFrame:
     """Load the binned distribution TSV and validate its schema."""
     logger.info(f"Loading binned distribution from {input_path}...")
@@ -88,7 +88,7 @@ def load_distribution_data(input_path: Path) -> pd.DataFrame:
     return df
 
 
-@logger.catch
+@logger.catch(reraise=True)
 def load_cutoff_stats(stats_path: Path) -> pd.DataFrame:
     """Load the cutoff retention statistics TSV and validate its schema."""
     logger.info(f"Loading cutoff statistics from {stats_path}...")

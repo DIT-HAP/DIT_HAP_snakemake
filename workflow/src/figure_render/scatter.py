@@ -89,11 +89,13 @@ def render_grouped_regression_figure(
     """Render a row_key x col_key grid of regression panels for the x/y columns."""
     logger.info("Rendering grouped regression figure...")
 
+    # Validated even when df is empty, so a typo'd column name is caught rather
+    # than silently returning with no artifact and no error.
+    require_columns(df, [row_key, col_key, x, y], context="scatter input")
+
     if df.empty:
         logger.warning("No data to plot!")
         return
-
-    require_columns(df, [row_key, col_key, x, y], context="scatter input")
 
     apply_house_style()
 

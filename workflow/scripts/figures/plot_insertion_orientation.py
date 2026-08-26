@@ -67,7 +67,7 @@ Y_LABEL = "log$_{10}$ (-) strand"
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_and_prepare_data(input_path: Path) -> pd.DataFrame:
     """Load the strand pairs TSV, keep strictly-positive pairs, and add log10 columns."""
     logger.info(f"Loading data from {input_path}...")
@@ -84,8 +84,9 @@ def load_and_prepare_data(input_path: Path) -> pd.DataFrame:
 
     if positive.empty:
         logger.warning("No valid data points after filtering!")
-        return positive
 
+    # Computed unconditionally (a no-op on an empty frame) so the renderer's
+    # column validation still finds these columns.
     positive[X_COLUMN] = np.log10(positive["plus_count"])
     positive[Y_COLUMN] = np.log10(positive["minus_count"])
 

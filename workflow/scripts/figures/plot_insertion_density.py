@@ -76,7 +76,7 @@ VIABILITY_HUE_ORDER = ["viable", "inviable", "condition-dependent", "unknown"]
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_density_data(input_path: Path) -> pd.DataFrame:
     """Load the density statistics TSV and validate its schema."""
     logger.info(f"Loading density statistics from {input_path}...")

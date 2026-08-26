@@ -62,8 +62,8 @@ def render_fitted_curves_figure(
     model: Callable[..., np.ndarray],
     model_params: Sequence[str],
     annotations: Sequence[str] = (),
-    xlabel: str = "Time",
-    ylabel: str = "LFC",
+    xlabel: str,
+    ylabel: str,
     ylim: tuple[float, float] | None = DEFAULT_YLIM,
     n_cols: int = 4,
 ) -> None:

@@ -74,6 +74,8 @@ def test_renders_for_any_timepoint_count_and_naming(
         value_columns=timepoint_names,
         model=linear_model,
         model_params=["slope", "intercept"],
+        xlabel="x",
+        ylabel="y",
     )
 
     assert (tmp_path / f"curves_{len(timepoint_names)}.pdf").exists()
@@ -95,6 +97,8 @@ def test_mismatched_x_and_value_columns_raises_readable_error(tmp_path: Path) ->
             value_columns=["t1", "t2", "t3"],
             model=linear_model,
             model_params=["slope", "intercept"],
+            xlabel="x",
+            ylabel="y",
         )
 
     message = str(excinfo.value)
@@ -130,6 +134,8 @@ def test_ylim_is_overridable(tmp_path: Path) -> None:
         value_columns=["t1", "t2", "t3"],
         model=linear_model,
         model_params=["slope", "intercept"],
+        xlabel="x",
+        ylabel="y",
     )
 
     render_fitted_curves_figure(df, tmp_path / "fixed", ylim=(0.0, 5.0), **common)
@@ -154,6 +160,8 @@ def test_panel_labels_stay_alphanumeric_past_26(tmp_path: Path) -> None:
         value_columns=["t1", "t2", "t3"],
         model=linear_model,
         model_params=["slope", "intercept"],
+        xlabel="x",
+        ylabel="y",
     )
 
     assert (tmp_path / "many.pdf").exists()
@@ -173,6 +181,8 @@ def test_annotations_are_rendered(tmp_path: Path) -> None:
         model=linear_model,
         model_params=["slope", "intercept"],
         annotations=["quality"],
+        xlabel="x",
+        ylabel="y",
     )
 
     texts = [t.get_text() for ax in plt.gcf().get_axes() for t in ax.texts]
@@ -190,6 +200,8 @@ def test_empty_frame_does_not_crash(tmp_path: Path) -> None:
         value_columns=["t1", "t2"],
         model=linear_model,
         model_params=["slope", "intercept"],
+        xlabel="x",
+        ylabel="y",
     )
 
 
@@ -209,4 +221,6 @@ def test_missing_param_column_raises(tmp_path: Path) -> None:
             value_columns=["t1", "t2", "t3"],
             model=linear_model,
             model_params=["A", "DR", "DL"],
+            xlabel="x",
+            ylabel="y",
         )

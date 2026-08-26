@@ -72,7 +72,7 @@ METRIC_COLUMNS = [
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_fitting_stats(fitting_stats_path: Path) -> tuple[pd.DataFrame, list[str]]:
     """Load successful fits and return them with the metric columns actually present."""
     logger.info(f"Loading fitting statistics from {fitting_stats_path}...")

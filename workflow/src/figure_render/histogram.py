@@ -18,7 +18,6 @@ from pathlib import Path
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from loguru import logger
 

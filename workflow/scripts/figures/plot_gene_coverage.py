@@ -68,7 +68,7 @@ DONUT_UNIT = "genes"
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_coverage_data(input_path: Path) -> pd.DataFrame:
     """Load the coverage statistics TSV and validate its schema."""
     logger.info(f"Loading coverage statistics from {input_path}...")

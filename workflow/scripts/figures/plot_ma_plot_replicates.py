@@ -102,7 +102,7 @@ PANEL_HEIGHT = 200
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_ma_data(ma_values_path: Path) -> pd.DataFrame:
     """Load the long-format MA values TSV and validate its schema."""
     logger.info(f"Loading MA values from {ma_values_path}...")

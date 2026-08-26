@@ -86,7 +86,7 @@ TITLE_PREFIX = "MA plot"
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_ma_data(basemean_path: Path, lfc_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load the wide baseMean/LFC tables and validate that their columns match."""
     logger.info(f"Loading baseMean from {basemean_path}...")

@@ -79,7 +79,7 @@ Y_LABEL = "LFC"
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_and_sample_data(
     fitting_stats_path: Path, lfc_path: Path, n_curves: int, random_seed: int
 ) -> tuple[pd.DataFrame, list[float], list[str]]:

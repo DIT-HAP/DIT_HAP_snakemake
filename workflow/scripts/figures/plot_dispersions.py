@@ -102,7 +102,7 @@ TITLE = "DESeq2 dispersion estimates"
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-@logger.catch
+@logger.catch(reraise=True)
 def load_dispersion_data(dispersion_data_path: Path) -> pd.DataFrame:
     """Load the dispersion figure-data TSV and validate its schema."""
     logger.info(f"Loading dispersion data from {dispersion_data_path}...")

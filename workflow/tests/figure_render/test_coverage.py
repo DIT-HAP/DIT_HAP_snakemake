@@ -177,10 +177,10 @@ def test_zero_total_category_handled(tmp_path: Path) -> None:
     assert pdf_path.exists(), "PDF artifact not created when a category has zero genes"
 
 
-def test_missing_required_column_returns_none(tmp_path: Path) -> None:
-    """Assert a coverage TSV missing a required column is rejected (logger.catch swallows the raise)."""
+def test_missing_required_column_raises(tmp_path: Path) -> None:
+    """Assert a coverage TSV missing a required column raises ValueError (logger.catch reraises)."""
     bad_tsv = tmp_path / "bad.tsv"
     pd.DataFrame({"category": ["viable"]}).to_csv(bad_tsv, sep="\t", index=False)
 
-    result = load_coverage_data(bad_tsv)
-    assert result is None
+    with pytest.raises(ValueError, match="covered"):
+        load_coverage_data(bad_tsv)
