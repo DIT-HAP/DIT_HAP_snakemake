@@ -19,17 +19,32 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from figure_render.read_counts import (
-    load_cutoff_stats,
-    load_distribution_data,
-    render_distribution_figure,
-)
+from figure_render.histogram import render_prebinned_histogram_figure
+
+
+def _load_read_counts_script() -> ModuleType:
+    """Load the read counts CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_read_count_distribution.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_read_count_distribution", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_read_counts_script()
+load_distribution_data = _SCRIPT.load_distribution_data
+load_cutoff_stats = _SCRIPT.load_cutoff_stats
+build_retention_footer = _SCRIPT.build_retention_footer
+X_LABEL = _SCRIPT.X_LABEL
+Y_LABEL = _SCRIPT.Y_LABEL
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -168,7 +183,22 @@ def test_dual_artifacts_created(real_data_path: Path, real_stats_path: Path, out
 
     df = load_distribution_data(real_data_path)
     stats_df = load_cutoff_stats(real_stats_path)
-    render_distribution_figure(df, stats_df, output_stem, "YES0", 8.0)
+    render_prebinned_histogram_figure(
+        df,
+        output_stem,
+        row_key="sample",
+        col_key="timepoint",
+        left_column="bin_left",
+        right_column="bin_right",
+        count_column="count",
+        xlabel=X_LABEL,
+        ylabel=Y_LABEL,
+        marker_value=float(np.log10(8.0)),
+        marker_label="Cutoff = 8",
+        marker_on_col_value="YES0",
+        footer_lines=build_retention_footer(df, stats_df),
+        footer_header="Cutoff applied to 'YES0' (>= 8):",
+    )
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -189,6 +219,7 @@ def test_renderer_does_not_rebin(real_data_path: Path) -> None:
 
     df = load_distribution_data(real_data_path)
     group = df[(df["sample"] == "HD1328-4_YES") & (df["timepoint"] == "YES0")].dropna(subset=["bin_left"])
+    group = group.assign(bin_center=(group["bin_left"] + group["bin_right"]) / 2.0)
 
     fig, ax = plt.subplots()
     binrange = (float(group["bin_left"].min()), float(group["bin_right"].max()))
@@ -213,7 +244,22 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     stats_df = load_cutoff_stats(empty_stats)
     assert df.empty
 
-    render_distribution_figure(df, stats_df, tmp_path / "empty_test", "YES0", 8.0)
+    render_prebinned_histogram_figure(
+        df,
+        tmp_path / "empty_test",
+        row_key="sample",
+        col_key="timepoint",
+        left_column="bin_left",
+        right_column="bin_right",
+        count_column="count",
+        xlabel=X_LABEL,
+        ylabel=Y_LABEL,
+        marker_value=float(np.log10(8.0)),
+        marker_label="Cutoff = 8",
+        marker_on_col_value="YES0",
+        footer_lines=build_retention_footer(df, stats_df),
+        footer_header="Cutoff applied to 'YES0' (>= 8):",
+    )
 
 
 def test_no_valid_data_panel(tmp_path: Path) -> None:
@@ -246,6 +292,21 @@ def test_no_valid_data_panel(tmp_path: Path) -> None:
     df = load_distribution_data(marker_tsv)
     stats_df = load_cutoff_stats(stats_tsv)
 
-    render_distribution_figure(df, stats_df, output_stem, "YES0", 8.0)
+    render_prebinned_histogram_figure(
+        df,
+        output_stem,
+        row_key="sample",
+        col_key="timepoint",
+        left_column="bin_left",
+        right_column="bin_right",
+        count_column="count",
+        xlabel=X_LABEL,
+        ylabel=Y_LABEL,
+        marker_value=float(np.log10(8.0)),
+        marker_label="Cutoff = 8",
+        marker_on_col_value="YES0",
+        footer_lines=build_retention_footer(df, stats_df),
+        footer_header="Cutoff applied to 'YES0' (>= 8):",
+    )
 
     assert (output_stem.parent / f"{output_stem.name}.pdf").exists(), "PDF not created for marker-row input"

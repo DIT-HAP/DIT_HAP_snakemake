@@ -15,12 +15,28 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.curve_fitting import load_and_sample_data, render_curve_fitting_figure
+from depletion.curve_model import sigmoid_function
+from figure_render.curves import render_fitted_curves_figure
+
+
+def _load_curve_fitting_script() -> ModuleType:
+    """Load the curve fitting CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_curve_fitting.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_curve_fitting", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_curve_fitting_script()
+load_and_sample_data = _SCRIPT.load_and_sample_data
 
 
 # =============================================================================
@@ -54,26 +70,25 @@ def test_baseline_statistics(real_stats_path: Path, real_lfc_path: Path, output_
     if not real_lfc_path.exists():
         pytest.skip(f"Real LFC data not found: {real_lfc_path}")
 
-    sampled_stats, lfc_sampled, time_points = load_and_sample_data(
+    # Total rows: 93596 (header excluded from wc -l count of 93597)
+    # Successful fits: 93560
+    joined, time_points, timepoint_columns = load_and_sample_data(
         real_stats_path, real_lfc_path, 32, 42
     )
 
-    # Total rows: 93596 (header excluded from wc -l count of 93597)
-    # Successful fits: 93560
-    assert len(sampled_stats) == 32, f"Expected 32 sampled curves, got {len(sampled_stats)}"
+    assert len(joined) == 32, f"Expected 32 sampled curves, got {len(joined)}"
     assert len(time_points) == 5, f"Expected 5 time points, got {len(time_points)}"
     assert time_points == [0.0, 2.352, 5.588, 9.104, 12.48], f"Unexpected time points: {time_points}"
+    assert len(timepoint_columns) == len(time_points), "One value column per time point"
+    assert (joined["Status"] == "Success").all(), "Not all sampled curves are successful"
 
     # Verify mean R2 and RMSE for sampled curves
-    mean_r2 = sampled_stats['R2'].mean()
-    mean_rmse = sampled_stats['RMSE'].mean()
+    mean_r2 = joined['R2'].mean()
+    mean_rmse = joined['RMSE'].mean()
 
     # Since sampling is deterministic (seed 42), these should be stable
     assert 0.0 <= mean_r2 <= 1.0, f"Mean R2 out of valid range: {mean_r2}"
     assert mean_rmse > 0, f"Mean RMSE should be positive: {mean_rmse}"
-
-    # All sampled curves should be successful
-    assert (sampled_stats['Status'] == 'Success').all(), "Not all sampled curves are successful"
 
 
 def test_dual_artifacts_created(real_stats_path: Path, real_lfc_path: Path, output_stem: Path) -> None:
@@ -83,10 +98,18 @@ def test_dual_artifacts_created(real_stats_path: Path, real_lfc_path: Path, outp
     if not real_lfc_path.exists():
         pytest.skip(f"Real LFC data not found: {real_lfc_path}")
 
-    sampled_stats, lfc_sampled, time_points = load_and_sample_data(
+    joined, time_points, timepoint_columns = load_and_sample_data(
         real_stats_path, real_lfc_path, 32, 42
     )
-    render_curve_fitting_figure(sampled_stats, lfc_sampled, time_points, output_stem)
+    render_fitted_curves_figure(
+        joined,
+        output_stem,
+        x_values=time_points,
+        value_columns=timepoint_columns,
+        model=sigmoid_function,
+        model_params=["A", "DR", "DL"],
+        annotations=["R2", "RMSE"],
+    )
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -113,10 +136,18 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     output_stem = tmp_path / "empty_test"
 
     # Load should return empty dataframe
-    sampled_stats, lfc_sampled, time_points = load_and_sample_data(
+    joined, time_points, timepoint_columns = load_and_sample_data(
         empty_stats, empty_lfc, 32, 42
     )
-    assert sampled_stats.empty
+    assert joined.empty
 
     # Render should not crash
-    render_curve_fitting_figure(sampled_stats, lfc_sampled, time_points, output_stem)
+    render_fitted_curves_figure(
+        joined,
+        output_stem,
+        x_values=time_points,
+        value_columns=timepoint_columns,
+        model=sigmoid_function,
+        model_params=["A", "DR", "DL"],
+        annotations=["R2", "RMSE"],
+    )

@@ -27,14 +27,14 @@ from matplotlib import use
 
 use("Agg")
 
+import numpy as np
+import pandas as pd
+
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.read_counts import (  # noqa: E402
-    load_cutoff_stats,
-    load_distribution_data,
-    render_distribution_figure,
-)
+from figure_render.histogram import render_prebinned_histogram_figure  # noqa: E402
+from figure_render._schema import require_columns  # noqa: E402
 
 
 # =============================================================================
@@ -60,6 +60,66 @@ class PlotConfig:
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
 
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+DISTRIBUTION_COLUMNS = ["sample", "timepoint", "bin_left", "bin_right", "count"]
+STATS_COLUMNS = [
+    "sample", "original_rows", "rows_kept", "pct_rows_kept",
+    "original_counts", "counts_kept", "pct_counts_kept",
+]
+
+X_LABEL = "log$_{10}$(read count)"
+Y_LABEL = "Frequency"
+
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+@logger.catch
+def load_distribution_data(input_path: Path) -> pd.DataFrame:
+    """Load the binned distribution TSV and validate its schema."""
+    logger.info(f"Loading binned distribution from {input_path}...")
+    df = pd.read_csv(input_path, sep="\t")
+
+    require_columns(df, DISTRIBUTION_COLUMNS, context=f"distribution TSV {input_path.name}")
+
+    logger.info(f"Loaded {len(df)} bin rows")
+    return df
+
+
+@logger.catch
+def load_cutoff_stats(stats_path: Path) -> pd.DataFrame:
+    """Load the cutoff retention statistics TSV and validate its schema."""
+    logger.info(f"Loading cutoff statistics from {stats_path}...")
+    df = pd.read_csv(stats_path, sep="\t")
+
+    require_columns(df, STATS_COLUMNS, context=f"cutoff stats TSV {stats_path.name}")
+
+    logger.info(f"Loaded statistics for {len(df)} samples")
+    return df
+
+
+def format_retention_caption(sample: str, stats_row: pd.Series) -> str:
+    """Format a one-line cutoff retention summary for a sample."""
+    return (
+        f"{sample}: {int(stats_row['rows_kept']):,}/{int(stats_row['original_rows']):,} rows kept "
+        f"({stats_row['pct_rows_kept']:.1f}%), "
+        f"{int(stats_row['counts_kept']):,}/{int(stats_row['original_counts']):,} counts kept "
+        f"({stats_row['pct_counts_kept']:.1f}%)"
+    )
+
+
+def build_retention_footer(df: pd.DataFrame, stats_df: pd.DataFrame) -> list[str]:
+    """Build one retention line per sample present in the distribution data."""
+    by_sample = stats_df.set_index("sample")
+    present = set(df["sample"].unique())
+
+    return [
+        format_retention_caption(sample, row)
+        for sample, row in by_sample.iterrows()
+        if sample in present
+    ]
 
 
 # =============================================================================
@@ -101,12 +161,22 @@ def main() -> int:
     try:
         df = load_distribution_data(config.input_path)
         stats_df = load_cutoff_stats(config.stats_path)
-        render_distribution_figure(
+
+        render_prebinned_histogram_figure(
             df,
-            stats_df,
             config.output_stem,
-            config.initial_time_point,
-            config.cutoff,
+            row_key="sample",
+            col_key="timepoint",
+            left_column="bin_left",
+            right_column="bin_right",
+            count_column="count",
+            xlabel=X_LABEL,
+            ylabel=Y_LABEL,
+            marker_value=float(np.log10(config.cutoff)),
+            marker_label=f"Cutoff = {config.cutoff:.2g}",
+            marker_on_col_value=config.initial_time_point,
+            footer_lines=build_retention_footer(df, stats_df),
+            footer_header=f"Cutoff applied to '{config.initial_time_point}' (>= {config.cutoff:.2g}):",
         )
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

@@ -15,12 +15,27 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 import pandas as pd
 import pytest
 
-from figure_render.distribution import load_fitting_stats, render_distribution_figure
+from figure_render.histogram import render_histogram_grid_figure
+
+
+def _load_distribution_script() -> ModuleType:
+    """Load the distribution CLI script by path; workflow/scripts/figures has no __init__.py."""
+    path = Path(__file__).resolve().parents[2] / "scripts" / "figures" / "plot_distribution_of_curve_fitting.py"
+    spec = importlib.util.spec_from_file_location("_script_plot_distribution_of_curve_fitting", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SCRIPT = _load_distribution_script()
+load_fitting_stats = _SCRIPT.load_fitting_stats
 
 
 # =============================================================================
@@ -69,7 +84,7 @@ def test_dual_artifacts_created(real_stats_path: Path, output_stem: Path) -> Non
         pytest.skip(f"Real data not found: {real_stats_path}")
 
     df, metric_cols = load_fitting_stats(real_stats_path)
-    render_distribution_figure(df, metric_cols, output_stem, bins=30)
+    render_histogram_grid_figure(df, output_stem, value_columns=metric_cols, bins=30)
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"
     png_path = output_stem.parent / f"{output_stem.name}.review.png"
@@ -95,4 +110,4 @@ def test_empty_data_handling(tmp_path: Path) -> None:
     assert df.empty
 
     # Render should not crash
-    render_distribution_figure(df, metric_cols, output_stem, bins=30)
+    render_histogram_grid_figure(df, output_stem, value_columns=metric_cols, bins=30)

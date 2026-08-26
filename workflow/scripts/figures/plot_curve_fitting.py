@@ -31,7 +31,10 @@ use("Agg")
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.curve_fitting import load_and_sample_data, render_curve_fitting_figure  # noqa: E402
+from depletion.curve_model import sigmoid_function  # noqa: E402
+from figure_render.curves import render_fitted_curves_figure  # noqa: E402
+
+import pandas as pd  # noqa: E402
 
 
 # =============================================================================
@@ -57,6 +60,62 @@ class PlotConfig:
             raise ValueError(f"n_curves must be positive, got {self.n_curves}")
 
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+INSERTION_INDEX_COLUMNS = [0, 1, 2, 3]
+
+# The sigmoid's parameters, in the order sigmoid_function() accepts them.
+MODEL_PARAM_COLUMNS = ["A", "DR", "DL"]
+
+# Printed in each panel's text box.
+ANNOTATION_COLUMNS = ["R2", "RMSE"]
+
+SUCCESS_STATUS = "Success"
+X_LABEL = "Time"
+Y_LABEL = "LFC"
+
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+@logger.catch
+def load_and_sample_data(
+    fitting_stats_path: Path, lfc_path: Path, n_curves: int, random_seed: int
+) -> tuple[pd.DataFrame, list[float], list[str]]:
+    """Sample successful fits, join their observed LFC values, and return the x values.
+
+    Timepoint columns are taken from the LFC table, not a name whitelist: the old
+    renderer tested `col in ['YES0'..'YES4']`, which selected the wrong subset for
+    any project with a different timepoint count or naming scheme.
+    """
+    logger.info(f"Loading fitting statistics from {fitting_stats_path}...")
+    fitting_stats = pd.read_csv(fitting_stats_path, sep="\t", index_col=INSERTION_INDEX_COLUMNS)
+    logger.info(f"Loaded {len(fitting_stats)} rows")
+
+    successful = fitting_stats[fitting_stats["Status"] == SUCCESS_STATUS].copy()
+    logger.info(f"Found {len(successful)} successful fits")
+
+    if successful.empty:
+        logger.warning("No successful fits found!")
+        return successful, [], []
+
+    sampled = successful.sample(n=min(n_curves, len(successful)), random_state=random_seed)
+    logger.info(f"Sampled {len(sampled)} curves for plotting")
+
+    logger.info(f"Loading LFC data from {lfc_path}...")
+    lfc_data = pd.read_csv(lfc_path, sep="\t", index_col=INSERTION_INDEX_COLUMNS)
+
+    timepoint_columns = list(lfc_data.columns)
+    time_points = [float(t) for t in sampled["time_points"].iloc[0].split(",")]
+    logger.info(f"Time points: {time_points} for columns {timepoint_columns}")
+
+    # The stats table's own timepoint columns collide with the LFC ones, so the
+    # LFC values are joined under a suffix and then renamed back.
+    lfc_sampled = lfc_data.loc[sampled.index, timepoint_columns]
+    joined = sampled.drop(columns=timepoint_columns, errors="ignore").join(lfc_sampled)
+
+    return joined, time_points, timepoint_columns
 
 
 # =============================================================================
@@ -98,13 +157,21 @@ def main() -> int:
     logger.info("=== Curve Fitting Figure Rendering ===")
 
     try:
-        # Load and sample data
-        sampled_stats, lfc_sampled, time_points = load_and_sample_data(
+        joined, time_points, timepoint_columns = load_and_sample_data(
             config.fitting_stats_path, config.lfc_path, config.n_curves, config.random_seed
         )
 
-        # Render figure
-        render_curve_fitting_figure(sampled_stats, lfc_sampled, time_points, config.output_stem)
+        render_fitted_curves_figure(
+            joined,
+            config.output_stem,
+            x_values=time_points,
+            value_columns=timepoint_columns,
+            model=sigmoid_function,
+            model_params=MODEL_PARAM_COLUMNS,
+            annotations=ANNOTATION_COLUMNS,
+            xlabel=X_LABEL,
+            ylabel=Y_LABEL,
+        )
 
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

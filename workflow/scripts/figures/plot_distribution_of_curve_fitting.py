@@ -26,11 +26,13 @@ from matplotlib import use
 
 use("Agg")
 
+import pandas as pd
+
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.distribution import load_fitting_stats, render_distribution_figure  # noqa: E402
+from figure_render.histogram import render_histogram_grid_figure  # noqa: E402
 
 
 # =============================================================================
@@ -52,6 +54,38 @@ class PlotConfig:
             raise ValueError(f"bins must be positive, got {self.bins}")
 
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+INSERTION_INDEX_COLUMNS = [0, 1, 2, 3]
+
+SUCCESS_STATUS = "Success"
+
+# Curve-fitting metrics worth histogramming, in display order. Columns absent
+# from a given stats file are skipped.
+METRIC_COLUMNS = [
+    "A", "DR", "DL", "t10", "t50", "t90", "t_window", "t_inflection",
+    "y_inflection", "auc", "R2", "RMSE", "normalized_RMSE", "AIC", "BIC",
+]
+
+
+# =============================================================================
+# CORE LOGIC
+# =============================================================================
+@logger.catch
+def load_fitting_stats(fitting_stats_path: Path) -> tuple[pd.DataFrame, list[str]]:
+    """Load successful fits and return them with the metric columns actually present."""
+    logger.info(f"Loading fitting statistics from {fitting_stats_path}...")
+    df = pd.read_csv(fitting_stats_path, sep="\t", index_col=INSERTION_INDEX_COLUMNS)
+    logger.info(f"Loaded {len(df)} rows")
+
+    successful = df[df["Status"] == SUCCESS_STATUS].copy()
+    logger.info(f"Found {len(successful)} successful fits")
+
+    available = [column for column in METRIC_COLUMNS if column in successful.columns]
+    logger.info(f"Found {len(available)} metric columns: {available}")
+
+    return successful[available], available
 
 
 # =============================================================================
@@ -89,11 +123,14 @@ def main() -> int:
     logger.info("=== Distribution of Curve Fitting Results Rendering ===")
 
     try:
-        # Load data
         df, metric_cols = load_fitting_stats(config.fitting_stats_path)
 
-        # Render figure
-        render_distribution_figure(df, metric_cols, config.output_stem, config.bins)
+        render_histogram_grid_figure(
+            df,
+            config.output_stem,
+            value_columns=metric_cols,
+            bins=config.bins,
+        )
 
     except Exception as e:
         logger.error(f"Error during rendering: {e}")
