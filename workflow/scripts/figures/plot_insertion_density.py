@@ -97,6 +97,7 @@ def build_density_panels(initial: str, final: str) -> list[ScatterPanel]:
             ylabel=f"Insertion density per kb ({final})",
             title="Initial vs. Final Insertion Density",
             reference="identity",
+            show_stats=True,
         ),
         ScatterPanel(
             x="insertion_density_per_kb_initial", y="insertion_density_log2fc",
@@ -117,6 +118,7 @@ def build_density_panels(initial: str, final: str) -> list[ScatterPanel]:
             ylabel=f"Gini coefficient of depth ({final})",
             title="Initial vs. Final Depth Inequality",
             reference="unit_identity",
+            show_stats=True,
         ),
     ]
 

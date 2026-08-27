@@ -7,7 +7,7 @@ Insertion Orientation Figure Renderer
 
 Render log-log correlation plots of ``+`` versus ``-`` strand insertion counts
 from the pre-computed strand pairs TSV. One panel per sample and timepoint, with
-regression line and correlation statistics via cnsplots.regplot.
+an identity guide line and n/r/P correlation statistics.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-14

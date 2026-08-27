@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from figure_render.scatter import render_grouped_regression_figure, render_regression_panel
+from figure_render.scatter import ScatterPanel, render_grouped_regression_figure, render_scatter_panel
 
 
 # =============================================================================
@@ -66,8 +66,8 @@ def test_renders_with_arbitrary_column_and_group_names(
     assert (tmp_path / "arbitrary.pdf").stat().st_size > 0
 
 
-def test_axis_labels_survive_regplot(arbitrary_frame: pd.DataFrame, tmp_path: Path) -> None:
-    """Assert labels are applied after drawing, since regplot resets the ones it manages."""
+def test_axis_labels_survive_scatterplot(arbitrary_frame: pd.DataFrame, tmp_path: Path) -> None:
+    """Assert labels are applied after drawing, since scatterplot resets the ones it manages."""
     import matplotlib.pyplot as plt
 
     render_grouped_regression_figure(
@@ -84,10 +84,10 @@ def test_axis_labels_survive_regplot(arbitrary_frame: pd.DataFrame, tmp_path: Pa
     axes = plt.gcf().get_axes()
     assert axes, "No axes on the rendered figure"
     assert any(ax.get_xlabel() == "MY-X-LABEL" for ax in axes), (
-        "xlabel was lost — regplot reset it and it was not reapplied"
+        "xlabel was lost — scatterplot reset it and it was not reapplied"
     )
     assert any("MY-Y-LABEL" in ax.get_ylabel() for ax in axes), (
-        "ylabel was lost — regplot reset it and it was not reapplied"
+        "ylabel was lost — scatterplot reset it and it was not reapplied"
     )
     assert stem.with_suffix(".pdf").exists() or (tmp_path / "labels.pdf").exists()
 
@@ -120,15 +120,11 @@ def test_row_key_value_appears_in_first_column_ylabel(
 
 
 def test_marker_size_is_inside_scatter_kws() -> None:
-    """Assert the default kwargs carry `s`, since regplot drops its own `s=`.
+    """Assert the default kwargs carry `s` and rasterize, since these ship as **kws to cns.scatterplot."""
+    from figure_render.scatter import REGRESSION_PANEL_SCATTER_KWS
 
-    cnsplots regplot builds scatter_kws={"s": s, ...} internally, so supplying
-    scatter_kws replaces it wholesale and loses the size.
-    """
-    from figure_render.scatter import REGPLOT_SCATTER_KWS
-
-    assert "s" in REGPLOT_SCATTER_KWS, "marker size must live inside scatter_kws"
-    assert REGPLOT_SCATTER_KWS["rasterized"] is True, "large point clouds must rasterize"
+    assert "s" in REGRESSION_PANEL_SCATTER_KWS, "marker size must live inside scatter_kws"
+    assert REGRESSION_PANEL_SCATTER_KWS["rasterized"] is True, "large point clouds must rasterize"
 
 
 def test_empty_frame_does_not_crash(tmp_path: Path) -> None:
@@ -302,8 +298,8 @@ def test_grid_wraps_at_exactly_n_cols_per_row(tmp_path: Path) -> None:
         )
 
 
-def test_render_regression_panel_draws_identity_line_not_fit(tmp_path: Path) -> None:
-    """Assert the panel draws a dashed identity guide line, not a solid fitted regression line.
+def test_render_scatter_panel_identity_draws_dashed_line_not_fit(tmp_path: Path) -> None:
+    """Assert an identity-reference panel draws a dashed guide line, not a solid fitted regression line.
 
     PBL vs PBR (and similar x/y pairs of the same measured quantity) should
     show whether the data agrees with y = x, not a least-squares fit through
@@ -317,11 +313,13 @@ def test_render_regression_panel_draws_identity_line_not_fit(tmp_path: Path) -> 
         "left_signal": np.abs(rng.normal(3, 1, n)),
         "right_signal": np.abs(rng.normal(3, 1, n)),
     })
+    panel = ScatterPanel(
+        x="left_signal", y="right_signal", xlabel="left", ylabel="right", title="Panel Title",
+        reference="identity",
+    )
 
     _, ax = plt.subplots()
-    render_regression_panel(
-        ax, df, x="left_signal", y="right_signal", xlabel="left", ylabel="right", title="Panel Title",
-    )
+    render_scatter_panel(ax, df, panel)
 
     assert len(ax.lines) == 1, f"Expected exactly one line (the identity guide), got {len(ax.lines)}"
     line = ax.lines[0]
@@ -337,40 +335,49 @@ def test_render_regression_panel_draws_identity_line_not_fit(tmp_path: Path) -> 
     plt.close(ax.figure)
 
 
-def test_render_regression_panel_draws_on_given_axes() -> None:
-    """Assert the single-axes primitive draws a regplot onto the ax it is given."""
+def test_render_scatter_panel_show_stats_true_annotates_n_r_p() -> None:
+    """Assert show_stats=True draws an n/r/P text annotation."""
     import matplotlib.pyplot as plt
 
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(6)
     n = 100
     df = pd.DataFrame({
         "left_signal": np.abs(rng.normal(3, 1, n)),
         "right_signal": np.abs(rng.normal(3, 1, n)),
     })
-
-    _, ax = plt.subplots()
-    render_regression_panel(
-        ax, df, x="left_signal", y="right_signal", xlabel="left", ylabel="right", title="Panel Title",
+    panel = ScatterPanel(
+        x="left_signal", y="right_signal", xlabel="left", ylabel="right", title="Panel Title",
+        show_stats=True,
     )
 
-    assert ax.get_xlabel() == "left"
-    assert ax.get_ylabel() == "right"
-    assert ax.get_title() == "Panel Title"
-    assert len(ax.collections) > 0, "No scatter points drawn"
+    _, ax = plt.subplots()
+    render_scatter_panel(ax, df, panel)
+
+    stats_texts = [t for t in ax.texts if "$n$=" in t.get_text()]
+    assert len(stats_texts) == 1, f"Expected exactly one n/r/P annotation, got {ax.texts}"
+    assert f"$n$={n}" in stats_texts[0].get_text()
     plt.close(ax.figure)
 
 
-def test_render_regression_panel_handles_empty_data() -> None:
-    """Assert an empty frame draws a placeholder instead of raising."""
+def test_render_scatter_panel_show_stats_default_false_omits_annotation() -> None:
+    """Assert ScatterPanel's default show_stats=False omits the n/r/P text, preserving density.py's current panels."""
     import matplotlib.pyplot as plt
 
-    empty = pd.DataFrame(columns=["left_signal", "right_signal"])
-
-    _, ax = plt.subplots()
-    render_regression_panel(
-        ax, empty, x="left_signal", y="right_signal", xlabel="left", ylabel="right", title="Empty",
+    rng = np.random.default_rng(7)
+    n = 100
+    df = pd.DataFrame({
+        "left_signal": np.abs(rng.normal(3, 1, n)),
+        "right_signal": np.abs(rng.normal(3, 1, n)),
+    })
+    panel = ScatterPanel(
+        x="left_signal", y="right_signal", xlabel="left", ylabel="right", title="Panel Title",
+        reference="identity",
     )
 
-    assert ax.get_title() == "Empty"
-    assert len(ax.texts) > 0, "No 'No valid data' placeholder drawn"
+    _, ax = plt.subplots()
+    render_scatter_panel(ax, df, panel)
+
+    assert not any("$n$=" in t.get_text() for t in ax.texts), "show_stats=False must omit the n/r/P annotation"
+    assert len(ax.collections) > 0, "Scatter points must still be drawn"
+    assert len(ax.lines) == 1, "Identity line must still be drawn"
     plt.close(ax.figure)

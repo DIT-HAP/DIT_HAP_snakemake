@@ -6,8 +6,8 @@ PBL-PBR Correlation Figure Renderer
 ===================================
 
 Render log-log correlation plots of PBL vs PBR from pre-computed pairs TSV.
-Groups data by sample and timepoint, rendering one panel per group with
-regression line and correlation statistics via cnsplots.regplot.
+Groups data by sample and timepoint, rendering one panel per group with an
+identity guide line and n/r/P correlation statistics.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-13
@@ -85,8 +85,8 @@ def load_and_prepare_data(input_path: Path) -> pd.DataFrame:
     if positive.empty:
         logger.warning("No valid data points after filtering!")
 
-    # regplot annotates r and P from the columns it is handed, so the log10
-    # columns must be explicit: passing raw values would report raw-space
+    # The stats annotation is computed from the columns it is handed, so the
+    # log10 columns must be explicit: passing raw values would report raw-space
     # correlation (r ~ -0.03) instead of the log-space PCC (r = 0.85) that this
     # figure has always shown. Computed unconditionally (a no-op on an empty
     # frame) so the renderer's column validation still finds these columns.
