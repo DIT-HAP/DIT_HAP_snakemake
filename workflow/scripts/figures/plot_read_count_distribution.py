@@ -63,7 +63,7 @@ class PlotConfig:
     output_stem: Path
     initial_time_point: str
     cutoff: float
-    bins: int = 50
+    bins: int = 30
 
     def __post_init__(self) -> None:
         """Validate that inputs exist, the cutoff is positive, and the output directory is present."""
@@ -162,6 +162,8 @@ def parse_args() -> argparse.Namespace:
                         help="Initial time point column name for the cutoff annotation")
     parser.add_argument("-c", "--cutoff", type=float, required=True, help="Hard filtering cutoff value to annotate")
     parser.add_argument("--bins", type=int, default=50, help="Number of bins per panel (default: %(default)s)")
+    parser.add_argument("-q", "--upper-quantile", type=float, default=None,
+                        help="Drop values above this per-group quantile (e.g. 0.999999) to tame extreme outliers")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
@@ -204,6 +206,7 @@ def main() -> int:
             marker_on_col_value=config.initial_time_point,
             footer_lines=retention_lines,
             footer_header=f"Cutoff applied to '{config.initial_time_point}' (>= {config.cutoff:.2g}):",
+            upper_quantile=args.upper_quantile,
         )
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

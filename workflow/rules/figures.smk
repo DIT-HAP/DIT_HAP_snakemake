@@ -102,6 +102,7 @@ rule plot_read_count_distribution:
         """
         python workflow/scripts/figures/plot_read_count_distribution.py \
             -i {input} \
+            -q 0.999 \
             -t {params.initial_time_point} \
             -c {params.hard_filtering_cutoff} \
             -o {params.stem} &> {log}

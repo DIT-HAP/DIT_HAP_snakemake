@@ -211,6 +211,119 @@ def test_grouped_footer_is_rendered(grouped_frame: pd.DataFrame, tmp_path: Path)
     assert any("5/10 rows kept" in text for text in figure_texts)
 
 
+def test_grouped_row_label_in_first_column_ylabel(grouped_frame, tmp_path):
+    """Assert the sample name rides the first column's ylabel and titles carry only the col value.
+
+    Matches the scatter grouped renderer's convention: a full "{row} {col}"
+    title is wider than the axes and silently reflows the grid.
+    """
+    import matplotlib.pyplot as plt
+
+    render_grouped_histogram_figure(
+        grouped_frame, tmp_path / "rowlabel",
+        value_column="value", row_key="sample", col_key="stage",
+    )
+
+    axes = plt.gcf().get_axes()
+    # Panel order follows sorted groupby: s1/early, s1/late, s2/early, s2/late.
+    first_col_axes = axes[0::2]
+    second_col_axes = axes[1::2]
+
+    for ax in first_col_axes:
+        assert ax.get_ylabel().startswith(("s1\n", "s2\n")), f"First-column ylabel should embed the row label: {ax.get_ylabel()!r}"
+        assert "Frequency" in ax.get_ylabel()
+    for ax in second_col_axes:
+        assert "\n" not in ax.get_ylabel(), f"Non-first columns keep a plain ylabel: {ax.get_ylabel()!r}"
+    for ax, expected in zip(axes, ["early", "late", "early", "late"], strict=True):
+        assert ax.get_title() == expected, f"Title should be only the col value, got {ax.get_title()!r}"
+
+
+def test_grouped_upper_quantile_drops_outliers(tmp_path):
+    """Assert values above each group's quantile are excluded from binning.
+
+    A lone extreme value must not stretch its panel's bars or the shared x
+    range; with quantile=0.9 on 10 ascending values, the max is dropped.
+    """
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame({
+        "sample": ["s1"] * 10,
+        "stage": ["T0"] * 10,
+        "value": np.geomspace(1.0, 1_000_000.0, 10),  # last value = extreme outlier
+    })
+
+    render_grouped_histogram_figure(
+        df, tmp_path / "clipped",
+        value_column="value", row_key="sample", col_key="stage",
+        bins=5, log_scale=True, upper_quantile=0.9,
+    )
+
+    ax = plt.gcf().get_axes()[0]
+    # Rightmost bar edge must stop near p90 (≈129155), not at the outlier 1e6.
+    right_edge = max(p.get_x() + p.get_width() for p in ax.patches if p.get_height() > 0)
+    assert right_edge < 400_000, f"Outlier should be dropped, but bars extend to {right_edge:.3g}"
+    assert (tmp_path / "clipped.pdf").exists()
+
+
+def test_grouped_shared_x_range_aligns_panels(tmp_path):
+    """Assert shared log edges span the union of groups, identical across panels."""
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame({
+        "sample": ["s1"] * 4 + ["s2"] * 4,
+        "stage": ["T0"] * 8,
+        "value": [1.0, 2.0, 4.0, 8.0] + [16.0, 32.0, 64.0, 128.0],
+    })
+
+    render_grouped_histogram_figure(
+        df, tmp_path / "sharedx",
+        value_column="value", row_key="sample", col_key="stage",
+        bins=7, log_scale=True, share_x_range=True,
+    )
+
+    axes = plt.gcf().get_axes()
+    lefts = {round(ax.get_xlim()[0], 9) for ax in axes}
+    rights = {round(ax.get_xlim()[1], 9) for ax in axes}
+    assert len(lefts) == 1 and len(rights) == 1, f"x limits should match across panels: {lefts}, {rights}"
+    # Bar EDGES (not the padded axis limits) must span exactly the global range.
+    edges = sorted({p.get_x() for ax in axes for p in ax.patches} | {p.get_x() + p.get_width() for ax in axes for p in ax.patches})
+    assert np.isclose(edges[0], df["value"].min()), f"First bar edge should be the global min: {edges[0]}"
+    assert np.isclose(edges[-1], df["value"].max()), f"Last bar edge should be the global max: {edges[-1]}"
+
+
+def test_grouped_unshared_x_ranges_differ(tmp_path):
+    """Assert share_x_range=False preserves per-group autoscaling."""
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame({
+        "sample": ["s1"] * 4 + ["s2"] * 4,
+        "stage": ["T0"] * 8,
+        "value": [1.0, 2.0, 4.0, 8.0] + [16.0, 32.0, 64.0, 128.0],
+    })
+
+    render_grouped_histogram_figure(
+        df, tmp_path / "freex",
+        value_column="value", row_key="sample", col_key="stage",
+        bins=3, log_scale=True, share_x_range=False,
+    )
+
+    xlims = [(ax.get_xlim()) for ax in plt.gcf().get_axes()]
+    assert not np.isclose(xlims[0][1], xlims[1][1]), "Unshared ranges should remain per-panel"
+
+
+def test_grid_shared_y_applies_uniform_ylim(metric_frame, tmp_path):
+    """Assert grid mode's shared y makes every panel's ylim top equal."""
+    import matplotlib.pyplot as plt
+
+    render_histogram_grid_figure(
+        metric_frame, tmp_path / "sharedy",
+        value_columns=["metric_0", "metric_1"], bins=20, share_y_range=True,
+    )
+
+    tops = [ax.get_ylim()[1] for ax in plt.gcf().get_axes()]
+    assert len(set(np.round(tops, 6))) == 1, f"Shared-y panels should share one y top: {tops}"
+
+
 def test_grouped_all_nonpositive_group_renders_placeholder(tmp_path: Path) -> None:
     """Assert a group whose values are all non-positive (log mode) renders a placeholder panel."""
     df = pd.DataFrame(
