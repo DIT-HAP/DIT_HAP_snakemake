@@ -7,11 +7,13 @@ columns. Column names and axis labels are supplied by the caller.
 Callers pass explicitly log-transformed columns when they want log-space
 statistics: r and P are computed directly from whatever columns are handed to
 ``render_scatter_panel``, so passing raw values reports a different statistic
-while looking equally plausible.
+while looking equally plausible. The same applies to ``ScatterPanel.density``:
+a ``log_scale=True`` panel colours by linear-space density while displaying
+symlog axes unless the columns were logged first.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-25
-Version:  1.0.0
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -20,7 +22,7 @@ Version:  1.0.0
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import cnsplots as cns
 import num2tex
@@ -28,11 +30,14 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from matplotlib.axes import Axes
+from matplotlib.collections import PathCollection
+from matplotlib.colors import Normalize
 from scipy.stats import pearsonr
 
 from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual
 
 from ._layout import PANEL_DECORATION_PX, panel_labels, square_panel_size
+from ._point_density import point_density
 from ._schema import require_columns
 
 # =============================================================================
@@ -58,6 +63,32 @@ SCATTERPLOT_KWS: dict[str, object] = {
     "rasterized": True,
 }
 
+# Density panels bypass cns.scatterplot for ax.scatter (cns.scatterplot exposes
+# only categorical hue and forces edgecolor=None, so a per-point colour array
+# cannot be threaded through it). Higher alpha than
+# REGRESSION_PANEL_SCATTER_KWS: at 0.15 the colour signal washes out, and
+# overplotting is what the colour already encodes. No 'color'/'c' key -- those
+# collide with the density array.
+DENSITY_SCATTER_KWS: dict[str, Any] = {
+    "s": 3,
+    "alpha": 0.6,
+    "linewidths": 0,
+    "rasterized": True,
+}
+
+# Perceptually uniform, unlike cns.settings.palette_seq's 'gnuplot' default,
+# so equal colour steps read as equal density steps.
+DENSITY_CMAP = "viridis"
+
+# Axes-fraction (x0, y0, width, height) for the inset colorbar: bottom-right,
+# clear of the top-left n/r/P annotation. An inset axes contributes nothing to
+# the panel width/height cnsplots measures for layout (Multipanel never walks
+# ax.child_axes), so it cannot reflow the grid the way fig.colorbar(ax=...)
+# would by taking space from the panel itself.
+DENSITY_CBAR_BOUNDS = (0.88, 0.06, 0.035, 0.30)
+DENSITY_CBAR_LABELSIZE = 5
+DENSITY_CBAR_LABEL = "Density"
+
 
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ScatterPanel:
@@ -71,6 +102,7 @@ class ScatterPanel:
     reference: Literal["identity", "zero", "unit_identity", "none"] = "none"
     log_scale: bool = False
     show_stats: bool = False
+    density: bool = False
 
 
 # =============================================================================
@@ -87,7 +119,7 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
     ax.text(
         0.05,
         0.95,
-        rf"$n$={len(valid)}" "\n" rf"$r$={r:.2f}" "\n" rf"$P={num2tex.num2tex(p_value, precision=2):.2g}$",
+        rf"$n$={len(valid)}" "\n" rf"$r$={r:.2f}" "\n" rf"$P={num2tex.num2tex(p_value, precision=3):.2g}$",
         color="black",
         transform=ax.transAxes,
         ha="left",
@@ -114,6 +146,61 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
             pass
 
 
+def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
+    """Inset a thin vertical colorbar labelled low/high inside the panel's bottom-right corner."""
+    cax = ax.inset_axes(DENSITY_CBAR_BOUNDS)
+    colorbar = ax.figure.colorbar(mappable, cax=cax, ticks=[0, 1])
+
+    # Only the ordering is meaningful: density is renormalised per panel, so
+    # numeric ticks would invite comparison between panels with different n.
+    labels = colorbar.ax.set_yticklabels(["low", "high"])
+
+    # End ticks anchor their label on the tick centre, pushing half the text
+    # past the bar. Aligning each label inwards keeps both inside the panel.
+    labels[0].set_verticalalignment("bottom")
+    labels[-1].set_verticalalignment("top")
+
+    # length=0 drops the tick marks but keeps their labels.
+    colorbar.ax.tick_params(labelsize=DENSITY_CBAR_LABELSIZE, length=0, pad=1)
+    colorbar.set_label(DENSITY_CBAR_LABEL, fontsize=DENSITY_CBAR_LABELSIZE, labelpad=2)
+    colorbar.outline.set_linewidth(0.3)
+
+
+def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bool:
+    """Colour the panel's points by 2D density, returning False when the cloud is too degenerate.
+
+    Deliberately ignores the caller's ``scatter_kws``: those are tuned for the
+    cns.scatterplot path and carry a flat ``color`` that collides with the
+    per-point colour array.
+    """
+    density = point_density(df[panel.x].to_numpy(), df[panel.y].to_numpy())
+
+    if density is None:
+        return False
+
+    finite = np.isfinite(density)
+
+    # Ascending so the crowded points draw last and are not buried under the
+    # sparse ones.
+    order = np.argsort(density[finite])
+    x = df[panel.x].to_numpy()[finite][order]
+    y = df[panel.y].to_numpy()[finite][order]
+
+    # Rescaled to [0, 1] so the colorbar's low/high ticks sit at the bar ends.
+    # A bare Normalize() autoscales to the raw density range instead, leaving
+    # ticks at 0 and 1 out of range and clipped onto the edges.
+    ranked = density[finite][order]
+    span = np.ptp(ranked)
+    scaled = (ranked - ranked.min()) / span if span > 0 else np.zeros_like(ranked)
+
+    mappable = ax.scatter(
+        x, y, c=scaled, cmap=DENSITY_CMAP, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
+    )
+    _add_density_colorbar(ax, mappable)
+
+    return True
+
+
 def render_scatter_panel(
     ax: Axes,
     df: pd.DataFrame,
@@ -133,6 +220,10 @@ def render_scatter_panel(
 
     ``panel.show_stats=True`` annotates n, r, and P (computed over all of df,
     ignoring hue) in the same text position/style cnsplots' own regplot used.
+
+    ``panel.density=True`` colours points by 2D kernel density with an inset
+    colorbar. It is ignored when ``hue`` applies: a categorical hue and a
+    continuous density both claim the marker colour.
     """
     ax.set_xlabel(panel.xlabel)
     ax.set_ylabel(panel.ylabel)
@@ -145,6 +236,11 @@ def render_scatter_panel(
     kws = dict(SCATTERPLOT_KWS if scatter_kws is None else scatter_kws)
 
     if hue is not None and hue in df.columns:
+        if panel.density:
+            logger.warning(
+                f"Panel '{panel.title}': hue {hue!r} and density both set; "
+                f"colouring by hue and skipping density"
+            )
         # Levels absent from the data must be dropped, or a project lacking
         # one of them raises inside seaborn.
         observed = set(df[hue].unique())
@@ -152,7 +248,11 @@ def render_scatter_panel(
         cns.scatterplot(data=df, x=panel.x, y=panel.y, hue=hue, hue_order=order, ax=ax, **kws)
         ax.legend(fontsize=6, loc="best", frameon=False)
     else:
-        cns.scatterplot(data=df, x=panel.x, y=panel.y, ax=ax, **kws)
+        density_drawn = panel.density and _draw_density_scatter(ax, df, panel)
+        if panel.density and not density_drawn:
+            logger.warning(f"Panel '{panel.title}': falling back to flat colour, no density estimate")
+        if not density_drawn:
+            cns.scatterplot(data=df, x=panel.x, y=panel.y, ax=ax, **kws)
 
     ax.set_xlabel(panel.xlabel)
     ax.set_ylabel(panel.ylabel)
@@ -180,13 +280,14 @@ def render_grouped_regression_figure(
     row_key: str = "sample",
     col_key: str = "timepoint",
     show_stats: bool = True,
+    density: bool = False,
     scatter_kws: Mapping[str, object] | None = None,
     panel_decoration_px: int = PANEL_DECORATION_PX,
 ) -> None:
     """Render a row_key x col_key grid of square regression panels for the x/y columns.
 
-    show_stats controls the per-panel n/r/P annotation, forwarded unchanged to
-    ``render_scatter_panel`` for every panel in the grid.
+    show_stats and density are set on every panel in the grid: this renderer
+    builds its own ScatterPanel specs, so they cannot be varied per panel here.
     """
     logger.info("Rendering grouped regression figure...")
 
@@ -261,7 +362,7 @@ def render_grouped_regression_figure(
 
         panel = ScatterPanel(
             x=x, y=y, xlabel=xlabel, ylabel=panel_ylabel, title=str(col_value),
-            reference="identity", show_stats=show_stats,
+            reference="identity", show_stats=show_stats, density=density,
         )
         render_scatter_panel(
             ax, group_df, panel,

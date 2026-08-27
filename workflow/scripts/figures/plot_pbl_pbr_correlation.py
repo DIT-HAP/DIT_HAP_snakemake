@@ -9,9 +9,13 @@ Render log-log correlation plots of PBL vs PBR from pre-computed pairs TSV.
 Groups data by sample and timepoint, rendering one panel per group with an
 identity guide line and n/r/P correlation statistics.
 
+Points are coloured by 2D kernel density: each panel carries ~10^5 insertions,
+where a flat colour collapses the diagonal ridge into a solid block. Density is
+estimated on the log10 columns, so it matches the axes the panel displays.
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-13
-Version:  1.0.0
+Version:  1.1.0
 """
 
 # =============================================================================
@@ -140,6 +144,7 @@ def main() -> int:
             ylabel=Y_LABEL,
             row_key="sample",
             col_key="timepoint",
+            density=True,
         )
 
     except Exception as e:

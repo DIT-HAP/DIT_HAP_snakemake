@@ -139,3 +139,30 @@ def test_empty_data_handling(tmp_path: Path) -> None:
         row_key="sample",
         col_key="timepoint",
     )
+
+
+def test_entrypoint_enables_density(
+    real_data_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert the CLI turns density colouring on.
+
+    Asserted through main() rather than the renderer: density=True lives in the
+    entrypoint's call, so a test driving the renderer directly would keep
+    passing if the flag were dropped from the script.
+    """
+    if not real_data_path.exists():
+        pytest.skip(f"Real data not found: {real_data_path}")
+
+    captured: dict[str, object] = {}
+
+    def _capture(df: pd.DataFrame, stem: Path, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(_SCRIPT, "render_grouped_regression_figure", _capture)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["plot_pbl_pbr_correlation.py", "-i", str(real_data_path), "-o", str(tmp_path / "cli")],
+    )
+
+    assert _SCRIPT.main() == 0
+    assert captured.get("density") is True, f"density not enabled by the CLI: {captured}"

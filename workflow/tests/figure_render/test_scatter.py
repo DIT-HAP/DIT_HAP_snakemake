@@ -188,6 +188,50 @@ def test_labels_are_keyword_only_without_defaults(
         render_grouped_regression_figure(arbitrary_frame, tmp_path / "stale")  # type: ignore[call-arg]
 
 
+def test_density_applies_to_every_panel(arbitrary_frame: pd.DataFrame, tmp_path: Path) -> None:
+    """Assert density reaches the ScatterPanel specs this renderer builds internally."""
+    import matplotlib.pyplot as plt
+
+    render_grouped_regression_figure(
+        arbitrary_frame,
+        tmp_path / "density",
+        x="left_signal",
+        y="right_signal",
+        xlabel="left",
+        ylabel="right",
+        row_key="batch",
+        col_key="stage",
+        density=True,
+    )
+
+    axes = plt.gcf().get_axes()
+    panels = [ax for ax in axes if ax.child_axes]
+    assert len(panels) == arbitrary_frame.groupby(["batch", "stage"]).ngroups, (
+        "Not every panel got a density colorbar"
+    )
+    assert all(ax.collections[0].get_array() is not None for ax in panels)
+
+
+def test_density_defaults_off_in_grouped_regression(
+    arbitrary_frame: pd.DataFrame, tmp_path: Path
+) -> None:
+    """Assert the default leaves existing figures (correlation, orientation) untouched."""
+    import matplotlib.pyplot as plt
+
+    render_grouped_regression_figure(
+        arbitrary_frame,
+        tmp_path / "nodensity",
+        x="left_signal",
+        y="right_signal",
+        xlabel="left",
+        ylabel="right",
+        row_key="batch",
+        col_key="stage",
+    )
+
+    assert all(ax.child_axes == [] for ax in plt.gcf().get_axes()), "Default gained a colorbar"
+
+
 def test_panel_count_equals_group_count(arbitrary_frame: pd.DataFrame, tmp_path: Path) -> None:
     """Assert one panel per row-key/col-key combination."""
     import matplotlib.pyplot as plt

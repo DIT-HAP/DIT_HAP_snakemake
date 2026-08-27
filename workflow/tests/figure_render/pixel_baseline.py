@@ -105,6 +105,7 @@ def _render_correlation(stem: Path) -> None:
         df, stem, x=script.X_COLUMN, y=script.Y_COLUMN,
         xlabel=script.X_LABEL, ylabel=script.Y_LABEL,
         row_key="sample", col_key="timepoint",
+        density=True,
     )
 
 
