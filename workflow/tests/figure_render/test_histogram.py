@@ -18,8 +18,8 @@ import pandas as pd
 import pytest
 
 from figure_render.histogram import (
+    render_grouped_histogram_figure,
     render_histogram_grid_figure,
-    render_prebinned_histogram_figure,
 )
 
 
@@ -34,22 +34,15 @@ def metric_frame() -> pd.DataFrame:
 
 
 @pytest.fixture
-def prebinned_frame() -> pd.DataFrame:
-    """A pre-binned frame with two groups and five bins each."""
+def grouped_frame() -> pd.DataFrame:
+    """A long-format frame with two row groups, two column groups, and separable values."""
     rows = []
     for sample in ("s1", "s2"):
         for stage in ("early", "late"):
-            for edge in range(5):
-                rows.append(
-                    {
-                        "sample": sample,
-                        "stage": stage,
-                        "bin_left": float(edge),
-                        "bin_right": float(edge + 1),
-                        "count": 10 * (edge + 1),
-                    }
-                )
-    return pd.DataFrame(rows)
+            base = ({"s1": 1.0, "s2": 100.0}[sample]) * ({"early": 1.0, "late": 10.0}[stage])
+            values = base * np.geomspace(0.5, 2.0, 50)
+            rows.append(pd.DataFrame({"sample": sample, "stage": stage, "value": values}))
+    return pd.concat(rows, ignore_index=True)
 
 
 # =============================================================================
@@ -131,38 +124,26 @@ def test_empty_value_columns_does_not_crash(metric_frame: pd.DataFrame, tmp_path
 
 
 # =============================================================================
-# TESTS — pre-binned mode
+# TESTS — grouped mode
 # =============================================================================
-def test_prebinned_bar_heights_equal_stored_counts(
-    prebinned_frame: pd.DataFrame, tmp_path: Path
+def test_grouped_one_panel_per_row_col_pair(
+    grouped_frame: pd.DataFrame, tmp_path: Path
 ) -> None:
-    """Assert stored counts are replayed exactly, with no re-binning.
-
-    This is the core guarantee of the pre-binned mode: the computation layer
-    already binned the data, and the renderer must not bin again.
-    """
+    """Assert panels are allocated per row_key/col_key pair."""
     import matplotlib.pyplot as plt
 
-    render_prebinned_histogram_figure(
-        prebinned_frame, tmp_path / "prebinned",
-        row_key="sample", col_key="stage",
-        left_column="bin_left", right_column="bin_right", count_column="count",
-        xlabel="value", ylabel="Frequency",
+    render_grouped_histogram_figure(
+        grouped_frame, tmp_path / "grouped",
+        value_column="value", row_key="sample", col_key="stage",
+        bins=20,
     )
 
-    first_group = prebinned_frame[
-        (prebinned_frame["sample"] == "s1") & (prebinned_frame["stage"] == "early")
-    ]
-    heights = np.array([p.get_height() for p in plt.gcf().get_axes()[0].patches])
-    expected = first_group["count"].to_numpy().astype(float)
-
-    assert np.array_equal(np.sort(heights), np.sort(expected)), (
-        f"Bar heights {heights} differ from stored counts {expected}"
-    )
+    assert len(plt.gcf().get_axes()) == 4, "Two samples x two stages should yield four panels"
+    assert (tmp_path / "grouped.pdf").exists()
 
 
-def test_marker_only_on_named_column_value(
-    prebinned_frame: pd.DataFrame, tmp_path: Path
+def test_grouped_marker_only_on_named_col_value(
+    grouped_frame: pd.DataFrame, tmp_path: Path
 ) -> None:
     """Assert the cutoff marker appears only on panels matching marker_on_col_value.
 
@@ -171,12 +152,10 @@ def test_marker_only_on_named_column_value(
     """
     import matplotlib.pyplot as plt
 
-    render_prebinned_histogram_figure(
-        prebinned_frame, tmp_path / "marker",
-        row_key="sample", col_key="stage",
-        left_column="bin_left", right_column="bin_right", count_column="count",
-        xlabel="value", ylabel="Frequency",
-        marker_value=2.5, marker_label="Cutoff", marker_on_col_value="early",
+    render_grouped_histogram_figure(
+        grouped_frame, tmp_path / "marker",
+        value_column="value", row_key="sample", col_key="stage",
+        marker_value=5.0, marker_label="Cutoff", marker_on_col_value="early",
     )
 
     axes = plt.gcf().get_axes()
@@ -185,7 +164,36 @@ def test_marker_only_on_named_column_value(
     assert with_marker == 2, f"Expected 2 'early' panels to carry the marker, got {with_marker}"
 
 
-def test_footer_is_rendered(prebinned_frame: pd.DataFrame, tmp_path: Path) -> None:
+def test_grouped_log_scale_sets_log_axis(
+    grouped_frame: pd.DataFrame, tmp_path: Path
+) -> None:
+    """Assert log_scale mode lays a true log axis with logspace bin edges.
+
+    Bin edges must be exactly np.logspace over each group's own value range,
+    which on a log axis renders bars geometrically identical to equal-width
+    log10 bins — the property that lets the single-stage figure replace the
+    pre-binned one without changing bar shapes.
+    """
+    import matplotlib.pyplot as plt
+
+    render_grouped_histogram_figure(
+        grouped_frame, tmp_path / "logscale",
+        value_column="value", row_key="sample", col_key="stage",
+        bins=10, log_scale=True,
+    )
+
+    ax = plt.gcf().get_axes()[0]
+    assert ax.get_xscale() == "log"
+
+    group = grouped_frame[grouped_frame["sample"] == "s1"]
+    expected_edges = np.logspace(np.log10(group["value"].min()), np.log10(group["value"].max()), 11)
+    edges = ax.patches[0].get_x()
+    assert np.isclose(edges, expected_edges[0]), (
+        f"First bar edge {edges} does not match logspace start {expected_edges[0]}"
+    )
+
+
+def test_grouped_footer_is_rendered(grouped_frame: pd.DataFrame, tmp_path: Path) -> None:
     """Assert figure-level footer lines reach the figure.
 
     Retention numbers are per sample, not per panel; read_counts.py moved them
@@ -193,11 +201,9 @@ def test_footer_is_rendered(prebinned_frame: pd.DataFrame, tmp_path: Path) -> No
     """
     import matplotlib.pyplot as plt
 
-    render_prebinned_histogram_figure(
-        prebinned_frame, tmp_path / "footer",
-        row_key="sample", col_key="stage",
-        left_column="bin_left", right_column="bin_right", count_column="count",
-        xlabel="value", ylabel="Frequency",
+    render_grouped_histogram_figure(
+        grouped_frame, tmp_path / "footer",
+        value_column="value", row_key="sample", col_key="stage",
         footer_lines=["s1: 5/10 rows kept"], footer_header="Retention:",
     )
 
@@ -205,35 +211,31 @@ def test_footer_is_rendered(prebinned_frame: pd.DataFrame, tmp_path: Path) -> No
     assert any("5/10 rows kept" in text for text in figure_texts)
 
 
-def test_prebinned_all_nan_group_renders_placeholder(tmp_path: Path) -> None:
-    """Assert a group whose bin edges are all NaN renders a placeholder panel."""
+def test_grouped_all_nonpositive_group_renders_placeholder(tmp_path: Path) -> None:
+    """Assert a group whose values are all non-positive (log mode) renders a placeholder panel."""
     df = pd.DataFrame(
         {
             "sample": ["s1", "s1"],
             "stage": ["early", "late"],
-            "bin_left": [0.0, np.nan],
-            "bin_right": [1.0, np.nan],
-            "count": [10, 0],
+            "value": [1.0, -3.0],
         }
     )
+    df.loc[df.index[-1], "value"] = -7.0
 
-    render_prebinned_histogram_figure(
-        df, tmp_path / "marker_rows",
-        row_key="sample", col_key="stage",
-        left_column="bin_left", right_column="bin_right", count_column="count",
-        xlabel="value", ylabel="Frequency",
+    render_grouped_histogram_figure(
+        df, tmp_path / "nonpositive",
+        value_column="value", row_key="sample", col_key="stage",
+        log_scale=True,
     )
 
-    assert (tmp_path / "marker_rows.pdf").exists()
+    assert (tmp_path / "nonpositive.pdf").exists()
 
 
-def test_prebinned_empty_frame_does_not_crash(tmp_path: Path) -> None:
-    """Assert an empty pre-binned frame returns without raising."""
-    empty = pd.DataFrame(columns=["sample", "stage", "bin_left", "bin_right", "count"])
+def test_grouped_empty_frame_does_not_crash(tmp_path: Path) -> None:
+    """Assert an empty frame returns without raising."""
+    empty = pd.DataFrame(columns=["sample", "stage", "value"])
 
-    render_prebinned_histogram_figure(
+    render_grouped_histogram_figure(
         empty, tmp_path / "empty",
-        row_key="sample", col_key="stage",
-        left_column="bin_left", right_column="bin_right", count_column="count",
-        xlabel="value", ylabel="Frequency",
+        value_column="value", row_key="sample", col_key="stage",
     )

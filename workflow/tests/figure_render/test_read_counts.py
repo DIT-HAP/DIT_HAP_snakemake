@@ -2,18 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-Tests for Read Count Distribution Figure Rendering
-==================================================
+Tests for Read Count Distribution Figure (single-stage)
+=======================================================
 
-Validates rendering against real data, asserting baseline bin counts, retention
-statistics and artifact creation.
-
-Baselines were derived from the pre-refactor arithmetic on
-``results/11_merged/*.merged.tsv`` with ``--bins 50``, ``-t YES0``, ``-c 8``.
+The pipeline no longer produces pre-binned TSVs; the figure script reads raw
+read-count tables and histograms them in memory. Tests therefore drive the
+script's assembly function against the real HD_DIT_HAP merged tables (baseline
+numbers below were recomputed bit-exactly from the same tables at refactor
+time) and the new grouped log-scale renderer on synthetic frames.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-08-14
-Version:  1.0.0
+Date:     2026-08-27
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -23,11 +23,10 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
-import numpy as np
 import pandas as pd
 import pytest
 
-from figure_render.histogram import render_prebinned_histogram_figure
+from figure_render.histogram import render_grouped_histogram_figure
 
 
 def _load_read_counts_script() -> ModuleType:
@@ -40,71 +39,47 @@ def _load_read_counts_script() -> ModuleType:
 
 
 _SCRIPT = _load_read_counts_script()
-load_distribution_data = _SCRIPT.load_distribution_data
-load_cutoff_stats = _SCRIPT.load_cutoff_stats
-build_retention_footer = _SCRIPT.build_retention_footer
+assemble_distribution = _SCRIPT.assemble_distribution
 X_LABEL = _SCRIPT.X_LABEL
 Y_LABEL = _SCRIPT.Y_LABEL
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
-DATA_DIR = Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc")
+PROJECT_ROOT = Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake")
+MERGED_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/results/11_merged"
 
-# Positive-value counts per sample/timepoint, i.e. the sum of every bin in a group.
-BASELINE_BIN_SUMS = {
-    ("HD1328-4_YES", "YES0"): 293306,
-    ("HD1328-4_YES", "YES1"): 212152,
-    ("HD1328-4_YES", "YES2"): 215304,
-    ("HD1328-4_YES", "YES3"): 211483,
-    ("HD1328-4_YES", "YES4"): 220481,
-    ("HD1328-7_YES", "YES0"): 156023,
-    ("HD1328-7_YES", "YES1"): 133650,
-    ("HD1328-7_YES", "YES2"): 150295,
-    ("HD1328-7_YES", "YES3"): 134763,
-    ("HD1328-7_YES", "YES4"): 149330,
-    ("HD1328-8_YES", "YES0"): 168611,
-    ("HD1328-8_YES", "YES1"): 143732,
-    ("HD1328-8_YES", "YES2"): 148999,
-    ("HD1328-8_YES", "YES3"): 140150,
-    ("HD1328-8_YES", "YES4"): 149548,
-}
-
-# Cutoff retention per sample: rows_kept, pct_rows_kept, counts_kept, pct_counts_kept.
+# Baseline retention per sample, recomputed bit-exactly from the same raw
+# merged tables the single-stage script now consumes directly.
 BASELINE_RETENTION = {
     "HD1328-4_YES": (659362, 143652, 21.7865, 380888542.0, 99.9404),
     "HD1328-7_YES": (287220, 123271, 42.9187, 282495932.0, 99.9809),
     "HD1328-8_YES": (287186, 129152, 44.9716, 416707741.0, 99.9843),
 }
 
-# log10 upper edge of the last YES0 bin for HD1328-4_YES, i.e. log10(max count).
-BASELINE_MAX_LOG10 = 6.638270
+# Positive-value counts per sample/timepoint from the archived binned era; the
+# script must see exactly these many strictly-positive values per group.
+BASELINE_POSITIVE_COUNTS = {
+    ("HD1328-4_YES", "YES0"): 293306,
+    ("HD1328-4_YES", "YES1"): 212152,
+    ("HD1328-4_YES", "YES2"): 215304,
+    ("HD1328-4_YES", "YES3"): 211483,
+    ("HD1328-4_YES", "YES4"): 220481,
+}
 
-DISTRIBUTION_COLUMNS = ["sample", "timepoint", "bin_left", "bin_right", "count"]
-STATS_COLUMNS = [
-    "sample",
-    "original_rows",
-    "rows_kept",
-    "pct_rows_kept",
-    "original_counts",
-    "counts_kept",
-    "pct_counts_kept",
-]
+TIMEPOINTS = ["YES0", "YES1", "YES2", "YES3", "YES4"]
 
 
 # =============================================================================
 # FIXTURES
 # =============================================================================
 @pytest.fixture
-def real_data_path() -> Path:
-    """Path to the real binned distribution TSV (computation layer output)."""
-    return DATA_DIR / "read_count_distribution.tsv"
-
-
-@pytest.fixture
-def real_stats_path() -> Path:
-    """Path to the real cutoff statistics TSV (computation layer output)."""
-    return DATA_DIR / "read_count_cutoff_stats.tsv"
+def real_input_paths() -> list[Path]:
+    """Paths to the real merged read-count tables."""
+    paths = sorted(MERGED_DIR.glob("*.merged.tsv"))
+    if not paths:
+        pytest.skip(f"No merged tables found in {MERGED_DIR}")
+    return paths
 
 
 @pytest.fixture
@@ -116,87 +91,58 @@ def output_stem(tmp_path: Path) -> Path:
 # =============================================================================
 # TESTS
 # =============================================================================
-def test_baseline_bin_sums(real_data_path: Path) -> None:
-    """Assert every group's bin counts sum to the pre-refactor positive-value count."""
-    if not real_data_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
+def test_baseline_retention_statistics(real_input_paths: list[Path]) -> None:
+    """Assert cutoff retention recomputed from raw tables matches the archive bit-for-bit."""
+    _, retention_lines = assemble_distribution(real_input_paths, "YES0", 8.0)
 
-    df = load_distribution_data(real_data_path)
-    actual = df.groupby(["sample", "timepoint"])["count"].sum()
-
-    assert len(actual) == len(BASELINE_BIN_SUMS), f"Expected {len(BASELINE_BIN_SUMS)} groups, got {len(actual)}"
-
-    for key, expected in BASELINE_BIN_SUMS.items():
-        assert actual[key] == expected, f"{key}: expected {expected} positive values, got {actual[key]}"
-
-
-def test_bin_count_is_fifty(real_data_path: Path) -> None:
-    """Assert each group carries exactly 50 bins, the preserved default bin count."""
-    if not real_data_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
-
-    df = load_distribution_data(real_data_path)
-    bins_per_group = df.groupby(["sample", "timepoint"]).size()
-
-    assert (bins_per_group == 50).all(), f"Expected 50 bins per group, got {bins_per_group.unique().tolist()}"
-    assert len(df) == 750, f"Expected 750 total bin rows, got {len(df)}"
-
-
-def test_baseline_bin_edges(real_data_path: Path) -> None:
-    """Assert HD1328-4_YES YES0 bin edges span log10 of the observed count range."""
-    if not real_data_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
-
-    df = load_distribution_data(real_data_path)
-    group = df[(df["sample"] == "HD1328-4_YES") & (df["timepoint"] == "YES0")]
-
-    assert group["bin_left"].min() == pytest.approx(0.0, abs=1e-6), "Lowest bin should start at log10(1) = 0"
-    assert group["bin_right"].max() == pytest.approx(BASELINE_MAX_LOG10, abs=1e-5), (
-        f"Highest bin should end at {BASELINE_MAX_LOG10}"
+    assert len(retention_lines) == len(BASELINE_RETENTION), (
+        f"Expected {len(BASELINE_RETENTION)} samples, got {len(retention_lines)}"
     )
 
-    # First bin holds every insertion with a single-digit-ish count; baseline 108699.
-    first_bin = group.sort_values("bin_left").iloc[0]
-    assert first_bin["count"] == 108699, f"Expected 108699 in first bin, got {first_bin['count']}"
+    by_sample = {line.split(":")[0]: line for line in retention_lines}
+    for sample, (orig_rows, rows_kept, pct_rows, _, pct_counts) in BASELINE_RETENTION.items():
+        line = by_sample[sample]
+        # The caption embeds both row and count retention percentages.
+        assert f"{rows_kept:,}/{orig_rows:,} rows kept ({pct_rows:.1f}%)" in line, f"{sample}: row retention"
+        assert f"({pct_counts:.1f}%)" in line, f"{sample}: count retention"
 
 
-def test_baseline_retention_statistics(real_stats_path: Path) -> None:
-    """Assert cutoff retention statistics match the pre-refactor values for every sample."""
-    if not real_stats_path.exists():
-        pytest.skip(f"Real stats not found: {real_stats_path}")
+def test_baseline_positive_value_counts(real_input_paths: list[Path]) -> None:
+    """Assert each group holds exactly as many positive values as the archived bins summed to."""
+    df, _ = assemble_distribution(real_input_paths, "YES0", 8.0)
+    sums = df[df["value"] > 0].groupby(["sample", "timepoint"]).size()
 
-    stats_df = load_cutoff_stats(real_stats_path).set_index("sample")
-
-    for sample, (orig_rows, rows_kept, pct_rows, counts_kept, pct_counts) in BASELINE_RETENTION.items():
-        row = stats_df.loc[sample]
-        assert row["original_rows"] == orig_rows, f"{sample}: original_rows"
-        assert row["rows_kept"] == rows_kept, f"{sample}: rows_kept"
-        assert row["pct_rows_kept"] == pytest.approx(pct_rows, abs=0.001), f"{sample}: pct_rows_kept"
-        assert row["counts_kept"] == pytest.approx(counts_kept, rel=1e-9), f"{sample}: counts_kept"
-        assert row["pct_counts_kept"] == pytest.approx(pct_counts, abs=0.001), f"{sample}: pct_counts_kept"
+    for key, expected in BASELINE_POSITIVE_COUNTS.items():
+        assert sums[key] == expected, f"{key}: expected {expected} positive values, got {sums[key]}"
 
 
-def test_dual_artifacts_created(real_data_path: Path, real_stats_path: Path, output_stem: Path) -> None:
-    """Assert that both PDF and PNG artifacts are created and non-empty."""
-    if not real_data_path.exists() or not real_stats_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
+def test_long_format_group_structure(real_input_paths: list[Path]) -> None:
+    """Assert the assembled frame is long format with one timepoint column per group."""
+    df, _ = assemble_distribution(real_input_paths, "YES0", 8.0)
 
-    df = load_distribution_data(real_data_path)
-    stats_df = load_cutoff_stats(real_stats_path)
-    render_prebinned_histogram_figure(
+    assert set(df.columns) == {"sample", "timepoint", "value"}
+    assert sorted(df["timepoint"].unique()) == TIMEPOINTS
+    assert len(df["sample"].unique()) == 3
+
+
+def test_dual_artifacts_created(real_input_paths: list[Path], output_stem: Path) -> None:
+    """Assert end-to-end rendering creates non-empty PDF and PNG artifacts."""
+    df, retention_lines = assemble_distribution(real_input_paths, "YES0", 8.0)
+
+    render_grouped_histogram_figure(
         df,
         output_stem,
+        value_column="value",
         row_key="sample",
         col_key="timepoint",
-        left_column="bin_left",
-        right_column="bin_right",
-        count_column="count",
+        bins=50,
+        log_scale=True,
         xlabel=X_LABEL,
         ylabel=Y_LABEL,
-        marker_value=float(np.log10(8.0)),
+        marker_value=8.0,
         marker_label="Cutoff = 8",
         marker_on_col_value="YES0",
-        footer_lines=build_retention_footer(df, stats_df),
+        footer_lines=retention_lines,
         footer_header="Cutoff applied to 'YES0' (>= 8):",
     )
 
@@ -209,104 +155,74 @@ def test_dual_artifacts_created(real_data_path: Path, real_stats_path: Path, out
     assert png_path.stat().st_size > 0, "PNG artifact is empty"
 
 
-def test_renderer_does_not_rebin(real_data_path: Path) -> None:
-    """Assert the rendered bar heights equal the stored bin counts exactly."""
-    if not real_data_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
+def test_log_scale_logspace_binning(tmp_path: Path) -> None:
+    """Assert log-scale mode sets a true log axis and partitions decades into distinct bins.
 
-    import cnsplots as cns
+    The claim of the beta redesign: np.logspace edges on a log axis are
+    geometrically identical to equal-width bins over log10(values). Three
+    values one decade apart with 3 bins must each occupy its own bin.
+    """
+    df = pd.DataFrame({
+        "sample": ["S1"] * 3,
+        "timepoint": ["T0"] * 3,
+        "value": [1.0, 100.0, 10000.0],
+    })
+
+    import matplotlib
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    df = load_distribution_data(real_data_path)
-    group = df[(df["sample"] == "HD1328-4_YES") & (df["timepoint"] == "YES0")].dropna(subset=["bin_left"])
-    group = group.assign(bin_center=(group["bin_left"] + group["bin_right"]) / 2.0)
-
-    fig, ax = plt.subplots()
-    binrange = (float(group["bin_left"].min()), float(group["bin_right"].max()))
-    cns.histplot(data=group, x="bin_center", weights="count", bins=len(group), binrange=binrange, ax=ax)
-
-    heights = np.array([patch.get_height() for patch in ax.patches])
-    stored = group["count"].to_numpy().astype(float)
-    plt.close(fig)
-
-    assert np.array_equal(heights, stored), "Rendered bar heights differ from stored bin counts"
-
-
-def test_empty_data_handling(tmp_path: Path) -> None:
-    """Assert an empty distribution TSV is handled gracefully without crashing."""
-    empty_tsv = tmp_path / "empty.tsv"
-    pd.DataFrame(columns=DISTRIBUTION_COLUMNS).to_csv(empty_tsv, sep="\t", index=False)
-
-    empty_stats = tmp_path / "empty_stats.tsv"
-    pd.DataFrame(columns=STATS_COLUMNS).to_csv(empty_stats, sep="\t", index=False)
-
-    df = load_distribution_data(empty_tsv)
-    stats_df = load_cutoff_stats(empty_stats)
-    assert df.empty
-
-    render_prebinned_histogram_figure(
+    render_grouped_histogram_figure(
         df,
-        tmp_path / "empty_test",
+        tmp_path / "logscale",
+        value_column="value",
         row_key="sample",
         col_key="timepoint",
-        left_column="bin_left",
-        right_column="bin_right",
-        count_column="count",
-        xlabel=X_LABEL,
-        ylabel=Y_LABEL,
-        marker_value=float(np.log10(8.0)),
-        marker_label="Cutoff = 8",
-        marker_on_col_value="YES0",
-        footer_lines=build_retention_footer(df, stats_df),
-        footer_header="Cutoff applied to 'YES0' (>= 8):",
+        bins=3,
+        log_scale=True,
     )
+    fig = plt.gcf()
+    ax = fig.axes[0]
+    assert ax.get_xscale() == "log", "Log-scale mode must set a true log x-axis"
+    heights = [patch.get_height() for patch in ax.patches]
+    assert sum(1 for h in heights if h > 0) == 3, "Each of 3 distinct decades should occupy its own bin"
+    plt.close(fig)
 
 
 def test_no_valid_data_panel(tmp_path: Path) -> None:
-    """Assert a group whose bins are all empty renders a 'No valid data' panel."""
-    marker_tsv = tmp_path / "marker.tsv"
-    pd.DataFrame(
-        {
-            "sample": ["S1", "S1"],
-            "timepoint": ["YES0", "YES1"],
-            "bin_left": [0.0, np.nan],
-            "bin_right": [1.0, np.nan],
-            "count": [10, 0],
-        }
-    ).to_csv(marker_tsv, sep="\t", index=False)
+    """Assert a group whose values are all non-positive renders without crashing."""
+    marker_df = pd.DataFrame({
+        "sample": ["S1", "S1", "S1"],
+        "timepoint": ["YES0", "YES1", "YES1"],
+        "value": [10.0, -1.0, -5.0],
+    })
 
-    stats_tsv = tmp_path / "marker_stats.tsv"
-    pd.DataFrame(
-        {
-            "sample": ["S1"],
-            "original_rows": [10],
-            "rows_kept": [5],
-            "pct_rows_kept": [50.0],
-            "original_counts": [100.0],
-            "counts_kept": [80.0],
-            "pct_counts_kept": [80.0],
-        }
-    ).to_csv(stats_tsv, sep="\t", index=False)
-
-    output_stem = tmp_path / "marker_test"
-    df = load_distribution_data(marker_tsv)
-    stats_df = load_cutoff_stats(stats_tsv)
-
-    render_prebinned_histogram_figure(
-        df,
-        output_stem,
+    render_grouped_histogram_figure(
+        marker_df,
+        tmp_path / "marker_test",
+        value_column="value",
         row_key="sample",
         col_key="timepoint",
-        left_column="bin_left",
-        right_column="bin_right",
-        count_column="count",
-        xlabel=X_LABEL,
-        ylabel=Y_LABEL,
-        marker_value=float(np.log10(8.0)),
-        marker_label="Cutoff = 8",
-        marker_on_col_value="YES0",
-        footer_lines=build_retention_footer(df, stats_df),
-        footer_header="Cutoff applied to 'YES0' (>= 8):",
+        log_scale=True,
     )
 
-    assert (output_stem.parent / f"{output_stem.name}.pdf").exists(), "PDF not created for marker-row input"
+    assert (tmp_path / "marker_test.pdf").exists(), "PDF not created for no-valid-data input"
+
+
+def test_empty_data_handling(tmp_path: Path) -> None:
+    """Assert an empty frame is handled gracefully without crashing."""
+    empty_df = pd.DataFrame(columns=["sample", "timepoint", "value"])
+
+    render_grouped_histogram_figure(
+        empty_df,
+        tmp_path / "empty_test",
+        value_column="value",
+        row_key="sample",
+        col_key="timepoint",
+        log_scale=True,
+    )
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

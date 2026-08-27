@@ -1,11 +1,16 @@
 """Sample metadata extraction from pipeline file naming conventions.
 
-The ``merge_strand_insertions`` output carries only a Chr/Coordinate/Strand
-index; sample/timepoint/condition metadata survives only in the filename stem,
-following the pattern ``{{sample}}_{{timepoint}}_{{condition}}.tsv``. This
-module is the single place that knows that convention.
+Some pipeline outputs carry no sample/timepoint/condition columns, so the
+metadata survives only in the filename stem. Two conventions exist:
 
-If the upstream schema later gains explicit Sample/Timepoint/Condition columns,
+- ``{{sample}}_{{timepoint}}_{{condition}}.tsv`` — per-(sample, timepoint,
+  condition) tables from ``merge_strand_insertions``;
+- ``{{sample}}_{{condition}}.*.tsv`` — per-(sample, condition) concatenations
+  (e.g. ``11_merged``), where the sample is everything before the first dot.
+
+This module is the single place that knows these conventions.
+
+If the upstream schema later gains explicit sample/timepoint/condition columns,
 callers should prefer those and this module becomes obsolete.
 """
 
@@ -35,3 +40,10 @@ def parse_filename(file_path: Path) -> tuple[str, str, str] | None:
 
     sample, timepoint, condition = parts
     return sample, timepoint, condition
+
+
+@logger.catch
+def parse_sample_name(file_path: Path) -> str:
+    """Derive the sample label from a filename by dropping every dotted suffix."""
+    return file_path.name.split(".")[0]
+

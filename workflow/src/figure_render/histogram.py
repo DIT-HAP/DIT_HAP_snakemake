@@ -18,6 +18,7 @@ from pathlib import Path
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -102,35 +103,37 @@ def render_histogram_grid_figure(
     logger.success("Figure rendering complete!")
 
 
+
 @logger.catch(reraise=True)
-def render_prebinned_histogram_figure(
+def render_grouped_histogram_figure(
     df: pd.DataFrame,
     output_stem: Path,
     *,
+    value_column: str,
     row_key: str,
     col_key: str,
-    left_column: str,
-    right_column: str,
-    count_column: str,
-    xlabel: str,
-    ylabel: str,
+    bins: int = 50,
+    log_scale: bool = False,
+    xlabel: str = "Value",
+    ylabel: str = "Frequency",
     marker_value: float | None = None,
     marker_label: str = "",
     marker_on_col_value: str | None = None,
     footer_lines: Sequence[str] = (),
     footer_header: str = "",
 ) -> None:
-    """Replay pre-computed bins as one histogram panel per row_key/col_key group."""
-    logger.info("Rendering pre-binned histogram figure...")
+    """Histogram one value column into one panel per row_key/col_key group.
 
-    require_columns(
-        df,
-        [row_key, col_key, left_column, right_column, count_column],
-        context="pre-binned histogram input",
-    )
+    With ``log_scale`` the values must be strictly positive: bin edges are laid
+    evenly in log10 space via ``np.logspace`` and the axis becomes a true log
+    scale, so bars are geometrically identical to pre-transformed linear binning
+    while ticks show real read counts. The cutoff marker is then placed at the
+    raw value (e.g. x=8), not at its log.
+    """
+    require_columns(df, [row_key, col_key, value_column], context="grouped histogram input")
 
     if df.empty:
-        logger.warning("No bins to plot!")
+        logger.warning("No values to plot!")
         return
 
     grouped = df.groupby([row_key, col_key], sort=True)
@@ -147,9 +150,6 @@ def render_prebinned_histogram_figure(
         decoration_px=HISTOGRAM_DECORATION_PX,
     )
 
-    # multipanel resizes the figure to fit its panels, so the footer strip must be
-    # reserved inside the layout via the last row's bottom margin. Shrinking the
-    # requested figure height instead lands the footer on the last row's labels.
     footer_reserve_px = FOOTER_LINE_PX * (n_rows + 2) if footer_lines else 0
     last_row_index = n_rows - 1
 
@@ -175,32 +175,23 @@ def render_prebinned_histogram_figure(
         ax.set_ylabel(ylabel)
         ax.set_title(f"{row_value} {col_value}")
 
-        valid = group_df.dropna(subset=[left_column, right_column])
-        total = float(valid[count_column].sum()) if not valid.empty else 0.0
+        data = group_df[value_column].dropna()
+        if log_scale:
+            data = data[data > 0]
 
-        if valid.empty or total <= 0:
+        if data.empty:
             logger.warning(f"  Panel {label}: {row_value} {col_value} has no valid data")
             ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
             continue
 
-        logger.info(f"  Panel {label}: {row_value} {col_value} ({len(valid)} bins, n={int(total):,})")
+        logger.info(f"  Panel {label}: {row_value} {col_value} (n={len(data):,})")
 
-        # Bin centres weighted by their counts, with bin count and range from the
-        # stored edges, so nothing is re-binned. An explicit edge array cannot be
-        # used: seaborn compares `bins == "auto"` before binning, which raises on
-        # an array when weights are supplied.
-        centers = (valid[left_column] + valid[right_column]) / 2.0
-        plot_df = valid.assign(_bin_center=centers)
-        binrange = (float(valid[left_column].min()), float(valid[right_column].max()))
-
-        cns.histplot(
-            data=plot_df,
-            x="_bin_center",
-            weights=count_column,
-            bins=len(valid),
-            binrange=binrange,
-            ax=ax,
-        )
+        if log_scale:
+            log_edges = np.logspace(np.log10(data.min()), np.log10(data.max()), bins + 1)
+            ax.hist(data.to_numpy(), bins=log_edges, alpha=0.8, edgecolor="white", linewidth=0.5)
+            ax.set_xscale("log")
+        else:
+            ax.hist(data.to_numpy(), bins=bins, alpha=0.8, edgecolor="white", linewidth=0.5)
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)

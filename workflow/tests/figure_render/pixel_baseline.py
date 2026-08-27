@@ -121,22 +121,23 @@ def _render_orientation(stem: Path) -> None:
 
 
 def _render_read_counts(stem: Path) -> None:
-    from figure_render.histogram import render_prebinned_histogram_figure
+    from figure_render.histogram import render_grouped_histogram_figure
     script = _load_script("plot_read_count_distribution")
-    df = script.load_distribution_data(ARC_DIR / "read_count_distribution.tsv")
-    stats = script.load_cutoff_stats(ARC_DIR / "read_count_cutoff_stats.tsv")
-    initial_time_point = "YES0"
-    cutoff = 8.0
-    render_prebinned_histogram_figure(
+    merged_dir = PROJECT_ROOT / "projects/HD_DIT_HAP/results/11_merged"
+    input_paths = sorted(merged_dir.glob("*.merged.tsv"))
+    if not input_paths:
+        raise FileNotFoundError(f"No merged read-count tables under {merged_dir}")
+    df, retention_lines = script.assemble_distribution(input_paths, "YES0", 8.0)
+    render_grouped_histogram_figure(
         df, stem,
-        row_key="sample", col_key="timepoint",
-        left_column="bin_left", right_column="bin_right", count_column="count",
+        value_column="value", row_key="sample", col_key="timepoint",
+        bins=50, log_scale=True,
         xlabel=script.X_LABEL, ylabel=script.Y_LABEL,
-        marker_value=float(np.log10(cutoff)),
-        marker_label=f"Cutoff = {cutoff:.2g}",
-        marker_on_col_value=initial_time_point,
-        footer_lines=script.build_retention_footer(df, stats),
-        footer_header=f"Cutoff applied to '{initial_time_point}' (>= {cutoff:.2g}):",
+        marker_value=8.0,
+        marker_label="Cutoff = 8",
+        marker_on_col_value="YES0",
+        footer_lines=retention_lines,
+        footer_header="Cutoff applied to 'YES0' (>= 8):",
     )
 
 

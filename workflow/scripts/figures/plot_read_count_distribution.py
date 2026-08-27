@@ -2,16 +2,25 @@
 # -*- coding: utf-8 -*-
 
 """
-Read Count Distribution Figure Renderer
-=======================================
+Read Count Distribution Figure (single stage)
+=============================================
 
-Render pre-binned log10 read-count histograms with the hard-filtering cutoff
-marked on the initial-timepoint panel. Consumes the binned distribution TSV and
-the cutoff statistics TSV produced by the computation layer; it never re-bins.
+One-stage QC figure: read per-(sample, condition) read-count tables, histogram
+their log-spaced distributions, and mark the hard-filtering cutoff — all in
+memory, with no intermediate binned TSV.
+
+Each input file's numeric columns are one panel per timepoint; the cutoff
+retention footer is computed from the raw initial-timepoint column via
+``qc.read_counts.calculate_cutoff_statistics`` (same ``>=`` boundary as the
+hard-filtering step). Rendering is delegated to
+``figure_render.histogram.render_grouped_histogram_figure`` in log-scale mode:
+bars are laid out evenly in log10 space exactly like the previous pre-binned
+figure, while ticks show real read counts and the cutoff marker sits at the raw
+cutoff value.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-08-14
-Version:  1.0.0
+Date:     2026-08-27
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -22,19 +31,26 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
 from loguru import logger
 from matplotlib import use
 
 use("Agg")
 
-import numpy as np
-import pandas as pd
-
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
+
 from logging_setup import setup_logger  # noqa: E402
-from figure_render.histogram import render_prebinned_histogram_figure  # noqa: E402
-from figure_render._schema import require_columns  # noqa: E402
+from sample_metadata import parse_sample_name  # noqa: E402
+from qc.read_counts import STATS_COLUMNS, calculate_cutoff_statistics  # noqa: E402
+from figure_render.histogram import render_grouped_histogram_figure  # noqa: E402
+
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+X_LABEL = "Read count"
+Y_LABEL = "Frequency"
 
 
 # =============================================================================
@@ -43,64 +59,44 @@ from figure_render._schema import require_columns  # noqa: E402
 @dataclass(kw_only=True, slots=True, frozen=True)
 class PlotConfig:
     """Immutable config holding validated input TSV paths, output stem, and annotations."""
-    input_path: Path
-    stats_path: Path
+    input_files: list[Path]
     output_stem: Path
     initial_time_point: str
     cutoff: float
+    bins: int = 50
 
     def __post_init__(self) -> None:
         """Validate that inputs exist, the cutoff is positive, and the output directory is present."""
-        if not self.input_path.exists():
-            raise ValueError(f"Input file does not exist: {self.input_path}")
-        if not self.stats_path.exists():
-            raise ValueError(f"Stats file does not exist: {self.stats_path}")
+        if not self.input_files:
+            raise ValueError("At least one input file must be provided")
+        for file_path in self.input_files:
+            if not file_path.exists():
+                raise ValueError(f"Input file does not exist: {file_path}")
         if self.cutoff <= 0:
             raise ValueError(f"Cutoff must be positive: {self.cutoff}")
+        if self.bins < 5 or self.bins > 200:
+            raise ValueError(f"Number of bins must be between 5 and 200: {self.bins}")
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
-
-
-# =============================================================================
-# CONSTANTS
-# =============================================================================
-DISTRIBUTION_COLUMNS = ["sample", "timepoint", "bin_left", "bin_right", "count"]
-STATS_COLUMNS = [
-    "sample", "original_rows", "rows_kept", "pct_rows_kept",
-    "original_counts", "counts_kept", "pct_counts_kept",
-]
-
-X_LABEL = "log$_{10}$(read count)"
-Y_LABEL = "Frequency"
 
 
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
 @logger.catch(reraise=True)
-def load_distribution_data(input_path: Path) -> pd.DataFrame:
-    """Load the binned distribution TSV and validate its schema."""
-    logger.info(f"Loading binned distribution from {input_path}...")
-    df = pd.read_csv(input_path, sep="\t")
-
-    require_columns(df, DISTRIBUTION_COLUMNS, context=f"distribution TSV {input_path.name}")
-
-    logger.info(f"Loaded {len(df)} bin rows")
+def load_value_table(file_path: Path) -> pd.DataFrame | None:
+    """Load one raw read-count table with its 4-level row index; None on parse failure."""
+    logger.info(f"Reading TSV file: {file_path}")
+    try:
+        df = pd.read_csv(file_path, sep="\t", engine="python", index_col=[0, 1, 2, 3])
+        if df.empty:
+            raise ValueError("Empty DataFrame after reading")
+    except (ValueError, KeyError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+        logger.error(f"Failed to process {file_path.name}: {e}. Skipping.")
+        return None
     return df
 
 
-@logger.catch(reraise=True)
-def load_cutoff_stats(stats_path: Path) -> pd.DataFrame:
-    """Load the cutoff retention statistics TSV and validate its schema."""
-    logger.info(f"Loading cutoff statistics from {stats_path}...")
-    df = pd.read_csv(stats_path, sep="\t")
-
-    require_columns(df, STATS_COLUMNS, context=f"cutoff stats TSV {stats_path.name}")
-
-    logger.info(f"Loaded statistics for {len(df)} samples")
-    return df
-
-
-def format_retention_caption(sample: str, stats_row: pd.Series) -> str:
+def format_retention_caption(sample: str, stats_row: dict[str, float | int | str]) -> str:
     """Format a one-line cutoff retention summary for a sample."""
     return (
         f"{sample}: {int(stats_row['rows_kept']):,}/{int(stats_row['original_rows']):,} rows kept "
@@ -110,16 +106,47 @@ def format_retention_caption(sample: str, stats_row: pd.Series) -> str:
     )
 
 
-def build_retention_footer(df: pd.DataFrame, stats_df: pd.DataFrame) -> list[str]:
-    """Build one retention line per sample present in the distribution data."""
-    by_sample = stats_df.set_index("sample")
-    present = set(df["sample"].unique())
+@logger.catch(reraise=True)
+def assemble_distribution(input_files: list[Path], initial_time_point: str, cutoff: float):
+    """Build the long-format value frame and per-sample retention records from raw tables.
 
-    return [
-        format_retention_caption(sample, row)
-        for sample, row in by_sample.iterrows()
-        if sample in present
+    Bad files are logged and skipped so one malformed input cannot kill the
+    whole figure; raises when no file yields usable data.
+    """
+    value_frames: list[pd.DataFrame] = []
+    retention_records: list[dict[str, float | int]] = []
+
+    for file_path in sorted(input_files, key=lambda p: p.name):
+        sample = parse_sample_name(file_path)
+        df = load_value_table(file_path)
+        if df is None:
+            continue
+
+        stats = calculate_cutoff_statistics(df, initial_time_point, cutoff)
+        # @logger.catch swallows validation errors to None (e.g. a missing or
+        # non-numeric initial timepoint column); treat that as a skipped file
+        # rather than crashing on the ** below.
+        if stats is None:
+            continue
+
+        numeric_cols = df.select_dtypes(include="number").columns
+        for col in numeric_cols:
+            value_frames.append(
+                pd.DataFrame({"sample": [sample] * len(df), "timepoint": str(col), "value": df[col].to_numpy()})
+            )
+        retention_records.append({"sample": sample, **stats})
+
+    if not value_frames:
+        raise ValueError("No valid data found in any input file!")
+
+    distribution_df = pd.concat(value_frames, ignore_index=True)
+    retention_records.sort(key=lambda r: str(r["sample"]))
+    log_lines = [
+        format_retention_caption(r["sample"], r)
+        for r in retention_records
     ]
+    logger.info(f"Assembled {len(distribution_df)} values across {len(retention_records)} samples")
+    return distribution_df, log_lines
 
 
 # =============================================================================
@@ -127,18 +154,20 @@ def build_retention_footer(df: pd.DataFrame, stats_df: pd.DataFrame) -> list[str
 # =============================================================================
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments and return the populated namespace."""
-    parser = argparse.ArgumentParser(description="Render read count distribution figure from binned TSV")
-    parser.add_argument("-i", "--input", type=Path, required=True, help="Input binned distribution TSV file")
-    parser.add_argument("-s", "--stats", type=Path, required=True, help="Input cutoff statistics TSV file")
+    parser = argparse.ArgumentParser(description="Render read count distribution figure from raw read-count tables")
+    parser.add_argument("-i", "--input", nargs="+", type=Path, required=True,
+                        help="Input read-count TSV files ({sample}_{condition}.*.tsv)")
     parser.add_argument("-o", "--output", type=Path, required=True, help="Output file stem (extension will be added)")
-    parser.add_argument("-t", "--initial_time_point", type=str, required=True, help="Initial time point column name for the cutoff annotation")
+    parser.add_argument("-t", "--initial_time_point", type=str, required=True,
+                        help="Initial time point column name for the cutoff annotation")
     parser.add_argument("-c", "--cutoff", type=float, required=True, help="Hard filtering cutoff value to annotate")
+    parser.add_argument("--bins", type=int, default=50, help="Number of bins per panel (default: %(default)s)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
 
 def main() -> int:
-    """Load binned distributions and stats, render the figure, and save dual artifacts."""
+    """Compute retention in memory, histogram raw values, and save dual artifacts."""
     args = parse_args()
     setup_logger("DEBUG" if args.verbose else "INFO")
 
@@ -146,8 +175,7 @@ def main() -> int:
 
     try:
         config = PlotConfig(
-            input_path=args.input,
-            stats_path=args.stats,
+            input_files=args.input,
             output_stem=output_stem,
             initial_time_point=args.initial_time_point,
             cutoff=args.cutoff,
@@ -159,23 +187,22 @@ def main() -> int:
     logger.info("=== Read Count Distribution Figure Rendering ===")
 
     try:
-        df = load_distribution_data(config.input_path)
-        stats_df = load_cutoff_stats(config.stats_path)
+        df, retention_lines = assemble_distribution(config.input_files, config.initial_time_point, config.cutoff)
 
-        render_prebinned_histogram_figure(
+        render_grouped_histogram_figure(
             df,
             config.output_stem,
+            value_column="value",
             row_key="sample",
             col_key="timepoint",
-            left_column="bin_left",
-            right_column="bin_right",
-            count_column="count",
+            bins=config.bins,
+            log_scale=True,
             xlabel=X_LABEL,
             ylabel=Y_LABEL,
-            marker_value=float(np.log10(config.cutoff)),
+            marker_value=config.cutoff,
             marker_label=f"Cutoff = {config.cutoff:.2g}",
             marker_on_col_value=config.initial_time_point,
-            footer_lines=build_retention_footer(df, stats_df),
+            footer_lines=retention_lines,
             footer_header=f"Cutoff applied to '{config.initial_time_point}' (>= {config.cutoff:.2g}):",
         )
     except Exception as e:

@@ -71,8 +71,11 @@ rule plot_pbl_pbr_correlation:
 
 rule plot_read_count_distribution:
     input:
-        distribution=rules.read_count_distribution_data.output.distribution,
-        stats=rules.read_count_distribution_data.output.stats,
+        branch(
+            config["merge_similar_timepoints"],
+            expand(f"projects/{project_name}/results/11_merged/{{sample}}_{{condition}}.merged.tsv", sample=samples, condition=conditions),
+            expand(rules.concat_timepoints.output.Reads, sample=samples, condition=conditions),
+        ),
     output:
         journal=report(
             f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
@@ -86,7 +89,7 @@ rule plot_read_count_distribution:
         ),
         review=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/plot_read_count_distribution.log",
+        f"projects/{project_name}/logs/figures/plot_read_count_distribution.log",
     params:
         stem=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis",
         initial_time_point=config["initial_time_point"],
@@ -98,8 +101,7 @@ rule plot_read_count_distribution:
     shell:
         """
         python workflow/scripts/figures/plot_read_count_distribution.py \
-            -i {input.distribution} \
-            -s {input.stats} \
+            -i {input} \
             -t {params.initial_time_point} \
             -c {params.hard_filtering_cutoff} \
             -o {params.stem} &> {log}

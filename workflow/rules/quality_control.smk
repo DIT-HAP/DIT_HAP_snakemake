@@ -234,41 +234,6 @@ rule mapping_filtering_statistics:
         -o {output} &> {log}
         """
 
-# Read count distribution analysis
-# -----------------------------------------------------
-rule read_count_distribution_data:
-    input:
-        branch(
-            config["merge_similar_timepoints"],
-            expand(f"projects/{project_name}/results/11_merged/{{sample}}_{{condition}}.merged.tsv", sample=samples, condition=conditions),
-            expand(rules.concat_timepoints.output.Reads, sample=samples, condition=conditions),
-        ),
-    output:
-        distribution=f"projects/{project_name}/results/18_figure_data/read_count_distribution.tsv",
-        stats=f"projects/{project_name}/results/18_figure_data/read_count_cutoff_stats.tsv",
-    log:
-        f"projects/{project_name}/logs/quality_control/read_count_distribution_data.log",
-    conda:
-        "../envs/statistics_and_computation.yml"
-    message:
-        "*** Computing read count distributions..."
-    params:
-        initial_time_point=config["initial_time_point"],
-        hard_filtering_cutoff=config["hard_filtering_cutoff"],
-    shell:
-        """
-        python workflow/scripts/quality_control/read_count_distribution_analysis.py \
-            -i {input} \
-            -t {params.initial_time_point} \
-            -c {params.hard_filtering_cutoff} \
-            -o {output.distribution} \
-            -s {output.stats} &> {log}
-        """
-
-
-
-
-
 # Insertion orientation analysis
 # -----------------------------------------------------
 rule strand_pairs:
