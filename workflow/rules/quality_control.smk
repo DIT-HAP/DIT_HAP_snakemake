@@ -234,26 +234,6 @@ rule mapping_filtering_statistics:
         -o {output} &> {log}
         """
 
-# PBL-PBR correlation analysis
-# -----------------------------------------------------
-rule pbl_pbr_pairs:
-    input:
-        expand(rules.merge_strand_insertions.output, sample=samples, timepoint=timepoints, condition=conditions),
-    output:
-        f"projects/{project_name}/results/18_figure_data/pbl_pbr_pairs.tsv",
-    log:
-        f"projects/{project_name}/logs/quality_control/pbl_pbr_pairs.log",
-    conda:
-        "../envs/statistics_and_computation.yml"
-    message:
-        "*** Extracting PBL-PBR pairs..."
-    shell:
-        """
-        python workflow/scripts/quality_control/PBL_PBR_correlation_analysis.py \
-            -i {input} -o {output} &> {log}
-        """
-
-
 # Read count distribution analysis
 # -----------------------------------------------------
 rule read_count_distribution_data:

@@ -117,9 +117,9 @@ def test_total_row_count(real_data_path: Path) -> None:
 
 def test_empty_data_handling(tmp_path: Path) -> None:
     """Assert empty data case is handled gracefully."""
-    # Create empty TSV with correct schema
+    # Create empty TSV with correct long-format pairs schema
     empty_tsv = tmp_path / "empty.tsv"
-    empty_df = pd.DataFrame(columns=['sample', 'timepoint', 'pbl', 'pbr'])
+    empty_df = pd.DataFrame(columns=['sample', 'timepoint', 'condition', 'pbl', 'pbr'])
     empty_df.to_csv(empty_tsv, sep='\t', index=False)
 
     output_stem = tmp_path / "empty_test"
@@ -148,20 +148,28 @@ def test_entrypoint_enables_density(
 
     Asserted through main() rather than the renderer: density=True lives in the
     entrypoint's call, so a test driving the renderer directly would keep
-    passing if the flag were dropped from the script.
+    passing if the flag were dropped from the script. The CLI input is a merged
+    insertion table named {sample}_{timepoint}_{condition}.tsv; a real pairs TSV
+    has neither that filename shape nor the PBL/PBR column schema, so a minimal
+    synthetic merged table stands in for it.
     """
-    if not real_data_path.exists():
-        pytest.skip(f"Real data not found: {real_data_path}")
-
     captured: dict[str, object] = {}
 
     def _capture(df: pd.DataFrame, stem: Path, **kwargs: object) -> None:
         captured.update(kwargs)
 
     monkeypatch.setattr(_SCRIPT, "render_grouped_regression_figure", _capture)
+
+    merged_tsv = tmp_path / "HD1328-4_YES0_YES.tsv"
+    merged_df = pd.DataFrame({
+        "Chr": ["I", "II"], "Coordinate": [100, 200], "Strand": ["+", "-"],
+        "PBL": [5.0, 7.0], "PBR": [3.0, 9.0],
+    })
+    merged_df.to_csv(merged_tsv, sep="\t", index=False)
+
     monkeypatch.setattr(
         "sys.argv",
-        ["plot_pbl_pbr_correlation.py", "-i", str(real_data_path), "-o", str(tmp_path / "cli")],
+        ["plot_pbl_pbr_correlation.py", "-i", str(merged_tsv), "-o", str(tmp_path / "cli")],
     )
 
     assert _SCRIPT.main() == 0

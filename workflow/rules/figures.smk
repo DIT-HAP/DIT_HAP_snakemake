@@ -41,7 +41,7 @@ rule plot_ma_plot:
 
 rule plot_pbl_pbr_correlation:
     input:
-        rules.pbl_pbr_pairs.output,
+        expand(rules.merge_strand_insertions.output, sample=samples, timepoint=timepoints, condition=conditions),
     output:
         journal=report(
             f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
@@ -55,7 +55,7 @@ rule plot_pbl_pbr_correlation:
         ),
         review=f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/plot_pbl_pbr_correlation.log",
+        f"projects/{project_name}/logs/figures/plot_pbl_pbr_correlation.log",
     params:
         stem=f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis",
     conda:
