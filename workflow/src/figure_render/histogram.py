@@ -25,7 +25,7 @@ from loguru import logger
 
 from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual
 
-from ._layout import grid_panel_size, panel_labels
+from ._layout import PANEL_DECORATION_PX, panel_labels, square_panel_size  # noqa: F401 (PANEL_DECORATION_PX re-exported)
 from ._schema import require_columns
 
 # =============================================================================
@@ -38,8 +38,8 @@ FOOTER_LINE_PX = 9
 # tick labels are single-digit.
 HISTOGRAM_DECORATION_PX = 55
 
-PANEL_WIDTH_PX = 180
-PANEL_HEIGHT_PX = 180
+PANEL_WIDTH_PX = 500
+PANEL_HEIGHT_PX = 150
 
 
 # =============================================================================
@@ -84,7 +84,7 @@ def draw_histogram_panel(
     else:
         edges = bins
 
-    ax.hist(values.to_numpy(), bins=edges, alpha=0.8, edgecolor="white", linewidth=0.5)  # type: ignore[arg-type]
+    ax.hist(values.to_numpy(), bins=edges, alpha=0.8, edgecolor="lightgray", linewidth=0.2)  # type: ignore[arg-type]
 
     if log_scale:
         ax.set_xscale("log")
@@ -223,16 +223,23 @@ def render_grouped_histogram_figure(
 
     n_cols = df[col_key].nunique()
     n_rows = df[row_key].nunique()
-    panel_width, panel_height = grid_panel_size(
-        JOURNAL_WIDTH_PX, JOURNAL_HEIGHT_PX, n_cols, n_rows,
-        decoration_px=HISTOGRAM_DECORATION_PX,
-    )
+    # Square panels via the width budget alone, exactly as the grouped scatter
+    # renderer does: cnsplots grows the figure height to fit however many rows
+    # the grid needs, so budgeting height from n_rows (as grid_panel_size does)
+    # yields a tall rectangle whenever n_cols > n_rows — for a 5x3 read-count
+    # grid that was 47x87 px, squeezing the informative log-read-count axis.
+    panel_size = square_panel_size(JOURNAL_WIDTH_PX, n_cols, decoration_px=HISTOGRAM_DECORATION_PX)
+
+    # Decorations are multiplied back in so a full row of measured panels (each
+    # wider than its requested axes once tick/label reserve is added) still fits
+    # within max_width instead of wrapping one column early.
+    row_max_width = n_cols * (panel_size + HISTOGRAM_DECORATION_PX)
 
     footer_reserve_px = FOOTER_LINE_PX * (n_rows + 2) if footer_lines else 0
     last_row_index = n_rows - 1
 
     cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX)
+    multipanel = cns.multipanel(max_width=row_max_width)
     labels = panel_labels(grouped.ngroups)
 
     if share_x_range and log_scale:
@@ -249,8 +256,8 @@ def render_grouped_histogram_figure(
 
         ax = multipanel.panel(
             label=label,
-            width=panel_width,
-            height=panel_height,
+            width=panel_size,
+            height=panel_size,
             pad_left=2,
             pad_top=2,
             margin_right=4,
