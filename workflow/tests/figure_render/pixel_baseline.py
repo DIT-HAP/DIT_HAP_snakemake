@@ -112,11 +112,14 @@ def _render_correlation(stem: Path) -> None:
 def _render_orientation(stem: Path) -> None:
     from figure_render.scatter import render_grouped_regression_figure
     script = _load_script("plot_insertion_orientation")
-    df = script.load_and_prepare_data(ARC_DIR / "strand_pairs.tsv")
+    filtered = PROJECT_ROOT / "projects/HD_DIT_HAP/results/13_filtered/raw_reads.filtered.tsv"
+    df = script.assemble_strand_pairs(filtered)
+    df = script._prepare(df, context="pixel baseline")
     render_grouped_regression_figure(
         df, stem, x=script.X_COLUMN, y=script.Y_COLUMN,
         xlabel=script.X_LABEL, ylabel=script.Y_LABEL,
         row_key="sample", col_key="timepoint",
+        density=True,
     )
 
 
@@ -160,10 +163,9 @@ def _render_coverage(stem: Path) -> None:
     render_composition_figure(
         df, stem,
         category_column="category", percentage_column="coverage_pct",
-        part_column="covered", whole_column="not_covered", total_column="total",
+        part_column="covered", whole_column="not_covered",
         part_label=script.COVERED_LABEL, whole_label=script.NOT_COVERED_LABEL,
         xlabel=script.X_LABEL, ylabel=script.Y_LABEL, title=script.TITLE,
-        donut_unit=script.DONUT_UNIT,
     )
 
 

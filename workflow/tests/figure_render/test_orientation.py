@@ -42,7 +42,19 @@ def _load_orientation_script() -> ModuleType:
 
 
 _SCRIPT = _load_orientation_script()
-load_and_prepare_data = _SCRIPT.load_and_prepare_data
+
+
+def load_and_prepare_data(input_path: Path):
+    """Archive-compat shim: the script no longer exposes load_and_prepare_data.
+
+    Applies the script's own _prepare (schema check, positivity filter, log10
+    columns) to the long-format pairs TSV the tests feed it. Pending deletion
+    along with this test module.
+    """
+    import pandas as pd
+
+    df = pd.read_csv(input_path, sep="\t")
+    return _SCRIPT._prepare(df, context="test fixture")
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS

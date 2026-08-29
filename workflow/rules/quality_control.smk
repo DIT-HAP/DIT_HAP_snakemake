@@ -234,28 +234,12 @@ rule mapping_filtering_statistics:
         -o {output} &> {log}
         """
 
-# Insertion orientation analysis
-# -----------------------------------------------------
-rule strand_pairs:
-    input:
-        rules.hard_filtering.output,
-    output:
-        f"projects/{project_name}/results/18_figure_data/strand_pairs.tsv",
-    log:
-        f"projects/{project_name}/logs/quality_control/strand_pairs.log",
-    conda:
-        "../envs/statistics_and_computation.yml"
-    message:
-        "*** Extracting insertion orientation strand pairs..."
-    shell:
-        """
-        python workflow/scripts/quality_control/insertion_orientation_analysis.py \
-            -i {input} -o {output} &> {log}
-        """
-
 
 # Insertion density analysis
 # -----------------------------------------------------
+# Kept as a separate data-layer rule: the per-gene statistics table is also
+# consumed by the Datavzrd report (6b), not just by the density figure, so the
+# two-stage layout stays for this chain.
 rule insertion_density_data:
     input:
         insertion_data=rules.hard_filtering.output,
@@ -278,33 +262,6 @@ rule insertion_density_data:
             -a {input.annotation} \
             -t {params.initial_time_point} \
             -f {params.final_time_point} \
-            -o {output} &> {log}
-        """
-
-# Gene coverage analysis
-# -----------------------------------------------------
-rule gene_coverage_data:
-    input:
-        insertion_data=f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-        annotation=rules.concat_counts_and_annotations.output.annotations,
-    output:
-        f"projects/{project_name}/results/18_figure_data/gene_coverage_stats.tsv",
-    log:
-        f"projects/{project_name}/logs/quality_control/gene_coverage_data.log",
-    conda:
-        "../envs/statistics_and_computation.yml"
-    message:
-        "*** Performing gene coverage analysis..."
-    params:
-        gene_viability=rules.download_pombase_data.output.gene_viability.format(
-            release_version=config["Pombase_release_version"]
-        ),
-    shell:
-        """
-        python workflow/scripts/quality_control/gene_coverage_analysis.py \
-            -i {input.insertion_data} \
-            -a {input.annotation} \
-            -v {params.gene_viability} \
             -o {output} &> {log}
         """
 

@@ -80,7 +80,9 @@ wildcard_constraints:
 rule all:
     input:
         # --- smoke-test target (uncomment one to run) ---
-        f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf"
+        f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
+        f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.pdf",
+        f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
         # --- reference data ---
         # f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
 

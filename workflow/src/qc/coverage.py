@@ -101,22 +101,3 @@ def compute_coverage_stats(viability: pd.DataFrame, covered_genes: set[str]) -> 
         stats.append(stat)
 
     return stats
-
-
-@logger.catch
-def write_coverage_table(stats: list[CoverageStat], output_file: Path) -> None:
-    """Write the per-category coverage tally to a TSV."""
-    table = pd.DataFrame(
-        [
-            {
-                "category": stat.category,
-                "covered": stat.covered,
-                "not_covered": stat.not_covered,
-                "total": stat.total,
-                "coverage_pct": round(stat.coverage_pct, 3),
-            }
-            for stat in stats
-        ]
-    )
-    table.to_csv(output_file, sep="\t", index=False)
-    logger.success(f"Wrote coverage statistics for {len(stats)} categories to {output_file}")

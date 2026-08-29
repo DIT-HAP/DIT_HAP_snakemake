@@ -44,11 +44,10 @@ def render_kwargs() -> dict[str, str]:
         percentage_column="present_pct",
         part_column="present",
         whole_column="absent",
-        total_column="total",
         part_label="Present",
         whole_label="Absent",
-        xlabel="Bucket",
-        ylabel="Present (%)",
+        xlabel="Present (%)",
+        ylabel="Bucket",
         title="Presence by bucket",
     )
 
@@ -71,12 +70,12 @@ def test_panel_count_is_one_plus_categories(
 def test_bar_panel_is_percentage_scaled(
     composition_frame: pd.DataFrame, render_kwargs: dict[str, str], tmp_path: Path
 ) -> None:
-    """Assert the overview panel's y-axis is pinned to 0-100."""
+    """Assert the overview panel's x-axis (horizontal bars) is pinned to 0-100."""
     import matplotlib.pyplot as plt
 
     render_composition_figure(composition_frame, tmp_path / "bar", **render_kwargs)
 
-    assert plt.gcf().get_axes()[0].get_ylim() == (0.0, 100.0)
+    assert plt.gcf().get_axes()[0].get_xlim() == (0.0, 100.0)
 
 
 def test_percentage_labels_are_annotated(
@@ -128,15 +127,19 @@ def test_empty_frame_renders_placeholder(
 def test_category_order_is_preserved(
     composition_frame: pd.DataFrame, render_kwargs: dict[str, str], tmp_path: Path
 ) -> None:
-    """Assert donut panels follow the frame's row order, not alphabetical order."""
+    """Assert donut panels follow the frame's row order, not alphabetical order.
+
+    Categories live in the donut hole now that the title band is gone; the
+    per-panel texts also hold the panel letter, so match by category name.
+    """
     import matplotlib.pyplot as plt
 
     render_composition_figure(composition_frame, tmp_path / "order", **render_kwargs)
 
-    donut_titles = [ax.get_title() for ax in plt.gcf().get_axes()[1:]]
-    assert donut_titles[0].startswith("low")
-    assert donut_titles[1].startswith("mid")
-    assert donut_titles[2].startswith("high")
+    donut_texts = [", ".join(t.get_text() for t in ax.texts) for ax in plt.gcf().get_axes()[1:]]
+    assert "low" in donut_texts[0]
+    assert "mid" in donut_texts[1]
+    assert "high" in donut_texts[2]
 
 
 def test_missing_column_raises(

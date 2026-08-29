@@ -49,9 +49,9 @@ def _render(df: pd.DataFrame, output_stem: Path) -> None:
     render_composition_figure(
         df, output_stem,
         category_column="category", percentage_column="coverage_pct",
-        part_column="covered", whole_column="not_covered", total_column="total",
+        part_column="covered", whole_column="not_covered",
         part_label=_SCRIPT.COVERED_LABEL, whole_label=_SCRIPT.NOT_COVERED_LABEL,
-        xlabel=_SCRIPT.X_LABEL, ylabel=_SCRIPT.Y_LABEL, title=_SCRIPT.TITLE, donut_unit=_SCRIPT.DONUT_UNIT,
+        xlabel=_SCRIPT.X_LABEL, ylabel=_SCRIPT.Y_LABEL, title=_SCRIPT.TITLE,
     )
 
 

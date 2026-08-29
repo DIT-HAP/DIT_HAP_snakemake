@@ -110,7 +110,7 @@ rule plot_read_count_distribution:
 
 rule plot_insertion_orientation:
     input:
-        rules.strand_pairs.output,
+        rules.hard_filtering.output,
     output:
         journal=report(
             f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
@@ -124,7 +124,7 @@ rule plot_insertion_orientation:
         ),
         review=f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/plot_insertion_orientation.log",
+        f"projects/{project_name}/logs/figures/plot_insertion_orientation.log",
     params:
         stem=f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis",
     conda:
@@ -154,7 +154,7 @@ rule plot_insertion_density:
         ),
         review=f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/plot_insertion_density.log",
+        f"projects/{project_name}/logs/figures/plot_insertion_density.log",
     params:
         stem=f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis",
         initial_time_point=config["initial_time_point"],
@@ -174,7 +174,11 @@ rule plot_insertion_density:
 
 rule plot_gene_coverage:
     input:
-        rules.gene_coverage_data.output,
+        lfc=f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
+        annotation=rules.concat_counts_and_annotations.output.annotations,
+        gene_viability=(
+            f"resources/pombase_data/{config['Pombase_release_version']}/Gene_metadata/gene_viability.tsv"
+        ),
     output:
         journal=report(
             f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
@@ -188,7 +192,7 @@ rule plot_gene_coverage:
         ),
         review=f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.review.png",
     log:
-        f"projects/{project_name}/logs/quality_control/plot_gene_coverage.log",
+        f"projects/{project_name}/logs/figures/plot_gene_coverage.log",
     params:
         stem=f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis",
     conda:
@@ -198,6 +202,8 @@ rule plot_gene_coverage:
     shell:
         """
         python workflow/scripts/figures/plot_gene_coverage.py \
-            -i {input} \
+            -i {input.lfc} \
+            -a {input.annotation} \
+            -v {input.gene_viability} \
             -o {params.stem} &> {log}
         """
