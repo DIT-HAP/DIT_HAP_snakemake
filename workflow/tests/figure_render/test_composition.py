@@ -150,3 +150,90 @@ def test_missing_column_raises(
 
     with pytest.raises(ValueError, match="absent_pct"):
         render_composition_figure(composition_frame, tmp_path / "bad", **kwargs)
+
+
+@pytest.fixture
+def four_category_frame() -> pd.DataFrame:
+    """Four categories, so the donuts wrap into a 2x2 grid with a row below."""
+    return pd.DataFrame(
+        {
+            "bucket": ["low", "mid", "high", "top"],
+            "present": [80, 50, 20, 10],
+            "absent": [20, 50, 80, 90],
+            "total": [100, 100, 100, 100],
+            "present_pct": [80.0, 50.0, 20.0, 10.0],
+        }
+    )
+
+
+def test_rows_are_separated_by_the_configured_gap(
+    four_category_frame: pd.DataFrame, render_kwargs: dict[str, str], tmp_path: Path
+) -> None:
+    """Assert consecutive rows are separated by at least ROW_GAP_PX of clear space.
+
+    multipanel reserves layout space for measured *top* decorations only, so
+    without an explicit margin_bottom the bar's xlabel rendered on top of the
+    next row's panel labels and each donut's legend rendered inside the row
+    below it. Asserting a positive gap rather than mere non-overlap keeps rows
+    reading as separate blocks.
+    """
+    import matplotlib.pyplot as plt
+
+    from figure_render.composition import ROW_GAP_PX
+
+    render_composition_figure(four_category_frame, tmp_path / "spill", **render_kwargs)
+
+    fig = plt.gcf()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    axes = fig.get_axes()
+    tights = [ax.get_tightbbox(renderer) for ax in axes]
+    # get_tightbbox is in device px; multipanel sizes in 72-dpi layout px.
+    scale = fig.dpi / 72
+
+    rows: dict[float, list[int]] = {}
+    for index, ax in enumerate(axes):
+        rows.setdefault(round(ax.get_window_extent().y0, 1), []).append(index)
+    ordered = [rows[y] for y in sorted(rows, reverse=True)]
+    assert len(ordered) == 3, f"Expected bar row plus two donut rows, got {len(ordered)}"
+
+    for upper, lower in zip(ordered, ordered[1:], strict=False):
+        gap = (min(tights[i].y0 for i in upper) - max(tights[i].y1 for i in lower)) / scale
+        assert gap >= ROW_GAP_PX - 1, (
+            f"Rows are {gap:.1f} layout px apart, below the configured {ROW_GAP_PX} px gap"
+        )
+
+    # The last row's legend must also stay on the canvas, not hang off the bottom.
+    assert min(tights[i].y0 for i in ordered[-1]) >= 0, "Bottom row decorations spill off the figure"
+
+
+def test_donut_legend_sits_close_under_its_ring(
+    four_category_frame: pd.DataFrame, render_kwargs: dict[str, str], tmp_path: Path
+) -> None:
+    """Assert each legend sits LEGEND_RING_GAP_PX below its own ring, not the axes box.
+
+    cns.donutplot anchors a bottom legend relative to the axes box, but the ring
+    stops at 90% of it, so the default offset left ~20 layout px of dead space
+    and the legend read as belonging to the panel below.
+    """
+    import matplotlib.pyplot as plt
+
+    from figure_render.donut import LEGEND_RING_GAP_PX
+
+    render_composition_figure(four_category_frame, tmp_path / "legend_gap", **render_kwargs)
+
+    fig = plt.gcf()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    scale = fig.dpi / 72
+
+    donuts = [ax for ax in fig.get_axes() if ax.get_legend() is not None]
+    assert len(donuts) == len(four_category_frame), "Every donut panel must carry a legend"
+
+    for ax in donuts:
+        ring_bottom = min(patch.get_window_extent(renderer).y0 for patch in ax.patches)
+        legend_top = ax.get_legend().get_window_extent(renderer).y1
+        gap = (ring_bottom - legend_top) / scale
+        assert gap == pytest.approx(LEGEND_RING_GAP_PX, abs=1.0), (
+            f"Legend sits {gap:.1f} layout px under the ring, expected {LEGEND_RING_GAP_PX}"
+        )

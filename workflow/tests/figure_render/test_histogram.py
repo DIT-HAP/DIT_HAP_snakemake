@@ -324,6 +324,72 @@ def test_grid_shared_y_applies_uniform_ylim(metric_frame, tmp_path):
     assert len(set(np.round(tops, 6))) == 1, f"Shared-y panels should share one y top: {tops}"
 
 
+def test_grid_y_is_per_panel_by_default(tmp_path):
+    """Assert grid mode autoscales each metric's y independently.
+
+    Curve-fitting metrics span unrelated magnitudes (R² in [0,1] vs AIC in the
+    thousands), so one shared y top flattens most panels to nothing.
+    """
+    import matplotlib.pyplot as plt
+
+    rng = np.random.default_rng(11)
+    dense = rng.normal(0, 1, 500)
+    sparse = np.full(500, np.nan)
+    sparse[:50] = rng.normal(0, 1, 50)
+    df = pd.DataFrame({"narrow": dense, "wide": sparse})
+
+    render_histogram_grid_figure(
+        df, tmp_path / "freey", value_columns=["narrow", "wide"], bins=20,
+    )
+
+    tops = [ax.get_ylim()[1] for ax in plt.gcf().get_axes()]
+    assert len(set(np.round(tops, 6))) == 2, f"Panels should autoscale independently: {tops}"
+
+
+def test_grouped_y_is_per_panel_by_default(tmp_path):
+    """Assert grouped mode autoscales each group's y independently.
+
+    Read-count groups differ in depth by orders of magnitude, so a global y top
+    flattens the shallow panels.
+    """
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame({
+        "sample": ["s1"] * 100 + ["s2"] * 10,
+        "stage": ["T0"] * 110,
+        "value": list(np.full(100, 4.0)) + list(np.full(10, 4.0)),
+    })
+
+    render_grouped_histogram_figure(
+        df, tmp_path / "groupedfreey",
+        value_column="value", row_key="sample", col_key="stage",
+        bins=5,
+    )
+
+    tops = [ax.get_ylim()[1] for ax in plt.gcf().get_axes()]
+    assert len(set(np.round(tops, 6))) == 2, f"Panels should autoscale independently: {tops}"
+
+
+def test_grouped_shared_y_applies_uniform_ylim(tmp_path):
+    """Assert share_y_range=True still forces one common y top across groups."""
+    import matplotlib.pyplot as plt
+
+    df = pd.DataFrame({
+        "sample": ["s1"] * 100 + ["s2"] * 10,
+        "stage": ["T0"] * 110,
+        "value": list(np.full(100, 4.0)) + list(np.full(10, 4.0)),
+    })
+
+    render_grouped_histogram_figure(
+        df, tmp_path / "groupedsharedy",
+        value_column="value", row_key="sample", col_key="stage",
+        bins=5, share_y_range=True,
+    )
+
+    tops = [ax.get_ylim()[1] for ax in plt.gcf().get_axes()]
+    assert len(set(np.round(tops, 6))) == 1, f"Shared-y panels should share one y top: {tops}"
+
+
 def test_grouped_all_nonpositive_group_renders_placeholder(tmp_path: Path) -> None:
     """Assert a group whose values are all non-positive (log mode) renders a placeholder panel."""
     df = pd.DataFrame(

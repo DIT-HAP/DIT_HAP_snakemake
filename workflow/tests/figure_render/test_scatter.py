@@ -425,3 +425,134 @@ def test_render_scatter_panel_show_stats_default_false_omits_annotation() -> Non
     assert len(ax.collections) > 0, "Scatter points must still be drawn"
     assert len(ax.lines) == 1, "Identity line must still be drawn"
     plt.close(ax.figure)
+
+
+@pytest.fixture
+def uneven_tick_width_frame() -> pd.DataFrame:
+    """A grid whose panels differ in data magnitude, so their y tick labels differ in width.
+
+    That width difference is what used to shift panels within a grid column:
+    cns.multipanel derives each panel's x from the *measured* width of its own
+    y-axis decorations.
+    """
+    rng = np.random.default_rng(11)
+    n = 300
+    rows, cols = ["r1", "r2", "r3"], ["c1", "c2", "c3", "c4"]
+    frames = []
+    for row_index, row in enumerate(rows):
+        for col_index, col in enumerate(cols):
+            # Escalating magnitude => "1" vs "-1000" tick labels across the grid
+            scale = 10 ** (col_index + row_index)
+            values = rng.normal(0, 1, n) * scale
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "batch": row,
+                        "stage": col,
+                        "left_signal": values,
+                        "right_signal": values + rng.normal(0, 0.1 * scale, n),
+                    }
+                )
+            )
+    return pd.concat(frames, ignore_index=True)
+
+
+def test_grid_columns_and_rows_are_pixel_aligned(
+    uneven_tick_width_frame: pd.DataFrame, tmp_path: Path
+) -> None:
+    """Assert every panel in a grid column shares one x0, and every panel in a row one y0.
+
+    A QC grid compares the same quantity across samples, so the axes boxes have
+    to line up for the eye to compare them. cns.multipanel cannot do this: it
+    offsets each panel by the rendered width of that panel's own y tick labels
+    and ylabel, which drifts 10-15 px across a log10 grid.
+    """
+    import matplotlib.pyplot as plt
+
+    n_cols = uneven_tick_width_frame["stage"].nunique()
+
+    render_grouped_regression_figure(
+        uneven_tick_width_frame,
+        tmp_path / "aligned",
+        x="left_signal",
+        y="right_signal",
+        xlabel="left",
+        ylabel="right",
+        row_key="batch",
+        col_key="stage",
+    )
+
+    fig = plt.gcf()
+    fig.canvas.draw()
+    panels = [ax for ax in fig.get_axes() if not ax.get_label().startswith("<colorbar")]
+    boxes = [ax.get_window_extent() for ax in panels]
+
+    columns: dict[int, list[float]] = {}
+    rows: dict[int, list[float]] = {}
+    for index, box in enumerate(boxes):
+        row_index, col_index = divmod(index, n_cols)
+        columns.setdefault(col_index, []).append(box.x0)
+        rows.setdefault(row_index, []).append(box.y0)
+
+    for col_index, x0s in columns.items():
+        assert max(x0s) - min(x0s) == pytest.approx(0, abs=0.01), (
+            f"Column {col_index} panels start at different x: {x0s}"
+        )
+    for row_index, y0s in rows.items():
+        assert max(y0s) - min(y0s) == pytest.approx(0, abs=0.01), (
+            f"Row {row_index} panels start at different y: {y0s}"
+        )
+
+
+def test_share_limits_puts_every_panel_on_one_range(
+    uneven_tick_width_frame: pd.DataFrame, tmp_path: Path
+) -> None:
+    """Assert the default shared limits give every panel identical x and y ranges.
+
+    Aligned axes boxes are only half of a comparable grid: without a common
+    range each panel autoscales to its own data, so equal on-screen distances
+    mean different things per panel.
+    """
+    import matplotlib.pyplot as plt
+
+    render_grouped_regression_figure(
+        uneven_tick_width_frame,
+        tmp_path / "shared",
+        x="left_signal",
+        y="right_signal",
+        xlabel="left",
+        ylabel="right",
+        row_key="batch",
+        col_key="stage",
+    )
+
+    axes = plt.gcf().get_axes()
+    xlims = {tuple(np.round(ax.get_xlim(), 6)) for ax in axes}
+    ylims = {tuple(np.round(ax.get_ylim(), 6)) for ax in axes}
+
+    assert len(xlims) == 1, f"Panels have differing x ranges: {xlims}"
+    assert len(ylims) == 1, f"Panels have differing y ranges: {ylims}"
+    # A common range on both axes keeps the identity reference at 45 degrees.
+    assert xlims == ylims, f"x range {xlims} differs from y range {ylims}"
+
+
+def test_share_limits_false_lets_panels_autoscale(
+    uneven_tick_width_frame: pd.DataFrame, tmp_path: Path
+) -> None:
+    """Assert share_limits=False leaves each panel on its own autoscaled range."""
+    import matplotlib.pyplot as plt
+
+    render_grouped_regression_figure(
+        uneven_tick_width_frame,
+        tmp_path / "autoscaled",
+        x="left_signal",
+        y="right_signal",
+        xlabel="left",
+        ylabel="right",
+        row_key="batch",
+        col_key="stage",
+        share_limits=False,
+    )
+
+    xlims = {tuple(np.round(ax.get_xlim(), 6)) for ax in plt.gcf().get_axes()}
+    assert len(xlims) > 1, "share_limits=False must not force one common range"

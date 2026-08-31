@@ -141,6 +141,7 @@ def _render_read_counts(stem: Path) -> None:
         marker_on_col_value="YES0",
         footer_lines=retention_lines,
         footer_header="Cutoff applied to 'YES0' (>= 8):",
+        share_y_range=True,
     )
 
 
