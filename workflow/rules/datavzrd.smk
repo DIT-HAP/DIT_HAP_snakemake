@@ -27,7 +27,7 @@ rule datavzrd_mapping_filtering_statistics:
 rule datavzrd_insertion_density_analysis:
     input:
         config="workflow/reports/datavzrd/insertion_density_analysis.yaml",
-        table=rules.insertion_density_data.output,
+        table=rules.insertion_density_data.output[0],
     params:
         extra="",
     output:

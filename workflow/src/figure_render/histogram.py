@@ -104,7 +104,7 @@ def render_histogram_grid_figure(
     ylabel: str = "Frequency",
     show_summary_stats: bool = True,
     n_cols: int = 4,
-    share_y_range: bool = True,
+    share_y_range: bool = False,
 ) -> None:
     """Render one histogram panel per named value column."""
     logger.info("Rendering histogram grid figure...")
@@ -124,10 +124,10 @@ def render_histogram_grid_figure(
     multipanel = cns.multipanel(max_width=PANEL_WIDTH_PX * n_cols)
     labels = panel_labels(n_panels)
 
-    # Metric columns here are different physical quantities, so sharing an x
-    # axis is meaningless; frequency magnitudes remain comparable, hence the
-    # shared y by default. Columns that are entirely empty must be skipped so
-    # a NaN max cannot poison the shared limit.
+    # Metric columns here are different physical quantities with unrelated
+    # ranges, so neither axis is shared by default; opt in via share_y_range.
+    # Columns that are entirely empty must be skipped so a NaN max cannot
+    # poison the shared limit.
     finite_maxes = [m for c in value_columns if (m := df[c].max()) == m]
     shared_y_max = max(finite_maxes, default=0.0) if share_y_range else None
 
@@ -170,7 +170,7 @@ def render_grouped_histogram_figure(
     footer_header: str = "",
     upper_quantile: float | None = None,
     share_x_range: bool = True,
-    share_y_range: bool = True,
+    share_y_range: bool = False,
 ) -> None:
     """Histogram one value column into one panel per row_key/col_key group.
 
@@ -183,6 +183,11 @@ def render_grouped_histogram_figure(
     ``upper_quantile`` (e.g. 0.999999) drops values above each group's own
     quantile before binning — QC read-count tables carry one or two astronomic
     outliers that otherwise stretch the log axis across empty decades.
+
+    ``share_x_range`` puts every panel on common bin edges so bars are
+    comparable left-to-right; ``share_y_range`` is off by default because group
+    frequencies differ by orders of magnitude and one global top flattens the
+    smaller panels.
 
     The row_key value rides in the first column's ylabel rather than the title:
     a full "{row} {col}" title is wider than the axes and pushes the measured

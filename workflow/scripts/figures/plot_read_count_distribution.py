@@ -206,7 +206,7 @@ def main() -> int:
             marker_on_col_value=config.initial_time_point,
             footer_lines=retention_lines,
             footer_header=f"Cutoff applied to '{config.initial_time_point}' (>= {config.cutoff:.2g}):",
-            upper_quantile=args.upper_quantile,
+            upper_quantile=args.upper_quantile
         )
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

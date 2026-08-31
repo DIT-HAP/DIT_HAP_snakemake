@@ -19,3 +19,4 @@ dependencies:
   - loguru
   - tabulate
   - pyarrow=24.0.0
+  - matplotlib
