@@ -75,7 +75,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                     "format": "TSV",
                 },
             ),
-            dispersion_data="projects/{project_name}/results/18_figure_data/dispersion_data.tsv",
+            dispersion_data="projects/{project_name}/reports/dispersion_analysis/dispersion_data.tsv",
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_has_replicates.log",
         params:
@@ -170,7 +170,7 @@ rule plot_insertion_level_curve_fitting:
         lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
     output:
         report(
-            "projects/{project_name}/results/18_figure_data/insertion_level_fitted_curves.pdf",
+            "projects/{project_name}/reports/insertion_level_curve_fitting/insertion_level_fitted_curves.pdf",
             category="Insertion-level results",
             labels={
                 "name": "Insertion-level Fitted Curves",
@@ -341,7 +341,7 @@ rule plot_distribution_of_curve_fitting:
         rules.insertion_level_curve_fitting.output.stats,
     output:
         report(
-            "projects/{project_name}/results/18_figure_data/distribution_of_curve_fitting.pdf",
+            "projects/{project_name}/reports/distribution_of_curve_fitting/distribution_of_curve_fitting.pdf",
             category="Insertion-level results",
             labels={
                 "name": "Distribution of Curve Fitting Results",

@@ -60,7 +60,7 @@ def load_and_prepare_data(input_path: Path):
 # GLOBAL CONSTANTS & ENUMS
 # =============================================================================
 REAL_DATA_PATH = Path(
-    "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc/strand_pairs.tsv"
+    "/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/reports/figure_data_archive/strand_pairs.tsv"
 )
 
 # Rows retained after min(axis=1) > 0, and Pearson r on log10 values, per group.

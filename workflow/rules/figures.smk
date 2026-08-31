@@ -6,7 +6,7 @@ rule plot_ma_plot:
         lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
     output:
         report(
-            "projects/{project_name}/results/18_figure_data/ma_plot.pdf",
+            "projects/{project_name}/reports/ma_plot/ma_plot.pdf",
             category="Insertion-level results",
             labels={
                 "name": "MA Plot",
@@ -15,7 +15,7 @@ rule plot_ma_plot:
             },
         ),
         report(
-            "projects/{project_name}/results/18_figure_data/ma_plot_horizontal.pdf",
+            "projects/{project_name}/reports/ma_plot/ma_plot_horizontal.pdf",
             category="Insertion-level results",
             labels={
                 "name": "MA Plot (horizontal)",

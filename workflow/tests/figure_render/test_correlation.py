@@ -45,7 +45,7 @@ load_and_prepare_data = _SCRIPT.load_and_prepare_data
 def real_data_path() -> Path:
     """Path to real PBL-PBR pairs TSV (computed layer output)."""
     # Note: paths relative to main checkout, not worktree
-    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/results/18_figure_data/arc/pbl_pbr_pairs.tsv")
+    return Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake/projects/HD_DIT_HAP/reports/figure_data_archive/pbl_pbr_pairs.tsv")
 
 
 @pytest.fixture

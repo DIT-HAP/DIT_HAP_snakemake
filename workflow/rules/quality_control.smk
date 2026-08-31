@@ -245,7 +245,7 @@ rule insertion_density_data:
         insertion_data=rules.hard_filtering.output,
         annotation=rules.concat_counts_and_annotations.output.annotations,
     output:
-        f"projects/{project_name}/results/18_figure_data/insertion_density_analysis.tsv",
+        f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.tsv",
     log:
         f"projects/{project_name}/logs/quality_control/insertion_density_data.log",
     conda:

@@ -64,7 +64,7 @@ def _render(df: pd.DataFrame, output_stem: Path) -> None:
 # refactored computation rule broke, since that artifact predates the split.
 REAL_DATA_PATH = Path(
     "/data/c/yangyusheng_optimized/DIT_HAP_snakemake"
-    "/projects/HD_DIT_HAP/results/18_figure_data/arc/insertion_density_analysis.tsv"
+    "/projects/HD_DIT_HAP/reports/figure_data_archive/insertion_density_analysis.tsv"
 )
 
 # Baseline from the pre-refactor script, YES0/YES4, confirmed byte-identical post-refactor.

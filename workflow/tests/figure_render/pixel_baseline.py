@@ -24,7 +24,7 @@ from PIL import Image
 # CONSTANTS
 # =============================================================================
 PROJECT_ROOT = Path("/data/c/yangyusheng_optimized/DIT_HAP_snakemake")
-ARC_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/results/18_figure_data/arc"
+ARC_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/reports/figure_data_archive"
 DEPLETION_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/results/14_insertion_level_depletion_analysis"
 FITTING_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/results/15_insertion_level_curve_fitting"
 
