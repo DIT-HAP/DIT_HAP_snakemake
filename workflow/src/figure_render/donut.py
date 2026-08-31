@@ -14,6 +14,7 @@ Version:  1.0.0
 # IMPORTS
 # =============================================================================
 import matplotlib.axes
+import matplotlib.legend
 import matplotlib.text
 import pandas as pd
 from cnsplots import donutplot
@@ -24,6 +25,21 @@ from cnsplots import donutplot
 CENTER_FONTSIZE = 6
 
 STATUS_COLUMN = "status"
+
+# Gap between the ring's lowest point and the legend's top, in layout pixels.
+# cns.donutplot anchors a bottom legend at (0.5, -0.05) in axes fraction, but
+# the ring only spans |y| <= 1.0 inside ylim +/-1.25, so ~10% of the axes height
+# is already empty below the ring before that offset applies — ~20 layout px on
+# a 110 px panel, which reads as a legend detached from its own donut.
+LEGEND_RING_GAP_PX = 7
+
+# Axes fraction of the ring's lowest point: radius 1.0 within ylim +/-1.25.
+_RING_BOTTOM_FRACTION = 0.1
+
+# The anchor places the legend's padded box, whose top sits this far above the
+# rendered handle/label extent. Measured at 3.5 layout px for the house style
+# (borderpad 0.4 at 7 pt); subtracted so LEGEND_RING_GAP_PX means the visible gap.
+_LEGEND_BORDER_PAD_PX = 3.5
 
 
 # =============================================================================
@@ -65,5 +81,23 @@ def draw_donut_panel(
     center = next(text for text in ax.texts if text.get_text() == STATUS_COLUMN)
     center.set_text(center_text)
     center.set_fontsize(CENTER_FONTSIZE)
-    ax.get_legend().set_title(None)
+
+    legend = ax.get_legend()
+    legend.set_title(None)
+    _tighten_bottom_legend(ax, legend)
     return center
+
+
+def _tighten_bottom_legend(
+    ax: matplotlib.axes.Axes, legend: matplotlib.legend.Legend
+) -> None:
+    """Re-anchor a bottom legend LEGEND_RING_GAP_PX below the ring, not below the axes box."""
+    axes_height_px = ax.get_position().height * ax.figure.get_size_inches()[1] * 72
+    if axes_height_px <= 0:
+        return
+
+    offset_px = LEGEND_RING_GAP_PX - _LEGEND_BORDER_PAD_PX
+    legend.set_bbox_to_anchor(
+        (0.5, _RING_BOTTOM_FRACTION - offset_px / axes_height_px),
+        transform=ax.transAxes,
+    )

@@ -36,7 +36,7 @@ from scipy.stats import pearsonr
 
 from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual
 
-from ._layout import PANEL_DECORATION_PX, panel_labels, square_panel_size
+from ._layout import PANEL_DECORATION_PX, aligned_grid_axes, panel_labels, square_panel_size
 from ._point_density import point_density
 from ._schema import require_columns
 
@@ -144,6 +144,33 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
             ax.axhline(0, color="gray", linestyle="--", alpha=0.6, linewidth=1)
         case "none":
             pass
+
+
+def _apply_shared_square_limits(
+    axes: Sequence[Axes], df: pd.DataFrame, *, x: str, y: str
+) -> None:
+    """Put every axes on one common x=y range spanning all finite data.
+
+    Alignment of the axes boxes is geometric (see ``aligned_grid_axes``); this
+    makes the *contents* comparable too, which is what lets a reader read one
+    identity line across the whole grid. A common range on both axes also keeps
+    the identity reference at 45 degrees in every panel.
+    """
+    finite = df[[x, y]].replace([np.inf, -np.inf], np.nan).dropna()
+    if finite.empty:
+        logger.warning("No finite values; leaving panel limits autoscaled")
+        return
+
+    low = float(min(finite[x].min(), finite[y].min()))
+    high = float(max(finite[x].max(), finite[y].max()))
+    if not np.isfinite(low) or not np.isfinite(high) or low == high:
+        logger.warning(f"Degenerate data range [{low}, {high}]; leaving panel limits autoscaled")
+        return
+
+    margin = (high - low) * 0.04
+    for ax in axes:
+        ax.set_xlim(low - margin, high + margin)
+        ax.set_ylim(low - margin, high + margin)
 
 
 def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
@@ -281,6 +308,7 @@ def render_grouped_regression_figure(
     col_key: str = "timepoint",
     show_stats: bool = True,
     density: bool = False,
+    share_limits: bool = True,
     scatter_kws: Mapping[str, object] | None = None,
     panel_decoration_px: int = PANEL_DECORATION_PX,
 ) -> None:
@@ -288,6 +316,10 @@ def render_grouped_regression_figure(
 
     show_stats and density are set on every panel in the grid: this renderer
     builds its own ScatterPanel specs, so they cannot be varied per panel here.
+
+    ``share_limits=True`` puts every panel on one common x=y range, so panels
+    are comparable by eye as well as aligned; pass False to let each panel
+    autoscale.
     """
     logger.info("Rendering grouped regression figure...")
 
@@ -312,62 +344,51 @@ def render_grouped_regression_figure(
 
     # One row per row_key value and one column per col_key value, so a row stays
     # on one line instead of wrapping mid-group.
-    n_cols = df[col_key].nunique()
-    # A single edge from the width budget alone: cnsplots grows the figure's
-    # total height to fit however many rows the grid needs regardless of what
-    # height is requested here, so budgeting height from n_rows independently
-    # (as grid_panel_size does) produces a rectangle whenever n_cols != n_rows.
+    row_values = sorted(df[row_key].unique())
+    col_values = sorted(df[col_key].unique())
+    n_rows, n_cols = len(row_values), len(col_values)
+
+    # Only the axes box; aligned_grid_axes adds its own fixed decoration reserve
+    # around every cell, so panel_decoration_px is subtracted here rather than
+    # left for cnsplots to measure per panel.
     panel_size = square_panel_size(JOURNAL_WIDTH_PX, n_cols, decoration_px=panel_decoration_px)
 
-    # multipanel wraps to a new row once a row's rendered panels (including
-    # cnsplots' own measured y-axis tick/label reserve, ~30-40px per panel
-    # beyond the requested axes width) exceed max_width. Budgeting max_width
-    # from the requested panel_size alone therefore wraps one column early:
-    # n_cols panels at panel_size each can measure wider than n_cols *
-    # panel_size once decoration is added back in. Multiplying back in the
-    # same panel_decoration_px keeps a full row within max_width regardless of
-    # how much square_panel_size's min-size floor grew panel_size beyond the
-    # width budget's natural per-column share.
-    row_max_width = n_cols * (panel_size + panel_decoration_px)
+    labels = panel_labels(n_rows * n_cols)
+    axes = aligned_grid_axes(n_rows, n_cols, panel_px=panel_size, labels=labels)
 
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=row_max_width)
+    groups = dict(iter(grouped))
 
-    labels = panel_labels(n_panels)
+    for row_index, row_value in enumerate(row_values):
+        for col_index, col_value in enumerate(col_values):
+            panel_index = row_index * n_cols + col_index
+            label = labels[panel_index]
+            ax = axes[panel_index]
 
-    for panel_index, ((row_value, col_value), group_df) in enumerate(grouped):
-        label = labels[panel_index]
-        column = panel_index % max(n_cols, 1)
+            # An absent row/col combination still gets its cell, so the grid keeps
+            # one column per col_key value instead of shifting later panels left.
+            group_df = groups.get((row_value, col_value), df.iloc[:0])
 
-        ax = multipanel.panel(
-            label=label,
-            width=panel_size,
-            height=panel_size,
-            pad_left=2,
-            pad_top=2,
-            margin_right=6,
-            margin_bottom=18,
-        )
+            # The row_key value rides in the first column's ylabel rather than the
+            # title: a full "{row} {col}" title is wider than the axes and would
+            # overrun the neighbouring panel on this fixed pitch.
+            panel_ylabel = f"{row_value}\n{ylabel}" if col_index == 0 else ylabel
 
-        # The row_key value rides in the first column's ylabel rather than the
-        # title: a full "{row} {col}" title is wider than the axes and pushes the
-        # measured panel width past the point where n_cols panels fit in a row,
-        # which silently reflows the grid.
-        panel_ylabel = f"{row_value}\n{ylabel}" if column == 0 else ylabel
+            if group_df.empty:
+                logger.warning(f"  Panel {label}: {row_value} {col_value} has no valid data")
+            else:
+                logger.info(f"  Panel {label}: {row_value} {col_value} (n={len(group_df)})")
 
-        if group_df.empty:
-            logger.warning(f"  Panel {label}: {row_value} {col_value} has no valid data")
-        else:
-            logger.info(f"  Panel {label}: {row_value} {col_value} (n={len(group_df)})")
+            panel = ScatterPanel(
+                x=x, y=y, xlabel=xlabel, ylabel=panel_ylabel, title=str(col_value),
+                reference="identity", show_stats=show_stats, density=density,
+            )
+            render_scatter_panel(
+                ax, group_df, panel,
+                scatter_kws=REGRESSION_PANEL_SCATTER_KWS if scatter_kws is None else scatter_kws,
+            )
 
-        panel = ScatterPanel(
-            x=x, y=y, xlabel=xlabel, ylabel=panel_ylabel, title=str(col_value),
-            reference="identity", show_stats=show_stats, density=density,
-        )
-        render_scatter_panel(
-            ax, group_df, panel,
-            scatter_kws=REGRESSION_PANEL_SCATTER_KWS if scatter_kws is None else scatter_kws,
-        )
+    if share_limits:
+        _apply_shared_square_limits(axes, df, x=x, y=y)
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

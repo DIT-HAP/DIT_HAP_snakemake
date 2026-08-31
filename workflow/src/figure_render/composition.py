@@ -45,6 +45,18 @@ DONUT_PANEL_HEIGHT_PX = 110
 DONUTS_PER_ROW = 2
 DONUT_PANEL_MARGIN_RIGHT_PX = 8
 
+# multipanel measures each panel's *top* decorations (title, panel label) and
+# reserves layout space for them, but nothing below the axes: x tick labels,
+# xlabel and a legend="bottom" all render outside the panel's total height. With
+# the 10 px default the bar's xlabel landed on top of the B/C panel labels and
+# each donut's legend landed inside the row beneath it. These reserve the
+# measured overhang (~20 layout px for the bar's ticks + xlabel, ~22 for a donut
+# whose legend sits LEGEND_RING_GAP_PX under the ring) plus ROW_GAP_PX of air, so
+# rows read as separate blocks rather than one crowded stack.
+ROW_GAP_PX = 14
+BAR_PANEL_MARGIN_BOTTOM_PX = 20 + ROW_GAP_PX
+DONUT_PANEL_MARGIN_BOTTOM_PX = 22 + ROW_GAP_PX
+
 PERCENTAGE_LABEL_FONTSIZE = 6
 # Donut-hole text: 6 pt Arial runs ~2 px/char; the hole is ~53 px across so
 # ~15 chars per line fits with headroom. Category names longer than that are
@@ -128,6 +140,7 @@ def render_composition_figure(
         height=BAR_PANEL_HEIGHT_PX,
         pad_left=BAR_PANEL_PAD_LEFT_PX,
         margin_right=BAR_PANEL_MARGIN_RIGHT_PX,
+        margin_bottom=BAR_PANEL_MARGIN_BOTTOM_PX,
     )
     cns.barplot(data=df, y=category_column, x=percentage_column, ax=ax_bar)
     ax_bar.set_ylabel(ylabel)
@@ -147,6 +160,7 @@ def render_composition_figure(
             "width": DONUT_PANEL_WIDTH_PX,
             "height": DONUT_PANEL_HEIGHT_PX,
             "margin_right": DONUT_PANEL_MARGIN_RIGHT_PX,
+            "margin_bottom": DONUT_PANEL_MARGIN_BOTTOM_PX,
         }
         if panel_index >= DONUTS_PER_ROW:
             panel_kwargs["below"] = labels[1 + panel_index - DONUTS_PER_ROW]
