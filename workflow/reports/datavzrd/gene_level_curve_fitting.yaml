@@ -51,6 +51,12 @@ views:
             heatmap:
               scale: linear
               range: ["white", "#b2182b"]
+        DL:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["white", "#2166ac"]
         R2:
           precision: 3
           plot:

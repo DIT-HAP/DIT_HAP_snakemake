@@ -26,6 +26,13 @@ views:
       columns:
         regex('^output_file_.+$'):
           display-mode: hidden
+        overall_retention_rate:
+          precision: 3
+          plot:
+            heatmap:
+              scale: linear
+              range: ["#b2182b", "white", "#2166ac"]
+              domain: [0.7, 0.85, 1.0]
         regex('^retention_rate_.+$'):
           precision: 3
           plot:
