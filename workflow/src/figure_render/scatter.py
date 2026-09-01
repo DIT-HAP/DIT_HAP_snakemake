@@ -179,7 +179,7 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
     ax.text(
         0.05,
         0.95,
-        rf"$n$={len(valid)}" "\n" rf"$r$={r:.2f}" "\n" rf"$P={num2tex.num2tex(p_value, precision=3):.2g}$",
+        rf"$n={len(valid)}$" "\n" rf"$r={r:.2f}$" "\n" rf"$P={num2tex.num2tex(p_value, precision=3):.2g}$",
         transform=ax.transAxes,
         ha="left",
         va="top",
@@ -576,7 +576,7 @@ def render_scatter_grid_figure(
             )
             # Over the entry labels rather than centred over the whole box, so the
             # title reads as their heading.
-            legend.get_title().set_horizontalalignment("center")
+            legend.get_title().set_horizontalalignment("left")
             for handle in legend.legend_handles:
                 handle.set_alpha(1.0)
 
