@@ -59,7 +59,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
         output:
             LFC=report(
                 "projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-                category="Insertion-level results",
+                category="2. Insertion-level results",
                 labels={
                     "name": "Insertion-level LFC",
                     "type": "Statistics Table",
@@ -68,7 +68,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
             ),
             padj=report(
                 "projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
-                category="Insertion-level results",
+                category="2. Insertion-level results",
                 labels={
                     "name": "Insertion-level adjusted p-values",
                     "type": "Statistics Table",
@@ -104,7 +104,7 @@ else:
         output:
             LFC=report(
                 "projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-                category="Insertion-level results",
+                category="2. Insertion-level results",
                 labels={
                     "name": "Insertion-level LFC",
                     "type": "Statistics Table",
@@ -136,7 +136,7 @@ rule insertion_level_curve_fitting:
     output:
         stats=report(
             "projects/{project_name}/results/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
-            category="Insertion-level results",
+            category="2. Insertion-level results",
             labels={
                 "name": "Insertion-level Curve Fitting Statistics",
                 "type": "Statistics Table",
@@ -171,7 +171,7 @@ rule plot_insertion_level_curve_fitting:
     output:
         report(
             "projects/{project_name}/reports/insertion_level_curve_fitting/insertion_level_fitted_curves.pdf",
-            category="Insertion-level results",
+            category="2. Insertion-level results",
             labels={
                 "name": "Insertion-level Fitted Curves",
                 "type": "Figure",
@@ -213,7 +213,7 @@ rule compute_insertion_weights:
     output:
         report(
             "projects/{project_name}/results/16_gene_level_depletion_analysis/insertion_weights.tsv",
-            category="Insertion-level results",
+            category="2. Insertion-level results",
             labels={
                 "name": "Insertion-level Aggregation Weights",
                 "type": "Statistics Table",
@@ -252,7 +252,7 @@ rule gene_level_depletion_analysis:
         all_statistics="projects/{project_name}/results/16_gene_level_depletion_analysis/gene_level_statistics.tsv",
         LFC=report(
             "projects/{project_name}/results/16_gene_level_depletion_analysis/LFC.tsv",
-            category="Gene-level results",
+            category="3. Gene-level results",
             labels={
                 "name": "Gene-level LFC",
                 "type": "Statistics Table",
@@ -287,7 +287,7 @@ rule datavzrd_gene_level_LFC:
         report(
             directory("projects/{project_name}/results/16_gene_level_depletion_analysis/datavzrd_gene_level_LFC"),
             htmlindex="index.html",
-            category="Gene-level results",
+            category="3. Gene-level results",
             labels={
                 "name": "Gene-level LFC (Table)",
                 "type": "Datavzrd Report",
@@ -308,7 +308,7 @@ rule gene_level_curve_fitting:
     output:
         report(
             "projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
-            category="Gene-level results",
+            category="3. Gene-level results",
             labels={
                 "name": "Gene-level Curve Fitting Statistics",
                 "type": "Statistics Table",
@@ -342,7 +342,7 @@ rule plot_distribution_of_curve_fitting:
     output:
         report(
             "projects/{project_name}/reports/distribution_of_curve_fitting/distribution_of_curve_fitting.pdf",
-            category="Insertion-level results",
+            category="2. Insertion-level results",
             labels={
                 "name": "Distribution of Curve Fitting Results",
                 "type": "Figure",
@@ -376,7 +376,7 @@ rule datavzrd_gene_level_curve_fitting:
         report(
             directory("projects/{project_name}/results/17_gene_level_curve_fitting/datavzrd_gene_level_curve_fitting"),
             htmlindex="index.html",
-            category="Gene-level results",
+            category="3. Gene-level results",
             labels={
                 "name": "Gene-level Curve Fitting Statistics (Table)",
                 "type": "Datavzrd Report",

@@ -154,7 +154,7 @@ rule multiqc_preprocessing:
     output:
         report(
             f"projects/{project_name}/reports/multiqc/quality_control_multiqc_report.html",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "1. Preprocessing MultiQC Report",
                 "type": "MultiQC Report",

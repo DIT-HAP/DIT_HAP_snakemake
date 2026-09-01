@@ -10,7 +10,7 @@ rule datavzrd_mapping_filtering_statistics:
         report(
             directory(f"projects/{project_name}/reports/mapping_filtering_statistics/datavzrd_mapping_filtering_statistics"),
             htmlindex="index.html",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "2. Mapping Filtering Statistics",
                 "type": "Datavzrd Report",
@@ -34,7 +34,7 @@ rule datavzrd_insertion_density_analysis:
         report(
             directory(f"projects/{project_name}/reports/insertion_density_analysis/datavzrd_insertion_density_analysis"),
             htmlindex="index.html",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "6b. Insertion Density (Table)",
                 "type": "Datavzrd Report",

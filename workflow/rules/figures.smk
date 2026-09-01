@@ -7,7 +7,7 @@ rule plot_ma_plot:
     output:
         report(
             "projects/{project_name}/reports/ma_plot/ma_plot.pdf",
-            category="Insertion-level results",
+            category="2. Insertion-level results",
             labels={
                 "name": "MA Plot",
                 "type": "Figure",
@@ -16,7 +16,7 @@ rule plot_ma_plot:
         ),
         report(
             "projects/{project_name}/reports/ma_plot/ma_plot_horizontal.pdf",
-            category="Insertion-level results",
+            category="2. Insertion-level results",
             labels={
                 "name": "MA Plot (horizontal)",
                 "type": "Figure",
@@ -46,7 +46,7 @@ rule plot_pbl_pbr_correlation:
         journal=report(
             f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
             caption="../reports/captions/PBL_PBR_correlation_analysis.rst",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "3. PBL-PBR Correlation Analysis",
                 "type": "Correlation Plot",
@@ -80,7 +80,7 @@ rule plot_read_count_distribution:
         journal=report(
             f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
             caption="../reports/captions/read_count_distribution_analysis.rst",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "4. Read Count Distribution Analysis",
                 "type": "Distribution Plot",
@@ -116,7 +116,7 @@ rule plot_insertion_orientation:
         journal=report(
             f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
             caption="../reports/captions/insertion_orientation_analysis.rst",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "5. Insertion Orientation Analysis",
                 "type": "Correlation Plot",
@@ -146,7 +146,7 @@ rule plot_insertion_density:
         journal=report(
             f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.pdf",
             caption="../reports/captions/insertion_density_analysis.rst",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "6a. Insertion Density (Distributions)",
                 "type": "Distribution Plot",
@@ -184,7 +184,7 @@ rule plot_gene_coverage:
         journal=report(
             f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
             caption="../reports/captions/gene_coverage_analysis.rst",
-            category="Quality Control",
+            category="1. Quality Control",
             labels={
                 "name": "7. Gene Coverage",
                 "type": "Coverage Plot",
