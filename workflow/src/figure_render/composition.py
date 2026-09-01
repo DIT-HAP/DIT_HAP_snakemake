@@ -158,8 +158,9 @@ def render_composition_figure(
 
     # An empty host rectangle whose coordinates become the donut grid's bounds.
     # Sized for the whole block so the grid inherits one aligned pitch.
+    # No label here — the first donut cell will carry labels[1].
     host = multipanel.panel(
-        label=labels[1],
+        label="",
         width=DONUT_PANEL_WIDTH_PX * DONUTS_PER_ROW,
         height=DONUT_PANEL_HEIGHT_PX * n_donut_rows,
         margin_right=DONUT_PANEL_MARGIN_RIGHT_PX,
@@ -197,17 +198,15 @@ def render_composition_figure(
         hspace=DONUT_GRID_HSPACE,
     )
 
-    # Donut cells: part vs whole per category, in the frame's row order. The
-    # host carries the block's own panel letter, so cells are lettered from
-    # there onwards.
+    # Donut cells: part vs whole per category, in the frame's row order.
+    # All cells get their own letter from labels[1] onwards.
     for cell_index, (label, (_, row)) in enumerate(zip(labels[1:], df.iterrows(), strict=True)):
         ax_donut = fig.add_subplot(
             gridspec[cell_index // DONUTS_PER_ROW, cell_index % DONUTS_PER_ROW]
         )
         cns.setup_ax(ax_donut)
-        if cell_index:
-            plt.sca(ax_donut)
-            cns.add_panel_label(label)
+        plt.sca(ax_donut)
+        cns.add_panel_label(label)
 
         category = str(row[category_column])
         part, whole = int(row[part_column]), int(row[whole_column])
