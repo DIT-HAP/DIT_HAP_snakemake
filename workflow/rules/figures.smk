@@ -88,6 +88,7 @@ rule plot_read_count_distribution:
             },
         ),
         review=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.review.png",
+        retention=f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.retention.txt",
     log:
         f"projects/{project_name}/logs/figures/plot_read_count_distribution.log",
     params:

@@ -106,17 +106,23 @@ def test_mismatched_x_and_value_columns_raises_readable_error(tmp_path: Path) ->
 
 
 def test_uses_house_palette_not_matplotlib_defaults() -> None:
-    """Assert the point and curve colours come from the house palette.
+    """Assert the point and curve colours are resolved from the house palette.
 
     The old renderer hardcoded '#1f77b4' and '#ff7f0e', matplotlib's defaults,
-    bypassing the Cell palette that apply_house_style() installs.
+    bypassing the Cell palette that apply_house_style() installs. They were then
+    hardcoded again as the palette's own hex values, which drift silently if
+    HOUSE_PALETTE changes; the pair must be derived, not copied.
     """
-    from figure_render.curves import FITTED_COLOR, OBSERVED_COLOR
+    import cnsplots as cns
+    from figures import HOUSE_PALETTE, observed_fitted_colors
 
-    assert OBSERVED_COLOR.lower() != "#1f77b4"
-    assert FITTED_COLOR.lower() != "#ff7f0e"
-    assert OBSERVED_COLOR == "#c84c3a"
-    assert FITTED_COLOR == "#2f7e8f"
+    observed, fitted = observed_fitted_colors()
+
+    assert observed.lower() != "#1f77b4"
+    assert fitted.lower() != "#ff7f0e"
+
+    palette = [color.lower() for color in cns.get_hexcolors_from_apalette([0, 1], HOUSE_PALETTE)]
+    assert [observed.lower(), fitted.lower()] == palette
 
 
 def test_default_ylim_preserves_legacy_framing() -> None:

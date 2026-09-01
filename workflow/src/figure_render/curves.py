@@ -10,8 +10,8 @@ picked the wrong subset for any project with a different timepoint count and
 raised "x and y must be the same size" from inside matplotlib.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-08-25
-Version:  1.0.0
+Date:     2026-09-01
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -20,30 +20,27 @@ Version:  1.0.0
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-import cnsplots as cns
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from figures import apply_house_style, save_dual
+from figures import (
+    apply_house_style,
+    grid_axes,
+    observed_fitted_colors,
+    panel_labels,
+    save_dual,
+)
 
-from ._layout import panel_labels
 from ._schema import require_columns
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# House palette (Cell) indices 0 and 1. The old renderer hardcoded matplotlib's
-# '#1f77b4' / '#ff7f0e', bypassing the palette apply_house_style() installs.
-OBSERVED_COLOR = "#c84c3a"
-FITTED_COLOR = "#2f7e8f"
-
 # Preserved from the legacy renderer so panels stay comparable across projects.
 # Callers may override, or pass None to autoscale.
 DEFAULT_YLIM: tuple[float, float] = (-1.5, 8.5)
-
-PANEL_WIDTH_PX = 180
-PANEL_HEIGHT_PX = 150
 
 # Points used to draw the fitted curve smoothly between the observed x values.
 FITTED_CURVE_RESOLUTION = 100
@@ -95,41 +92,37 @@ def render_fitted_curves_figure(
     n_rows = (n_panels + n_cols - 1) // n_cols
     logger.info(f"Creating figure with {n_rows}x{n_cols} grid ({n_panels} panels)...")
 
-    multipanel = cns.multipanel(max_width=PANEL_WIDTH_PX * n_cols)
+    observed_color, fitted_color = observed_fitted_colors()
+
     labels = panel_labels(n_panels)
+    axes = grid_axes(n_rows, n_cols, labels=labels)
 
     x_array = np.asarray(x_values, dtype=float)
     x_smooth = np.linspace(x_array.min(), x_array.max(), FITTED_CURVE_RESOLUTION)
 
-    for label, (row_index, row) in zip(labels, observed.iterrows(), strict=True):
-        ax = multipanel.panel(label=label, width=PANEL_WIDTH_PX, height=PANEL_HEIGHT_PX)
-
+    for ax, (row_index, row) in zip(axes, observed.iterrows(), strict=False):
         y_observed = row[list(value_columns)].to_numpy(dtype=float)
         params = [float(row[name]) for name in model_params]
 
-        ax.scatter(
-            x_array,
-            y_observed,
-            s=30,
-            color=OBSERVED_COLOR,
-            alpha=0.8,
-            edgecolor="white",
-            linewidths=0.5,
-        )
-        ax.plot(x_smooth, model(x_smooth, *params), color=FITTED_COLOR, linewidth=2, label="Fitted")
+        ax.scatter(x_array, y_observed, s=30, color=observed_color, alpha=0.8)
+        ax.plot(x_smooth, model(x_smooth, *params), color=fitted_color, label="Fitted")
 
         if annotations:
             text = "\n".join(f"{name}={row[name]:.3f}" for name in annotations)
-            ax.text(0.05, 0.95, text, transform=ax.transAxes, verticalalignment="top", fontsize=8)
+            ax.text(0.05, 0.95, text, transform=ax.transAxes, verticalalignment="top")
 
         title = row_index if isinstance(row_index, str) else " ".join(map(str, np.atleast_1d(row_index)))
-        ax.set_title(title, fontsize=9)
-        ax.set_xlabel(xlabel, fontsize=9)
-        ax.set_ylabel(ylabel, fontsize=9)
-        ax.tick_params(labelsize=8)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
 
         if ylim is not None:
             ax.set_ylim(*ylim)
+
+    for ax in axes[n_panels:]:
+        ax.set_visible(False)
+
+    plt.gcf().tight_layout()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

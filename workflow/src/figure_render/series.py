@@ -17,10 +17,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cnsplots as cns
+import matplotlib.pyplot as plt
 import pandas as pd
 from loguru import logger
 
-from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual
+from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual, series_colors
 
 from ._schema import require_columns
 
@@ -48,7 +49,6 @@ class Series:
 
     column: str
     label: str
-    color: str
 
 
 # =============================================================================
@@ -78,9 +78,11 @@ def render_series_scatter_figure(
 
     apply_house_style()
 
+    colors = series_colors(len(series))
+
     cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX)
-    ax = multipanel.panel()
+    fig = plt.gcf()
+    ax = fig.add_subplot()
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
@@ -93,9 +95,9 @@ def render_series_scatter_figure(
         return
 
     x_values = df[x]
-    for item in series:
+    for item, color in zip(series, colors, strict=True):
         logger.info(f"  Series {item.label}: {item.column} (n={df[item.column].notna().sum()})")
-        ax.scatter(x_values, df[item.column], c=item.color, label=item.label, **SERIES_SCATTER_KWS)
+        ax.scatter(x_values, df[item.column], c=color, label=item.label, **SERIES_SCATTER_KWS)
 
     if log_x:
         ax.set_xscale("log")
@@ -106,7 +108,7 @@ def render_series_scatter_figure(
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
-    legend = ax.legend(loc="best", frameon=False, markerscale=LEGEND_MARKER_SCALE)
+    legend = ax.legend(loc="best", markerscale=LEGEND_MARKER_SCALE)
     for handle in legend.legend_handles:
         handle.set_alpha(1.0)
 

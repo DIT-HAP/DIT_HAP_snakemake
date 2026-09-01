@@ -15,30 +15,33 @@ Version:  1.0.0
 from pathlib import Path
 
 import cnsplots as cns
+import matplotlib.pyplot as plt
 import pandas as pd
 from loguru import logger
 
-from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual
+from figures import (
+    JOURNAL_HEIGHT_PX,
+    JOURNAL_WIDTH_PX,
+    apply_house_style,
+    panel_labels,
+    save_dual,
+)
 
-from ._layout import panel_labels
 from ._schema import require_columns
 from .donut import draw_donut_panel
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# Bar overview panel: its total width (panel label + pad_left=45 + category
-# names + axes + margin) must match the two-per-row donut grid beneath it so
-# the figure reads as one aligned column. Measured from the rendered layout:
-# the donut row spans ~247 px (labels + 110 + margin 8 twice); the bar's left
-# decorations consume ~104 px, leaving ~136 px for the axes. multipanel's
-# max_width is tightened from the journal width to ~250 so the bar keeps its
-# own row (104+136+8+120 > 250) while the two donuts stay side by side
-# (120 + 124 < 250); canvas height grows automatically.
+# This figure is genuinely heterogeneous — one bar panel plus a block of
+# repeated donuts — so it uses multipanel for the two blocks and a GridSpec
+# inside the donut host. The donuts must align with each other, which repeated
+# multipanel.panel() calls cannot deliver: each panel's origin is offset by the
+# rendered width of its own y decorations.
 BAR_PANEL_WIDTH_PX = 136
 BAR_PANEL_HEIGHT_PX = 110
 BAR_PANEL_PAD_LEFT_PX = 45  # gap for the category names, as in the gallery
-BAR_PANEL_MARGIN_RIGHT_PX = 8  # match the donut row's right margin
+BAR_PANEL_MARGIN_RIGHT_PX = 8  # match the donut host's right margin
 MULTIPANEL_MAX_WIDTH_PX = 250
 DONUT_PANEL_WIDTH_PX = 110
 DONUT_PANEL_HEIGHT_PX = 110
@@ -48,19 +51,27 @@ DONUT_PANEL_MARGIN_RIGHT_PX = 8
 # multipanel measures each panel's *top* decorations (title, panel label) and
 # reserves layout space for them, but nothing below the axes: x tick labels,
 # xlabel and a legend="bottom" all render outside the panel's total height. With
-# the 10 px default the bar's xlabel landed on top of the B/C panel labels and
-# each donut's legend landed inside the row beneath it. These reserve the
-# measured overhang (~20 layout px for the bar's ticks + xlabel, ~22 for a donut
-# whose legend sits LEGEND_RING_GAP_PX under the ring) plus ROW_GAP_PX of air, so
-# rows read as separate blocks rather than one crowded stack.
+# the 10 px default the bar's xlabel landed on top of the donut panel labels.
+# These reserve the measured overhang (~20 layout px for the bar's ticks +
+# xlabel) plus ROW_GAP_PX of air, so the blocks read as separate.
 ROW_GAP_PX = 14
 BAR_PANEL_MARGIN_BOTTOM_PX = 20 + ROW_GAP_PX
 DONUT_PANEL_MARGIN_BOTTOM_PX = 22 + ROW_GAP_PX
 
-PERCENTAGE_LABEL_FONTSIZE = 6
-# Donut-hole text: 6 pt Arial runs ~2 px/char; the hole is ~53 px across so
-# ~15 chars per line fits with headroom. Category names longer than that are
-# hyphen-wrapped before the n-count line is appended.
+# Fractions of one grid cell left between donut cells. A donut's legend sits
+# under its ring and its panel label to the upper left, and neither is inside
+# the axes box, so the gaps carry that overhang.
+DONUT_GRID_WSPACE = 0.35
+DONUT_GRID_HSPACE = 0.52
+
+# The host axes is layout scaffolding, not a panel: it is invisible and holds no
+# data. It cannot be removed after subdividing — multipanel's draw handler still
+# reaches for it and fails — so it is tagged instead, letting callers and tests
+# tell scaffolding from panels.
+DONUT_GRID_HOST_GID = "donut-grid-host"
+
+# Donut-hole text: at the house legend size the hole fits ~15 chars per line.
+# Category names longer than that are hyphen-wrapped before the n-count line.
 CENTER_LINE_MAX_CHARS = 15
 
 
@@ -132,6 +143,8 @@ def render_composition_figure(
     multipanel = cns.multipanel(max_width=MULTIPANEL_MAX_WIDTH_PX)
     labels = panel_labels(1 + n_categories)
 
+    n_donut_rows = (n_categories + DONUTS_PER_ROW - 1) // DONUTS_PER_ROW
+
     # Panel A: horizontal percentage bars, categories down the y axis so long
     # names stay readable; percentages annotate the bar ends.
     ax_bar = multipanel.panel(
@@ -142,6 +155,17 @@ def render_composition_figure(
         margin_right=BAR_PANEL_MARGIN_RIGHT_PX,
         margin_bottom=BAR_PANEL_MARGIN_BOTTOM_PX,
     )
+
+    # An empty host rectangle whose coordinates become the donut grid's bounds.
+    # Sized for the whole block so the grid inherits one aligned pitch.
+    host = multipanel.panel(
+        label=labels[1],
+        width=DONUT_PANEL_WIDTH_PX * DONUTS_PER_ROW,
+        height=DONUT_PANEL_HEIGHT_PX * n_donut_rows,
+        margin_right=DONUT_PANEL_MARGIN_RIGHT_PX,
+        margin_bottom=DONUT_PANEL_MARGIN_BOTTOM_PX,
+    )
+
     cns.barplot(data=df, y=category_column, x=percentage_column, ax=ax_bar)
     ax_bar.set_ylabel(ylabel)
     ax_bar.set_xlabel(xlabel)
@@ -150,28 +174,47 @@ def render_composition_figure(
     for index, row in df.reset_index(drop=True).iterrows():
         ax_bar.text(
             row[percentage_column], index, f"{row[percentage_column]:.1f}%",
-            ha="left", va="center", fontsize=PERCENTAGE_LABEL_FONTSIZE,
+            ha="left", va="center",
         )
 
-    # Panels B, C, ...: part vs whole per category, in the frame's row order,
-    # wrapped into a fixed two-per-row grid chained with below=.
-    for panel_index, (label, (_, row)) in enumerate(zip(labels[1:], df.iterrows(), strict=True)):
-        panel_kwargs: dict[str, object] = {
-            "width": DONUT_PANEL_WIDTH_PX,
-            "height": DONUT_PANEL_HEIGHT_PX,
-            "margin_right": DONUT_PANEL_MARGIN_RIGHT_PX,
-            "margin_bottom": DONUT_PANEL_MARGIN_BOTTOM_PX,
-        }
-        if panel_index >= DONUTS_PER_ROW:
-            panel_kwargs["below"] = labels[1 + panel_index - DONUTS_PER_ROW]
+    # Every mp.panel() call is done, so the host's rectangle is final. Draw
+    # first: before the first draw the panel reserves are unmeasured and
+    # get_position() returns a provisional value.
+    fig = multipanel.fig
+    fig.canvas.draw()
+    host_box = host.get_position()
+    host.set_axis_off()
+    host.set_gid(DONUT_GRID_HOST_GID)
 
-        ax_donut = multipanel.panel(label=label, **panel_kwargs)
+    gridspec = fig.add_gridspec(
+        n_donut_rows,
+        DONUTS_PER_ROW,
+        left=host_box.x0,
+        right=host_box.x1,
+        bottom=host_box.y0,
+        top=host_box.y1,
+        wspace=DONUT_GRID_WSPACE,
+        hspace=DONUT_GRID_HSPACE,
+    )
+
+    # Donut cells: part vs whole per category, in the frame's row order. The
+    # host carries the block's own panel letter, so cells are lettered from
+    # there onwards.
+    for cell_index, (label, (_, row)) in enumerate(zip(labels[1:], df.iterrows(), strict=True)):
+        ax_donut = fig.add_subplot(
+            gridspec[cell_index // DONUTS_PER_ROW, cell_index % DONUTS_PER_ROW]
+        )
+        cns.setup_ax(ax_donut)
+        if cell_index:
+            plt.sca(ax_donut)
+            cns.add_panel_label(label)
 
         category = str(row[category_column])
         part, whole = int(row[part_column]), int(row[whole_column])
         if part + whole == 0:
+            ax_donut.set_axis_off()
             ax_donut.text(0.5, 0.5, f"{category}\n(no data)", ha="center", va="center",
-                          transform=ax_donut.transAxes, fontsize=PERCENTAGE_LABEL_FONTSIZE)
+                          transform=ax_donut.transAxes)
             continue
 
         draw_donut_panel(

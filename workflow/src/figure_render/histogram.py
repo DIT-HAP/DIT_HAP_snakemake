@@ -18,28 +18,21 @@ from pathlib import Path
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
 import numpy as np
 import pandas as pd
 from loguru import logger
+from matplotlib.axes import Axes
 
-from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual
+from figures import FURNITURE_COLOR, apply_house_style, grid_axes, panel_labels, save_dual
 
-from ._layout import PANEL_DECORATION_PX, panel_labels, square_panel_size  # noqa: F401 (PANEL_DECORATION_PX re-exported)
 from ._schema import require_columns
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# Height reserved per line of the footer at the bottom of the figure.
-FOOTER_LINE_PX = 9
-
-# Frequency histograms carry wider decorations than log10 scatter panels, whose
-# tick labels are single-digit.
-HISTOGRAM_DECORATION_PX = 55
-
-PANEL_WIDTH_PX = 500
-PANEL_HEIGHT_PX = 150
+# cns.histplot addresses data by column name, so an incoming Series is boxed
+# under this name. It never reaches the axis labels, which callers supply.
+_VALUE_COLUMN = "value"
 
 
 # =============================================================================
@@ -84,7 +77,14 @@ def draw_histogram_panel(
     else:
         edges = bins
 
-    ax.hist(values.to_numpy(), bins=edges, alpha=0.8, edgecolor="lightgray", linewidth=0.2)  # type: ignore[arg-type]
+    # cns.histplot takes a frame and a column name, and the Series may be
+    # unnamed or share a name with nothing here, so it is boxed under a fixed
+    # internal column. The scale is set afterwards rather than through
+    # log_scale=: the edges are already laid out in log10 space above, and
+    # passing both would have seaborn re-bin them.
+    cns.histplot(data=values.to_frame(_VALUE_COLUMN), x=_VALUE_COLUMN, bins=edges, ax=ax)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
 
     if log_scale:
         ax.set_xscale("log")
@@ -106,7 +106,7 @@ def render_histogram_grid_figure(
     n_cols: int = 4,
     share_y_range: bool = False,
 ) -> None:
-    """Render one histogram panel per named value column."""
+    """Render one histogram panel per named value column in a fixed-pitch grid."""
     logger.info("Rendering histogram grid figure...")
 
     require_columns(df, value_columns, context="histogram input")
@@ -114,41 +114,43 @@ def render_histogram_grid_figure(
     if df.empty or not value_columns:
         logger.warning("No data to plot!")
         return
+    
+    if n_cols < 1:
+        raise ValueError(f"n_cols must be at least 1, got {n_cols}")
 
     apply_house_style()
 
     n_panels = len(value_columns)
     n_rows = (n_panels + n_cols - 1) // n_cols
-    logger.info(f"Creating figure with {n_rows}x{n_cols} grid ({n_panels}) panels)...")
+    logger.info(f"Creating figure with {n_rows}x{n_cols} grid ({n_panels} panels)...")
 
-    multipanel = cns.multipanel(max_width=PANEL_WIDTH_PX * n_cols)
     labels = panel_labels(n_panels)
+    axes = grid_axes(n_rows, n_cols, labels=labels)
 
-    # Metric columns here are different physical quantities with unrelated
-    # ranges, so neither axis is shared by default; opt in via share_y_range.
-    # Columns that are entirely empty must be skipped so a NaN max cannot
-    # poison the shared limit.
     finite_maxes = [m for c in value_columns if (m := df[c].max()) == m]
     shared_y_max = max(finite_maxes, default=0.0) if share_y_range else None
 
-    for label, column in zip(labels, value_columns, strict=True):
+    for ax in axes[n_panels:]:
+        ax.set_visible(False)
+
+    for index, (label, column) in enumerate(zip(labels, value_columns, strict=True)):
+        ax = axes[index]
         data = df[column].dropna()
         logger.info(f"  Panel {label}: {column} (n={len(data)})")
-
-        ax = multipanel.panel(label=label, width=PANEL_WIDTH_PX, height=PANEL_HEIGHT_PX)
 
         had_data = data.notna().any()
         draw_histogram_panel(ax, data, bins=bins, xlabel=xlabel, ylabel=ylabel, title=column)
         if had_data and show_summary_stats:
             stats_text = f"n = {len(data):,}\nMean = {data.mean():.3f}\nStd = {data.std():.3f}"
-            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, verticalalignment="top", fontsize=8)
+            ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, verticalalignment="top")
         if shared_y_max is not None and had_data:
             ax.set_ylim(0, shared_y_max)
+
+    plt.gcf().tight_layout()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
     logger.success("Figure rendering complete!")
-
 
 
 @logger.catch(reraise=True)
@@ -166,13 +168,11 @@ def render_grouped_histogram_figure(
     marker_value: float | None = None,
     marker_label: str = "",
     marker_on_col_value: str | None = None,
-    footer_lines: Sequence[str] = (),
-    footer_header: str = "",
     upper_quantile: float | None = None,
     share_x_range: bool = True,
     share_y_range: bool = False,
 ) -> None:
-    """Histogram one value column into one panel per row_key/col_key group.
+    """Histogram one value column into one panel per row_key/col_key group in a fixed-pitch grid.
 
     With ``log_scale`` the values must be strictly positive: bin edges are laid
     evenly in log10 space via ``np.logspace`` and the axis becomes a true log
@@ -189,10 +189,7 @@ def render_grouped_histogram_figure(
     frequencies differ by orders of magnitude and one global top flattens the
     smaller panels.
 
-    The row_key value rides in the first column's ylabel rather than the title:
-    a full "{row} {col}" title is wider than the axes and pushes the measured
-    panel width past the point where n_cols panels fit in a row, which silently
-    reflows the grid.
+    The row_key value rides in the first column's ylabel rather than the title.
     """
     require_columns(df, [row_key, col_key, value_column], context="grouped histogram input")
 
@@ -205,8 +202,6 @@ def render_grouped_histogram_figure(
         logger.warning("No groups to plot!")
         return
 
-    # Shared ranges must be computed AFTER outlier dropping so a lone extreme
-    # value does not stretch every panel's common x axis.
     def _panel_values(group_df: pd.DataFrame) -> pd.Series:
         data = group_df[value_column].dropna()
         if log_scale:
@@ -228,24 +223,19 @@ def render_grouped_histogram_figure(
 
     n_cols = df[col_key].nunique()
     n_rows = df[row_key].nunique()
-    # Square panels via the width budget alone, exactly as the grouped scatter
-    # renderer does: cnsplots grows the figure height to fit however many rows
-    # the grid needs, so budgeting height from n_rows (as grid_panel_size does)
-    # yields a tall rectangle whenever n_cols > n_rows — for a 5x3 read-count
-    # grid that was 47x87 px, squeezing the informative log-read-count axis.
-    panel_size = square_panel_size(JOURNAL_WIDTH_PX, n_cols, decoration_px=HISTOGRAM_DECORATION_PX)
 
-    # Decorations are multiplied back in so a full row of measured panels (each
-    # wider than its requested axes once tick/label reserve is added) still fits
-    # within max_width instead of wrapping one column early.
-    row_max_width = n_cols * (panel_size + HISTOGRAM_DECORATION_PX)
+    row_values = sorted(df[row_key].unique())
+    col_values = sorted(df[col_key].unique())
 
-    footer_reserve_px = FOOTER_LINE_PX * (n_rows + 2) if footer_lines else 0
-    last_row_index = n_rows - 1
+    labels = panel_labels(n_rows * n_cols)
+    axes = grid_axes(n_rows, n_cols, labels=labels)
 
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=row_max_width)
-    labels = panel_labels(grouped.ngroups)
+    # A row/col combination absent from the data keeps its cell but shows no
+    # frame, so the remaining panels stay in their own row and column.
+    for r, row_val in enumerate(row_values):
+        for c, col_val in enumerate(col_values):
+            if (row_val, col_val) not in panel_values:
+                axes[r * n_cols + c].set_visible(False)
 
     if share_x_range and log_scale:
         lo = min(d.min() for d in panel_values.values() if not d.empty)
@@ -254,36 +244,23 @@ def render_grouped_histogram_figure(
     else:
         shared_edges = None
 
-    for panel_index, ((row_value, col_value), data) in enumerate(panel_values.items()):
-        label = labels[panel_index]
-        column = panel_index % max(n_cols, 1)
-        is_last_row = (panel_index // max(n_cols, 1)) == last_row_index
+    for (row_val, col_val), data in panel_values.items():
+        r = row_values.index(row_val)
+        c = col_values.index(col_val)
+        ax = axes[r * n_cols + c]
 
-        ax = multipanel.panel(
-            label=label,
-            width=panel_size,
-            height=panel_size,
-            pad_left=2,
-            pad_top=2,
-            margin_right=4,
-            margin_bottom=20 + (footer_reserve_px if is_last_row else 0),
-        )
-
-        panel_ylabel = f"{row_value}\n{ylabel}" if column == 0 else ylabel
+        panel_ylabel = f"{row_val}\n{ylabel}" if c == 0 else ylabel
         draw_histogram_panel(
             ax, data,
             bins=bins,
             log_scale=log_scale,
             xlabel=xlabel,
             ylabel=panel_ylabel,
-            title=str(col_value),
+            title=str(col_val),
             bin_edges=shared_edges,
         )
 
         if share_y_range and not data.empty:
-            # One global y top over every panel; computing it per iteration is
-            # wasteful but panels are few and histogramming is cheap next to
-            # the render itself.
             y_max = max(
                 int(np.histogram(d.to_numpy(), bins=(shared_edges if shared_edges is not None else bins))[0].max())
                 for d in panel_values.values()
@@ -291,19 +268,17 @@ def render_grouped_histogram_figure(
             )
             ax.set_ylim(0, y_max * 1.05)
 
-        logger.info(f"  Panel {label}: {row_value} {col_value} (n={len(data):,})")
+        logger.info(f"  Panel ({r},{c}): {row_val} {col_val} (n={len(data):,})")
 
         if marker_value is None:
             continue
-        if marker_on_col_value is not None and col_value != marker_on_col_value:
+        if marker_on_col_value is not None and col_val != marker_on_col_value:
             continue
 
-        ax.axvline(marker_value, color="firebrick", linestyle="--", linewidth=0.8, label=marker_label)
-        ax.legend(frameon=False, loc="upper right", fontsize=4)
+        ax.axvline(marker_value, color=FURNITURE_COLOR, linestyle="--", label=marker_label)
+        ax.legend(loc="upper right")
 
-    if footer_lines:
-        footer = "\n".join([footer_header, *footer_lines]) if footer_header else "\n".join(footer_lines)
-        plt.gcf().text(0.02, 0.004, footer, ha="left", va="bottom", fontsize=5, linespacing=1.4)
+    plt.gcf().tight_layout()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

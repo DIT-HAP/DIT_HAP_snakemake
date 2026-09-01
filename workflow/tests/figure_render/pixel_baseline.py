@@ -28,10 +28,23 @@ ARC_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/reports/figure_data_archive"
 DEPLETION_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/results/14_insertion_level_depletion_analysis"
 FITTING_DIR = PROJECT_ROOT / "projects/HD_DIT_HAP/results/15_insertion_level_curve_fitting"
 
-# Figures whose pixels are expected to change by design (spec section
-# "Expected pixel changes"): correlation adopts orientation's grid layout,
-# curve_fitting gets the house-style palette.
-EXPECTED_TO_CHANGE = frozenset({"correlation", "curve_fitting"})
+# Figures whose pixels a change is *meant* to alter; every other difference is
+# drift and should be investigated. The refactor replacing aligned_grid_axes
+# with figures.grid_axes and adopting cnsplots' multipanel_max_width=540 default
+# moves every grid and composition figure, so all ten are expected to change.
+# Once the user has accepted the new renders, this set is emptied again.
+EXPECTED_TO_CHANGE: frozenset[str] = frozenset({
+    "correlation",
+    "orientation",
+    "read_counts",
+    "density",
+    "coverage",
+    "dispersions",
+    "ma_plot_replicates",
+    "ma_plot",
+    "distribution",
+    "curve_fitting",
+})
 
 
 # =============================================================================
@@ -139,8 +152,6 @@ def _render_read_counts(stem: Path) -> None:
         marker_value=8.0,
         marker_label="Cutoff = 8",
         marker_on_col_value="YES0",
-        footer_lines=retention_lines,
-        footer_header="Cutoff applied to 'YES0' (>= 8):",
         share_y_range=True,
     )
 

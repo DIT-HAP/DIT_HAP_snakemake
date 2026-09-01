@@ -141,12 +141,16 @@ def assemble_distribution(input_files: list[Path], initial_time_point: str, cuto
 
     distribution_df = pd.concat(value_frames, ignore_index=True)
     retention_records.sort(key=lambda r: str(r["sample"]))
-    log_lines = [
+    retention_lines = [
         format_retention_caption(r["sample"], r)
         for r in retention_records
     ]
+    
+    for line in retention_lines:
+        logger.info(line)
+    
     logger.info(f"Assembled {len(distribution_df)} values across {len(retention_records)} samples")
-    return distribution_df, log_lines
+    return distribution_df, retention_lines
 
 
 # =============================================================================
@@ -190,6 +194,11 @@ def main() -> int:
 
     try:
         df, retention_lines = assemble_distribution(config.input_files, config.initial_time_point, config.cutoff)
+        
+        retention_path = config.output_stem.with_suffix(".retention.txt")
+        retention_header = f"Cutoff applied to '{config.initial_time_point}' (>= {config.cutoff:.2g}):\n"
+        retention_path.write_text(retention_header + "\n".join(retention_lines) + "\n")
+        logger.info(f"Wrote retention statistics to {retention_path}")
 
         render_grouped_histogram_figure(
             df,
@@ -204,9 +213,8 @@ def main() -> int:
             marker_value=config.cutoff,
             marker_label=f"Cutoff = {config.cutoff:.2g}",
             marker_on_col_value=config.initial_time_point,
-            footer_lines=retention_lines,
-            footer_header=f"Cutoff applied to '{config.initial_time_point}' (>= {config.cutoff:.2g}):",
-            upper_quantile=args.upper_quantile
+            upper_quantile=args.upper_quantile,
+            share_y_range=True
         )
     except Exception as e:
         logger.error(f"Error during rendering: {e}")

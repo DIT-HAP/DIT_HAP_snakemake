@@ -55,6 +55,18 @@ def render_kwargs() -> dict[str, str]:
 # =============================================================================
 # TESTS
 # =============================================================================
+def _content_axes(fig) -> list:
+    """Return the figure's data-bearing axes, dropping the donut grid's host rectangle.
+
+    The donut block is a GridSpec inside an empty host panel, which is how its
+    cells come out aligned. The host holds no data and cannot be removed —
+    multipanel's draw handler still reaches for it — so it is skipped by gid.
+    """
+    from figure_render.composition import DONUT_GRID_HOST_GID
+
+    return [ax for ax in fig.get_axes() if ax.get_gid() != DONUT_GRID_HOST_GID]
+
+
 def test_panel_count_is_one_plus_categories(
     composition_frame: pd.DataFrame, render_kwargs: dict[str, str], tmp_path: Path
 ) -> None:
@@ -63,7 +75,7 @@ def test_panel_count_is_one_plus_categories(
 
     render_composition_figure(composition_frame, tmp_path / "comp", **render_kwargs)
 
-    assert len(plt.gcf().get_axes()) == 1 + len(composition_frame)
+    assert len(_content_axes(plt.gcf())) == 1 + len(composition_frame)
     assert (tmp_path / "comp.pdf").exists()
 
 
@@ -136,7 +148,9 @@ def test_category_order_is_preserved(
 
     render_composition_figure(composition_frame, tmp_path / "order", **render_kwargs)
 
-    donut_texts = [", ".join(t.get_text() for t in ax.texts) for ax in plt.gcf().get_axes()[1:]]
+    donut_texts = [
+        ", ".join(t.get_text() for t in ax.texts) for ax in _content_axes(plt.gcf())[1:]
+    ]
     assert "low" in donut_texts[0]
     assert "mid" in donut_texts[1]
     assert "high" in donut_texts[2]
@@ -186,7 +200,7 @@ def test_rows_are_separated_by_the_configured_gap(
     fig = plt.gcf()
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
-    axes = fig.get_axes()
+    axes = _content_axes(fig)
     tights = [ax.get_tightbbox(renderer) for ax in axes]
     # get_tightbbox is in device px; multipanel sizes in 72-dpi layout px.
     scale = fig.dpi / 72

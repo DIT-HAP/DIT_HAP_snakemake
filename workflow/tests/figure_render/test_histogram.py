@@ -57,7 +57,8 @@ def test_one_panel_per_value_column(metric_frame: pd.DataFrame, tmp_path: Path) 
         value_columns=["metric_0", "metric_1", "metric_2"], bins=20,
     )
 
-    assert len(plt.gcf().get_axes()) == 3
+    visible = [ax for ax in plt.gcf().get_axes() if ax.get_visible()]
+    assert len(visible) == 3
     assert (tmp_path / "metrics.pdf").exists()
 
 
@@ -73,7 +74,8 @@ def test_value_columns_are_caller_supplied(metric_frame: pd.DataFrame, tmp_path:
         metric_frame, tmp_path / "arb", value_columns=["metric_5"], bins=10,
     )
 
-    assert len(plt.gcf().get_axes()) == 1
+    visible = [ax for ax in plt.gcf().get_axes() if ax.get_visible()]
+    assert len(visible) == 1
 
 
 def test_summary_stats_can_be_disabled(metric_frame: pd.DataFrame, tmp_path: Path) -> None:
@@ -138,7 +140,8 @@ def test_grouped_one_panel_per_row_col_pair(
         bins=20,
     )
 
-    assert len(plt.gcf().get_axes()) == 4, "Two samples x two stages should yield four panels"
+    visible = [ax for ax in plt.gcf().get_axes() if ax.get_visible()]
+    assert len(visible) == 4, "Two samples x two stages should yield four panels"
     assert (tmp_path / "grouped.pdf").exists()
 
 
@@ -193,30 +196,8 @@ def test_grouped_log_scale_sets_log_axis(
     )
 
 
-def test_grouped_footer_is_rendered(grouped_frame: pd.DataFrame, tmp_path: Path) -> None:
-    """Assert figure-level footer lines reach the figure.
-
-    Retention numbers are per sample, not per panel; read_counts.py moved them
-    out of a cramped in-axes box that overlapped the histograms.
-    """
-    import matplotlib.pyplot as plt
-
-    render_grouped_histogram_figure(
-        grouped_frame, tmp_path / "footer",
-        value_column="value", row_key="sample", col_key="stage",
-        footer_lines=["s1: 5/10 rows kept"], footer_header="Retention:",
-    )
-
-    figure_texts = [t.get_text() for t in plt.gcf().texts]
-    assert any("5/10 rows kept" in text for text in figure_texts)
-
-
 def test_grouped_row_label_in_first_column_ylabel(grouped_frame, tmp_path):
-    """Assert the sample name rides the first column's ylabel and titles carry only the col value.
-
-    Matches the scatter grouped renderer's convention: a full "{row} {col}"
-    title is wider than the axes and silently reflows the grid.
-    """
+    """Assert the sample name rides the first column's ylabel and titles carry only the col value."""
     import matplotlib.pyplot as plt
 
     render_grouped_histogram_figure(
@@ -225,7 +206,6 @@ def test_grouped_row_label_in_first_column_ylabel(grouped_frame, tmp_path):
     )
 
     axes = plt.gcf().get_axes()
-    # Panel order follows sorted groupby: s1/early, s1/late, s2/early, s2/late.
     first_col_axes = axes[0::2]
     second_col_axes = axes[1::2]
 
@@ -320,7 +300,8 @@ def test_grid_shared_y_applies_uniform_ylim(metric_frame, tmp_path):
         value_columns=["metric_0", "metric_1"], bins=20, share_y_range=True,
     )
 
-    tops = [ax.get_ylim()[1] for ax in plt.gcf().get_axes()]
+    visible = [ax for ax in plt.gcf().get_axes() if ax.get_visible()]
+    tops = [ax.get_ylim()[1] for ax in visible]
     assert len(set(np.round(tops, 6))) == 1, f"Shared-y panels should share one y top: {tops}"
 
 
@@ -342,7 +323,8 @@ def test_grid_y_is_per_panel_by_default(tmp_path):
         df, tmp_path / "freey", value_columns=["narrow", "wide"], bins=20,
     )
 
-    tops = [ax.get_ylim()[1] for ax in plt.gcf().get_axes()]
+    visible = [ax for ax in plt.gcf().get_axes() if ax.get_visible()]
+    tops = [ax.get_ylim()[1] for ax in visible]
     assert len(set(np.round(tops, 6))) == 2, f"Panels should autoscale independently: {tops}"
 
 

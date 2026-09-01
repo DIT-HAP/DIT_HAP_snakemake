@@ -87,9 +87,9 @@ X_COLUMN = "normed_mean"
 # [genewise, MAP, fitted] with labels ["Estimated", "Final", "Fitted"] and the
 # matplotlib colour string "kbr" mapped positionally.
 DISPERSION_SERIES = [
-    Series(column="genewise_dispersion", label="Estimated", color="k"),
-    Series(column="MAP_dispersion", label="Final", color="b"),
-    Series(column="fitted_dispersion", label="Fitted", color="r"),
+    Series(column="genewise_dispersion", label="Estimated"),
+    Series(column="MAP_dispersion", label="Final"),
+    Series(column="fitted_dispersion", label="Fitted"),
 ]
 
 REQUIRED_COLUMNS = [X_COLUMN, *(item.column for item in DISPERSION_SERIES)]

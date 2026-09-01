@@ -142,8 +142,6 @@ def test_dual_artifacts_created(real_input_paths: list[Path], output_stem: Path)
         marker_value=8.0,
         marker_label="Cutoff = 8",
         marker_on_col_value="YES0",
-        footer_lines=retention_lines,
-        footer_header="Cutoff applied to 'YES0' (>= 8):",
     )
 
     pdf_path = output_stem.parent / f"{output_stem.name}.pdf"

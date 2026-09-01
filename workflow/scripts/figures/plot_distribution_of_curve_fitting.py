@@ -129,7 +129,7 @@ def main() -> int:
             df,
             config.output_stem,
             value_columns=metric_cols,
-            bins=config.bins,
+            bins=config.bins
         )
 
     except Exception as e:

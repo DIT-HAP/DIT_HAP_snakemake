@@ -13,17 +13,15 @@ Version:  1.0.0
 # =============================================================================
 # IMPORTS
 # =============================================================================
+import cnsplots as cns
 import matplotlib.axes
 import matplotlib.legend
 import matplotlib.text
 import pandas as pd
-from cnsplots import donutplot
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-CENTER_FONTSIZE = 6
-
 STATUS_COLUMN = "status"
 
 # Gap between the ring's lowest point and the legend's top, in layout pixels.
@@ -65,7 +63,7 @@ def draw_donut_panel(
     status_df = pd.DataFrame(
         {STATUS_COLUMN: [part_label] * part + [whole_label] * whole}
     )
-    donutplot(
+    cns.donutplot(
         data=status_df,
         x=STATUS_COLUMN,
         legend="bottom",
@@ -80,7 +78,7 @@ def draw_donut_panel(
     # the annotation by its original column-name content instead of position.
     center = next(text for text in ax.texts if text.get_text() == STATUS_COLUMN)
     center.set_text(center_text)
-    center.set_fontsize(CENTER_FONTSIZE)
+    center.set_fontsize(cns.settings.legend_fontsize)
 
     legend = ax.get_legend()
     legend.set_title(None)

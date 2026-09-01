@@ -42,9 +42,9 @@ def series_frame() -> pd.DataFrame:
 def three_series() -> list[Series]:
     """Three series with explicit labels and colours."""
     return [
-        Series(column="series_one", label="First", color="k"),
-        Series(column="series_two", label="Second", color="b"),
-        Series(column="series_three", label="Third", color="r"),
+        Series(column="series_one", label="First"),
+        Series(column="series_two", label="Second"),
+        Series(column="series_three", label="Third"),
     ]
 
 
@@ -149,7 +149,7 @@ def test_empty_frame_renders_placeholder(three_series: list[Series], tmp_path: P
 
 def test_missing_series_column_raises(series_frame: pd.DataFrame, tmp_path: Path) -> None:
     """Assert an absent series column is reported by name rather than partially plotted."""
-    bad = [Series(column="absent_series", label="X", color="k")]
+    bad = [Series(column="absent_series", label="X")]
 
     with pytest.raises(ValueError, match="absent_series"):
         render_series_scatter_figure(

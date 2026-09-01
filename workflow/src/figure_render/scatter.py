@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import cnsplots as cns
+import matplotlib.pyplot as plt
 import num2tex
 import numpy as np
 import pandas as pd
@@ -34,9 +35,14 @@ from matplotlib.collections import PathCollection
 from matplotlib.colors import Normalize
 from scipy.stats import pearsonr
 
-from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual
+from figures import (
+    FURNITURE_COLOR,
+    apply_house_style,
+    grid_axes,
+    panel_labels,
+    save_dual,
+)
 
-from ._layout import PANEL_DECORATION_PX, aligned_grid_axes, panel_labels, square_panel_size
 from ._point_density import point_density
 from ._schema import require_columns
 
@@ -49,7 +55,7 @@ from ._schema import require_columns
 # closest equivalent that doesn't collide with that forced kwarg.
 REGRESSION_PANEL_SCATTER_KWS: dict[str, object] = {
     "s": 3,
-    "color": "gray",
+    "color": FURNITURE_COLOR,
     "alpha": 0.15,
     "rasterized": True,
 }
@@ -76,17 +82,11 @@ DENSITY_SCATTER_KWS: dict[str, Any] = {
     "rasterized": True,
 }
 
-# Perceptually uniform, unlike cns.settings.palette_seq's 'gnuplot' default,
-# so equal colour steps read as equal density steps.
-DENSITY_CMAP = "viridis"
-
 # Axes-fraction (x0, y0, width, height) for the inset colorbar: bottom-right,
 # clear of the top-left n/r/P annotation. An inset axes contributes nothing to
-# the panel width/height cnsplots measures for layout (Multipanel never walks
-# ax.child_axes), so it cannot reflow the grid the way fig.colorbar(ax=...)
-# would by taking space from the panel itself.
+# the enclosing grid cell, so it cannot reflow the grid the way
+# fig.colorbar(ax=...) would by taking space from the panel itself.
 DENSITY_CBAR_BOUNDS = (0.88, 0.06, 0.035, 0.30)
-DENSITY_CBAR_LABELSIZE = 5
 DENSITY_CBAR_LABEL = "Density"
 
 
@@ -120,7 +120,6 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
         0.05,
         0.95,
         rf"$n$={len(valid)}" "\n" rf"$r$={r:.2f}" "\n" rf"$P={num2tex.num2tex(p_value, precision=3):.2g}$",
-        color="black",
         transform=ax.transAxes,
         ha="left",
         va="top",
@@ -137,11 +136,11 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
         case "identity":
             min_val = min(df[panel.x].min(), df[panel.y].min())
             max_val = max(df[panel.x].max(), df[panel.y].max())
-            ax.plot([min_val, max_val], [min_val, max_val], color="gray", linestyle="--", alpha=0.6, linewidth=1)
+            ax.plot([min_val, max_val], [min_val, max_val], color=FURNITURE_COLOR, linestyle="--")
         case "unit_identity":
-            ax.plot([0, 1], [0, 1], color="gray", linestyle="--", alpha=0.6, linewidth=1)
+            ax.plot([0, 1], [0, 1], color=FURNITURE_COLOR, linestyle="--")
         case "zero":
-            ax.axhline(0, color="gray", linestyle="--", alpha=0.6, linewidth=1)
+            ax.axhline(0, color=FURNITURE_COLOR, linestyle="--")
         case "none":
             pass
 
@@ -151,7 +150,7 @@ def _apply_shared_square_limits(
 ) -> None:
     """Put every axes on one common x=y range spanning all finite data.
 
-    Alignment of the axes boxes is geometric (see ``aligned_grid_axes``); this
+    Alignment of the axes boxes is geometric (see ``figures.grid_axes``); this
     makes the *contents* comparable too, which is what lets a reader read one
     identity line across the whole grid. A common range on both axes also keeps
     the identity reference at 45 degrees in every panel.
@@ -188,9 +187,9 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
     labels[-1].set_verticalalignment("top")
 
     # length=0 drops the tick marks but keeps their labels.
-    colorbar.ax.tick_params(labelsize=DENSITY_CBAR_LABELSIZE, length=0, pad=1)
-    colorbar.set_label(DENSITY_CBAR_LABEL, fontsize=DENSITY_CBAR_LABELSIZE, labelpad=2)
-    colorbar.outline.set_linewidth(0.3)
+    colorbar.ax.tick_params(length=0, pad=1)
+    colorbar.set_label(DENSITY_CBAR_LABEL)
+    colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
 
 
 def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bool:
@@ -220,8 +219,10 @@ def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bo
     span = np.ptp(ranked)
     scaled = (ranked - ranked.min()) / span if span > 0 else np.zeros_like(ranked)
 
+    # Colormap comes from rcParams['image.cmap'], which apply_house_style() points
+    # at the house sequential map.
     mappable = ax.scatter(
-        x, y, c=scaled, cmap=DENSITY_CMAP, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
+        x, y, c=scaled, norm=Normalize(vmin=0, vmax=1), **DENSITY_SCATTER_KWS
     )
     _add_density_colorbar(ax, mappable)
 
@@ -273,7 +274,7 @@ def render_scatter_panel(
         observed = set(df[hue].unique())
         order = [level for level in (hue_order or sorted(observed)) if level in observed]
         cns.scatterplot(data=df, x=panel.x, y=panel.y, hue=hue, hue_order=order, ax=ax, **kws)
-        ax.legend(fontsize=6, loc="best", frameon=False)
+        ax.legend(loc="best")
     else:
         density_drawn = panel.density and _draw_density_scatter(ax, df, panel)
         if panel.density and not density_drawn:
@@ -310,7 +311,6 @@ def render_grouped_regression_figure(
     density: bool = False,
     share_limits: bool = True,
     scatter_kws: Mapping[str, object] | None = None,
-    panel_decoration_px: int = PANEL_DECORATION_PX,
 ) -> None:
     """Render a row_key x col_key grid of square regression panels for the x/y columns.
 
@@ -348,13 +348,8 @@ def render_grouped_regression_figure(
     col_values = sorted(df[col_key].unique())
     n_rows, n_cols = len(row_values), len(col_values)
 
-    # Only the axes box; aligned_grid_axes adds its own fixed decoration reserve
-    # around every cell, so panel_decoration_px is subtracted here rather than
-    # left for cnsplots to measure per panel.
-    panel_size = square_panel_size(JOURNAL_WIDTH_PX, n_cols, decoration_px=panel_decoration_px)
-
     labels = panel_labels(n_rows * n_cols)
-    axes = aligned_grid_axes(n_rows, n_cols, panel_px=panel_size, labels=labels)
+    axes = grid_axes(n_rows, n_cols, labels=labels)
 
     groups = dict(iter(grouped))
 
@@ -390,6 +385,8 @@ def render_grouped_regression_figure(
     if share_limits:
         _apply_shared_square_limits(axes, df, x=x, y=y)
 
+    plt.gcf().tight_layout()
+
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
     logger.success("Figure rendering complete!")
@@ -419,20 +416,27 @@ def render_scatter_grid_figure(
 
     apply_house_style()
 
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    multipanel = cns.multipanel(max_width=JOURNAL_WIDTH_PX)
+    # Same plot type in every cell, so the panels belong in an aligned grid.
+    # Building one from repeated multipanel.panel() calls would leave each cell
+    # offset by the rendered width of its own y tick labels.
+    n_cols = min(len(panels), 4)  # 4-across fits the journal width
+    n_rows = (len(panels) + n_cols - 1) // n_cols
 
     labels = panel_labels(len(panels))
+    axes = grid_axes(n_rows, n_cols, labels=labels)
 
-    for label, panel in zip(labels, panels, strict=True):
-        ax = multipanel.panel(label=label)
-
+    for label, panel, ax in zip(labels, panels, axes, strict=True):
         if df.empty:
             logger.warning(f"  Panel {label}: {panel.title} has no valid data")
         else:
             logger.info(f"  Panel {label}: {panel.title} (n={len(df)})")
 
         render_scatter_panel(ax, df, panel, hue=hue, hue_order=hue_order, scatter_kws=scatter_kws)
+
+    for ax in axes[len(panels):]:
+        ax.set_visible(False)
+
+    plt.gcf().tight_layout()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
