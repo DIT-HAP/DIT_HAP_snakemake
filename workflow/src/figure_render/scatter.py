@@ -90,6 +90,11 @@ DENSITY_SCATTER_KWS: dict[str, Any] = {
 DENSITY_CBAR_BOUNDS = (0.88, 0.06, 0.035, 0.30)
 DENSITY_CBAR_LABEL = "Density"
 
+# cnsplots' style sets xtick.minor.size == xtick.major.size, so reading
+# minor.size back gives ticks indistinguishable from major ones. Derive the
+# minor length from major instead, at matplotlib's own default 2.0/3.5 ratio.
+MINOR_TICK_LENGTH_RATIO = 0.57
+
 
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ScatterPanel:
@@ -109,13 +114,22 @@ class ScatterPanel:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def _style_minor_ticks(ax: Axes) -> None:
+    """Shorten minor ticks relative to major ones so the two read as distinct."""
+    ax.tick_params(
+        which="minor",
+        length=plt.rcParams["xtick.major.size"] * MINOR_TICK_LENGTH_RATIO,
+        width=plt.rcParams["xtick.minor.width"],
+    )
+
+
 def _apply_log_axes_with_minor_ticks(ax: Axes) -> None:
     """Set both axes to log scale with exponential major labels and visible minor ticks."""
     ax.set_xscale("log")
     ax.set_yscale("log")
     for axis in (ax.xaxis, ax.yaxis):
         axis.set_minor_locator(LogLocator(base=10, subs=list(range(2, 10))))
-    ax.tick_params(which="minor", length=plt.rcParams["xtick.minor.size"], width=plt.rcParams["xtick.minor.width"])
+    _style_minor_ticks(ax)
 
 
 def _apply_symlog_axes_with_minor_ticks(ax: Axes) -> None:
@@ -126,7 +140,7 @@ def _apply_symlog_axes_with_minor_ticks(ax: Axes) -> None:
         transform = axis.get_transform()
         linthresh = getattr(transform, "linthresh", 1)
         axis.set_minor_locator(SymmetricalLogLocator(base=10, linthresh=linthresh, subs=list(range(2, 10))))
-    ax.tick_params(which="minor", length=plt.rcParams["xtick.minor.size"], width=plt.rcParams["xtick.minor.width"])
+    _style_minor_ticks(ax)
 
 
 def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
