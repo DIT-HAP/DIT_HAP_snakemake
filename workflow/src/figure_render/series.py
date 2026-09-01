@@ -21,7 +21,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from loguru import logger
 
-from figures import PanelShape, apply_house_style, fit_panels, grid_axes, save_dual, series_colors
+from figures import (
+    PanelShape,
+    apply_house_style,
+    apply_log_scale,
+    fit_panels,
+    grid_axes,
+    save_dual,
+    series_colors,
+)
 
 from ._schema import require_columns
 
@@ -100,10 +108,7 @@ def render_series_scatter_figure(
             logger.info(f"  Series {item.label}: {item.column} (n={df[item.column].notna().sum()})")
             ax.scatter(x_values, df[item.column], c=color, label=item.label, **SERIES_SCATTER_KWS)
 
-        if log_x:
-            ax.set_xscale("log")
-        if log_y:
-            ax.set_yscale("log")
+        apply_log_scale(ax, x=log_x, y=log_y)
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)

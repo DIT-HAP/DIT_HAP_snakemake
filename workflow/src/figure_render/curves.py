@@ -65,9 +65,13 @@ def render_fitted_curves_figure(
     ylabel: str,
     ylim: tuple[float, float] | None = DEFAULT_YLIM,
     n_cols: int = 4,
-    shape: PanelShape = PanelShape.SQUARE,
+    shape: PanelShape = PanelShape.WIDE,
 ) -> None:
-    """Render one panel per row: observed points plus the model curve from its parameters."""
+    """Render one panel per row: observed points plus the model curve from its parameters.
+
+    Panels default to WIDE: x is a handful of timepoints and y is the fitted
+    curve, so the extra width is what separates the observed points.
+    """
     logger.info("Rendering fitted curves figure...")
 
     # Checked before the empty guard so a mismatch is reported even for an empty

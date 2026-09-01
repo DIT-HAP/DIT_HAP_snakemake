@@ -33,14 +33,13 @@ from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.collections import PathCollection
 from matplotlib.colors import Normalize
-from matplotlib.ticker import LogLocator, SymmetricalLogLocator
 from scipy.stats import pearsonr
 
 from figures import (
     FURNITURE_COLOR,
-    PanelShape,
     apply_house_style,
-    fit_panels,
+    apply_log_scale,
+    apply_symlog_scale,
     grid_axes,
     panel_labels,
     save_dual,
@@ -89,16 +88,12 @@ DENSITY_SCATTER_KWS: dict[str, Any] = {
 # clear of the top-left n/r/P annotation. An inset axes contributes nothing to
 # the enclosing grid cell, so it cannot reflow the grid the way
 # fig.colorbar(ax=...) would by taking space from the panel itself.
-DENSITY_CBAR_BOUNDS = (0.88, 0.06, 0.035, 0.30)
+DENSITY_CBAR_BOUNDS = (0.82, 0.02, 0.035, 0.30)
 DENSITY_CBAR_LABEL = "Density"
 
 # Panels per row in render_scatter_grid_figure. See the comment at the n_cols
 # assignment for the measurement behind 2.
 MAX_GRID_COLUMNS = 2
-
-# These panels carry long sample titles, which PanelShape.SQUARE cannot fit; see
-# the comment at the n_cols assignment in render_scatter_grid_figure.
-SCATTER_GRID_PANEL_SHAPE = PanelShape.WIDE
 
 # Right-hand strip reserved for the shared legend, as a tight_layout rect and the
 # matching axes-fraction anchor. 0.86 leaves the legend clear of the panels while
@@ -110,17 +105,13 @@ LEGEND_ANCHOR = (_LEGEND_STRIP_LEFT, 0.5)
 # Layout points between the bar's top edge and its label.
 DENSITY_CBAR_LABEL_PAD = 2
 
-# cnsplots' style sets xtick.minor.size == xtick.major.size, so reading
-# minor.size back gives ticks indistinguishable from major ones. Derive the
-# minor length from major instead, at matplotlib's own default 2.0/3.5 ratio.
-MINOR_TICK_LENGTH_RATIO = 0.57
+# Colorbar-axes fraction the "Density" title starts at. Negative: the word is
+# several bar-widths wide, so it has to begin left of the bar to sit over it.
+DENSITY_CBAR_TITLE_X = -1.5
 
-# LogLocator's default numticks='auto' sizes the tick budget from the axes'
-# physical extent and returns *no* ticks at all once a small grid panel spans
-# more than ~4 decades -- which is exactly the range of these count axes. An
-# explicit budget opts out of that heuristic; the locator still only emits ticks
-# inside the view limits, so an oversized value costs nothing.
-LOG_MINOR_NUMTICKS = 999
+# Legend handles inherit the scatter's small marker and low alpha, so they are
+# scaled up and forced opaque or the swatches misrepresent the plotted colours.
+LEGEND_MARKER_SCALE = 2
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -271,12 +262,13 @@ def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
     # Sits above the bar, sized and right-aligned to match the low/high ticks: the
     # bar is far narrower than the word, so a centred title would spill past the
     # panel's right edge, and an axis label would read as a full-size axis title.
-    colorbar.ax.set_title(
+    title = colorbar.ax.set_title(
         DENSITY_CBAR_LABEL,
-        loc="right",
-        fontsize=plt.rcParams["ytick.labelsize"],
-        pad=DENSITY_CBAR_LABEL_PAD,
+        loc="center",
+        # fontsize=plt.rcParams["ytick.labelsize"],
+        # pad=DENSITY_CBAR_LABEL_PAD,
     )
+    # title.set_position((DENSITY_CBAR_TITLE_X, title.get_position()[1]))
     colorbar.outline.set_linewidth(cns.settings.axes_linewidth)
 
 
@@ -409,9 +401,9 @@ def render_scatter_panel(
             _annotate_fit_stats(ax, plot_df, x=panel.x, y=panel.y)
 
     if panel.scale == "log":
-        _apply_log_axes_with_minor_ticks(ax)
+        apply_log_scale(ax)
     elif panel.scale == "symlog":
-        _apply_symlog_axes_with_minor_ticks(ax)
+        apply_symlog_scale(ax)
 
 
 @logger.catch(reraise=True)
@@ -473,9 +465,7 @@ def render_grouped_regression_figure(
     n_rows, n_cols = len(row_values), len(col_values)
 
     labels = panel_labels(n_rows * n_cols)
-    # Square: every panel carries an identity reference line, which only reads as
-    # a 1:1 guide when the axes box is square and both axes share one range.
-    axes = grid_axes(n_rows, n_cols, labels=labels, shape=PanelShape.SQUARE)
+    axes = grid_axes(n_rows, n_cols, labels=labels)
 
     groups = dict(iter(grouped))
 
@@ -511,7 +501,7 @@ def render_grouped_regression_figure(
     if share_limits:
         _apply_shared_square_limits(axes, df, x=x, y=y, scale=scale)
 
-    fit_panels()
+    plt.gcf().tight_layout()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
@@ -546,16 +536,15 @@ def render_scatter_grid_figure(
     # Building one from repeated multipanel.panel() calls would leave each cell
     # offset by the rendered width of its own y tick labels.
     #
-    # Wide panels, 2 across: these titles render 204-286 device px, so a square
-    # 100 px axes (200 device px) is narrower than its own title and the text
-    # overruns into the next panel's letter. A wide 150 px axes gives 300 device
-    # px, which clears the widest measured title. 2 columns then keep the derived
-    # page inside the journal width; 4 wide columns would be 784 px.
+    # 2-across, not 4: at 4 columns a 540 px page leaves each axes 182 device px
+    # while these titles render 204-286 px, so every title overruns its own panel
+    # and collides with the next panel's letter. 2 columns give 378 px, which
+    # clears the widest measured title.
     n_cols = min(len(panels), MAX_GRID_COLUMNS)
     n_rows = (len(panels) + n_cols - 1) // n_cols
 
     labels = panel_labels(len(panels))
-    axes = grid_axes(n_rows, n_cols, labels=labels, shape=SCATTER_GRID_PANEL_SHAPE)
+    axes = grid_axes(n_rows, n_cols, labels=labels)
 
     for label, panel, ax in zip(labels, panels, axes, strict=True):
         if df.empty:
@@ -570,10 +559,9 @@ def render_scatter_grid_figure(
 
     fig = plt.gcf()
 
-    # Fit before the legend: the layout engine ignores figure-level legends, so
-    # adding the legend first lets it reclaim the reserved strip and overlap the
-    # panels.
-    fit_panels(rect=LEGEND_LAYOUT_RECT if _has_hue(df, hue) else None)
+    # tight_layout before the legend: it ignores figure-level legends, so adding
+    # the legend first lets it reclaim the reserved strip and overlap the panels.
+    fig.tight_layout(rect=LEGEND_LAYOUT_RECT if _has_hue(df, hue) else None)
 
     # One figure-level legend outside the axes. Per-panel legends repeat the same
     # hue levels in every cell and, at loc="best", land on the data or the stats
@@ -581,11 +569,16 @@ def render_scatter_grid_figure(
     if _has_hue(df, hue):
         handles, legend_labels = axes[0].get_legend_handles_labels()
         if handles:
-            fig.legend(
+            legend = fig.legend(
                 handles, legend_labels,
                 loc="center left", bbox_to_anchor=LEGEND_ANCHOR,
-                frameon=False, title=hue,
+                frameon=False, title=hue, markerscale=LEGEND_MARKER_SCALE,
             )
+            # Over the entry labels rather than centred over the whole box, so the
+            # title reads as their heading.
+            legend.get_title().set_horizontalalignment("center")
+            for handle in legend.legend_handles:
+                handle.set_alpha(1.0)
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
