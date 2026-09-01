@@ -32,7 +32,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 from matplotlib import use
@@ -56,10 +55,10 @@ REQUIRED_COLUMNS = ["sample", "timepoint", "condition", "pbl", "pbr"]
 PAIRS_COLUMNS = ["sample", "timepoint", "condition", "chr", "coordinate", "strand", "pbl", "pbr"]
 
 VALUE_COLUMNS = ["pbl", "pbr"]
-X_COLUMN = "log10_pbl"
-Y_COLUMN = "log10_pbr"
-X_LABEL = "log$_{10}$ PBL"
-Y_LABEL = "log$_{10}$ PBR"
+X_COLUMN = "pbl"
+Y_COLUMN = "pbr"
+X_LABEL = "PBL"
+Y_LABEL = "PBR"
 
 
 # =============================================================================
@@ -158,25 +157,10 @@ def _read_positive_pairs(file_path: Path) -> pd.DataFrame | None:
 
 
 def _prepare(df: pd.DataFrame, *, context: str) -> pd.DataFrame:
-    """Validate schema, filter to positive values, and add explicit log10 columns."""
+    """Validate schema and return the frame; renderer will filter positive values for scale="log"."""
     require_columns(df, REQUIRED_COLUMNS, context=context)
     logger.info(f"Loaded {len(df)} rows ({context})")
-
-    positive = df[(df["pbl"] > 0) & (df["pbr"] > 0)].copy()
-    logger.info(f"After filtering to positive values: {len(positive)} rows")
-
-    if positive.empty:
-        logger.warning("No valid data points after filtering!")
-
-    # The stats annotation is computed from the columns it is handed, so the
-    # log10 columns must be explicit: passing raw values would report raw-space
-    # correlation (r ~ -0.03) instead of the log-space PCC (r = 0.85) that this
-    # figure has always shown. Computed unconditionally (a no-op on an empty
-    # frame) so the renderer's column validation still finds these columns.
-    positive[X_COLUMN] = np.log10(positive["pbl"])
-    positive[Y_COLUMN] = np.log10(positive["pbr"])
-
-    return positive
+    return df
 
 
 # =============================================================================
@@ -226,6 +210,7 @@ def main() -> int:
             row_key="sample",
             col_key="timepoint",
             density=True,
+            scale="log",
         )
 
     except Exception as e:

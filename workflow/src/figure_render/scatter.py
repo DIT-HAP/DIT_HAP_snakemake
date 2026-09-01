@@ -4,16 +4,16 @@ Supersedes ``correlation.py`` (PBL vs PBR) and ``orientation.py`` (plus vs minus
 strand), which rendered the same grouped log-log regression grid for different
 columns. Column names and axis labels are supplied by the caller.
 
-Callers pass explicitly log-transformed columns when they want log-space
-statistics: r and P are computed directly from whatever columns are handed to
-``render_scatter_panel``, so passing raw values reports a different statistic
-while looking equally plausible. The same applies to ``ScatterPanel.density``:
-a ``log_scale=True`` panel colours by linear-space density while displaying
-symlog axes unless the columns were logged first.
+``ScatterPanel.scale`` owns the log handling: ``"log"`` takes raw columns, puts
+both axes on true log scale with exponential major labels plus minor ticks, and
+computes r, P and density in log10 space over strictly positive pairs. Callers
+therefore pass raw values, not pre-logged columns. ``"symlog"`` is the
+display-only variant for data containing zeros; its statistics stay in linear
+space.
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
-Date:     2026-08-25
-Version:  1.1.0
+Date:     2026-09-01
+Version:  2.0.0
 """
 
 # =============================================================================
@@ -33,6 +33,7 @@ from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.collections import PathCollection
 from matplotlib.colors import Normalize
+from matplotlib.ticker import LogLocator, SymmetricalLogLocator
 from scipy.stats import pearsonr
 
 from figures import (
@@ -100,7 +101,7 @@ class ScatterPanel:
     ylabel: str
     title: str
     reference: Literal["identity", "zero", "unit_identity", "none"] = "none"
-    log_scale: bool = False
+    scale: Literal["linear", "log", "symlog"] = "linear"
     show_stats: bool = False
     density: bool = False
 
@@ -108,6 +109,26 @@ class ScatterPanel:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def _apply_log_axes_with_minor_ticks(ax: Axes) -> None:
+    """Set both axes to log scale with exponential major labels and visible minor ticks."""
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    for axis in (ax.xaxis, ax.yaxis):
+        axis.set_minor_locator(LogLocator(base=10, subs=list(range(2, 10))))
+    ax.tick_params(which="minor", length=plt.rcParams["xtick.minor.size"], width=plt.rcParams["xtick.minor.width"])
+
+
+def _apply_symlog_axes_with_minor_ticks(ax: Axes) -> None:
+    """Set both axes to symlog scale with exponential major labels and visible minor ticks."""
+    ax.set_xscale("symlog")
+    ax.set_yscale("symlog")
+    for axis in (ax.xaxis, ax.yaxis):
+        transform = axis.get_transform()
+        linthresh = getattr(transform, "linthresh", 1)
+        axis.set_minor_locator(SymmetricalLogLocator(base=10, linthresh=linthresh, subs=list(range(2, 10))))
+    ax.tick_params(which="minor", length=plt.rcParams["xtick.minor.size"], width=plt.rcParams["xtick.minor.width"])
+
+
 def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
     """Annotate n, r, and P at regplot's own text position/style, so toggling show_stats doesn't reflow the panel."""
     valid = df[[x, y]].replace([np.inf, -np.inf], np.nan).dropna()
@@ -132,10 +153,12 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
     Fitted/regression lines (drawn elsewhere via cns.regplot or curves.py) stay
     solid so the two kinds of line remain visually distinct.
     """
+    positive = df[(df[panel.x] > 0) & (df[panel.y] > 0)] if panel.scale == "log" else df
+
     match panel.reference:
         case "identity":
-            min_val = min(df[panel.x].min(), df[panel.y].min())
-            max_val = max(df[panel.x].max(), df[panel.y].max())
+            min_val = min(positive[panel.x].min(), positive[panel.y].min())
+            max_val = max(positive[panel.x].max(), positive[panel.y].max())
             ax.plot([min_val, max_val], [min_val, max_val], color=FURNITURE_COLOR, linestyle="--")
         case "unit_identity":
             ax.plot([0, 1], [0, 1], color=FURNITURE_COLOR, linestyle="--")
@@ -146,7 +169,7 @@ def _draw_reference_line(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> Non
 
 
 def _apply_shared_square_limits(
-    axes: Sequence[Axes], df: pd.DataFrame, *, x: str, y: str
+    axes: Sequence[Axes], df: pd.DataFrame, *, x: str, y: str, scale: Literal["linear", "log", "symlog"] = "linear",
 ) -> None:
     """Put every axes on one common x=y range spanning all finite data.
 
@@ -156,8 +179,10 @@ def _apply_shared_square_limits(
     the identity reference at 45 degrees in every panel.
     """
     finite = df[[x, y]].replace([np.inf, -np.inf], np.nan).dropna()
+    if scale == "log":
+        finite = finite[(finite[x] > 0) & (finite[y] > 0)]
     if finite.empty:
-        logger.warning("No finite values; leaving panel limits autoscaled")
+        logger.warning("No finite positive values; leaving panel limits autoscaled")
         return
 
     low = float(min(finite[x].min(), finite[y].min()))
@@ -166,10 +191,16 @@ def _apply_shared_square_limits(
         logger.warning(f"Degenerate data range [{low}, {high}]; leaving panel limits autoscaled")
         return
 
-    margin = (high - low) * 0.04
-    for ax in axes:
-        ax.set_xlim(low - margin, high + margin)
-        ax.set_ylim(low - margin, high + margin)
+    if scale == "log":
+        margin_factor = (high / low) ** 0.04
+        for ax in axes:
+            ax.set_xlim(low / margin_factor, high * margin_factor)
+            ax.set_ylim(low / margin_factor, high * margin_factor)
+    else:
+        margin = (high - low) * 0.04
+        for ax in axes:
+            ax.set_xlim(low - margin, high + margin)
+            ax.set_ylim(low - margin, high + margin)
 
 
 def _add_density_colorbar(ax: Axes, mappable: PathCollection) -> None:
@@ -199,12 +230,16 @@ def _draw_density_scatter(ax: Axes, df: pd.DataFrame, panel: ScatterPanel) -> bo
     cns.scatterplot path and carry a flat ``color`` that collides with the
     per-point colour array.
     """
-    density = point_density(df[panel.x].to_numpy(), df[panel.y].to_numpy())
+    x_vals = np.log10(df[panel.x].to_numpy()) if panel.scale == "log" else df[panel.x].to_numpy()
+    y_vals = np.log10(df[panel.y].to_numpy()) if panel.scale == "log" else df[panel.y].to_numpy()
+    density = point_density(x_vals, y_vals)
 
     if density is None:
         return False
 
     finite = np.isfinite(density)
+    if panel.scale == "log":
+        finite = finite & (df[panel.x] > 0).to_numpy() & (df[panel.y] > 0).to_numpy()
 
     # Ascending so the crowded points draw last and are not buried under the
     # sparse ones.
@@ -243,8 +278,12 @@ def render_scatter_panel(
     The single-axes primitive behind both ``render_scatter_grid_figure`` and
     ``render_grouped_regression_figure``. Any other grid orchestrator that
     wants one cns.scatterplot panel with this project's hue/reference-line/
-    log-scale/stats handling can call this directly instead of duplicating
+    scale/stats handling can call this directly instead of duplicating
     that sequence.
+
+    ``panel.scale="log"`` applies true log axes with minor ticks and computes
+    stats/density in log10 space on strictly positive values; caller passes
+    **raw** columns (e.g. ``pbl``), not pre-logged columns.
 
     ``panel.show_stats=True`` annotates n, r, and P (computed over all of df,
     ignoring hue) in the same text position/style cnsplots' own regplot used.
@@ -261,9 +300,14 @@ def render_scatter_panel(
         ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
         return
 
+    plot_df = df[(df[panel.x] > 0) & (df[panel.y] > 0)].copy() if panel.scale == "log" else df.copy()
+    if plot_df.empty:
+        ax.text(0.5, 0.5, "No positive data", ha="center", va="center", transform=ax.transAxes)
+        return
+
     kws = dict(SCATTERPLOT_KWS if scatter_kws is None else scatter_kws)
 
-    if hue is not None and hue in df.columns:
+    if hue is not None and hue in plot_df.columns:
         if panel.density:
             logger.warning(
                 f"Panel '{panel.title}': hue {hue!r} and density both set; "
@@ -271,29 +315,36 @@ def render_scatter_panel(
             )
         # Levels absent from the data must be dropped, or a project lacking
         # one of them raises inside seaborn.
-        observed = set(df[hue].unique())
+        observed = set(plot_df[hue].unique())
         order = [level for level in (hue_order or sorted(observed)) if level in observed]
-        cns.scatterplot(data=df, x=panel.x, y=panel.y, hue=hue, hue_order=order, ax=ax, **kws)
+        cns.scatterplot(data=plot_df, x=panel.x, y=panel.y, hue=hue, hue_order=order, ax=ax, **kws)
         ax.legend(loc="best")
     else:
-        density_drawn = panel.density and _draw_density_scatter(ax, df, panel)
+        density_drawn = panel.density and _draw_density_scatter(ax, plot_df, panel)
         if panel.density and not density_drawn:
             logger.warning(f"Panel '{panel.title}': falling back to flat colour, no density estimate")
         if not density_drawn:
-            cns.scatterplot(data=df, x=panel.x, y=panel.y, ax=ax, **kws)
+            cns.scatterplot(data=plot_df, x=panel.x, y=panel.y, ax=ax, **kws)
 
     ax.set_xlabel(panel.xlabel)
     ax.set_ylabel(panel.ylabel)
     ax.set_title(panel.title)
 
-    _draw_reference_line(ax, df, panel)
+    _draw_reference_line(ax, plot_df, panel)
 
     if panel.show_stats:
-        _annotate_fit_stats(ax, df, x=panel.x, y=panel.y)
+        if panel.scale == "log":
+            log_df = plot_df.copy()
+            log_df["_log10_x"] = np.log10(plot_df[panel.x])
+            log_df["_log10_y"] = np.log10(plot_df[panel.y])
+            _annotate_fit_stats(ax, log_df, x="_log10_x", y="_log10_y")
+        else:
+            _annotate_fit_stats(ax, plot_df, x=panel.x, y=panel.y)
 
-    if panel.log_scale:
-        ax.set_xscale("symlog")
-        ax.set_yscale("symlog")
+    if panel.scale == "log":
+        _apply_log_axes_with_minor_ticks(ax)
+    elif panel.scale == "symlog":
+        _apply_symlog_axes_with_minor_ticks(ax)
 
 
 @logger.catch(reraise=True)
@@ -310,12 +361,18 @@ def render_grouped_regression_figure(
     show_stats: bool = True,
     density: bool = False,
     share_limits: bool = True,
+    scale: Literal["linear", "log", "symlog"] = "linear",
     scatter_kws: Mapping[str, object] | None = None,
 ) -> None:
     """Render a row_key x col_key grid of square regression panels for the x/y columns.
 
-    show_stats and density are set on every panel in the grid: this renderer
-    builds its own ScatterPanel specs, so they cannot be varied per panel here.
+    show_stats, density and scale are set on every panel in the grid: this
+    renderer builds its own ScatterPanel specs, so they cannot be varied per
+    panel here.
+
+    ``scale="log"`` takes raw (unlogged) x/y columns and puts both axes on true
+    log scale, computing r/P and density in log10 space over strictly positive
+    pairs.
 
     ``share_limits=True`` puts every panel on one common x=y range, so panels
     are comparable by eye as well as aligned; pass False to let each panel
@@ -375,7 +432,7 @@ def render_grouped_regression_figure(
 
             panel = ScatterPanel(
                 x=x, y=y, xlabel=xlabel, ylabel=panel_ylabel, title=str(col_value),
-                reference="identity", show_stats=show_stats, density=density,
+                reference="identity", show_stats=show_stats, density=density, scale=scale,
             )
             render_scatter_panel(
                 ax, group_df, panel,
@@ -383,7 +440,7 @@ def render_grouped_regression_figure(
             )
 
     if share_limits:
-        _apply_shared_square_limits(axes, df, x=x, y=y)
+        _apply_shared_square_limits(axes, df, x=x, y=y, scale=scale)
 
     plt.gcf().tight_layout()
 

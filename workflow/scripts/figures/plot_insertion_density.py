@@ -110,7 +110,8 @@ def build_density_panels(initial: str, final: str) -> list[ScatterPanel]:
             x="total_reads_initial", y="total_reads_final",
             xlabel=f"Total reads ({initial})", ylabel=f"Total reads ({final})",
             title="Initial vs. Final Read Depth",
-            log_scale=True,
+            # symlog, not log: genes with no insertions carry a total_reads of 0.
+            scale="symlog",
         ),
         ScatterPanel(
             x="gini_coefficient_of_depth_initial", y="gini_coefficient_of_depth_final",

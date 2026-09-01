@@ -30,7 +30,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 from matplotlib import use
@@ -52,10 +51,10 @@ from figure_render._schema import require_columns  # noqa: E402
 READER_KWARGS = {"index_col": [0, 1, 2, 3], "header": [0, 1]}
 REQUIRED_COLUMNS = ["sample", "timepoint", "plus_count", "minus_count"]
 
-X_COLUMN = "log10_plus_count"
-Y_COLUMN = "log10_minus_count"
-X_LABEL = "log$_{10}$ (+) strand"
-Y_LABEL = "log$_{10}$ (-) strand"
+X_COLUMN = "plus_count"
+Y_COLUMN = "minus_count"
+X_LABEL = "(+) strand"
+Y_LABEL = "(−) strand"
 
 
 # =============================================================================
@@ -136,21 +135,10 @@ def _extract_strand_pairs(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _prepare(df: pd.DataFrame, *, context: str) -> pd.DataFrame:
-    """Validate schema, re-filter positive pairs, and add explicit log10 columns."""
+    """Validate schema and return the frame; renderer will filter positive values for scale="log"."""
     require_columns(df, REQUIRED_COLUMNS, context=context)
     logger.info(f"Loaded {len(df)} rows ({context})")
-
-    # Re-filtering keeps the renderer safe against a hand-made input and
-    # guarantees finite log10 values.
-    positive = df[(df["plus_count"] > 0) & (df["minus_count"] > 0)].copy()
-    logger.info(f"After filtering to positive values: {len(positive)} rows")
-
-    if positive.empty:
-        logger.warning("No valid data points after filtering!")
-
-    positive[X_COLUMN] = np.log10(positive["plus_count"])
-    positive[Y_COLUMN] = np.log10(positive["minus_count"])
-    return positive
+    return df
 
 
 # =============================================================================
@@ -198,6 +186,7 @@ def main() -> int:
             row_key="sample",
             col_key="timepoint",
             density=True,
+            scale="log",
         )
     except Exception as e:
         logger.error(f"Error during rendering: {e}")
