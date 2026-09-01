@@ -28,4 +28,4 @@ dependencies:
   - loguru
   - pip
   - pip:
-    - cnsplots==0.6.0
+    - cnsplots==0.7.0
