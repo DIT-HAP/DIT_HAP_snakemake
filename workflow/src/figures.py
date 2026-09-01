@@ -110,6 +110,8 @@ def grid_axes(
     labels: Sequence[str] | None = None,
     width_px: int = JOURNAL_WIDTH_PX,
     square: bool = True,
+    share_x: bool = False,
+    share_y: bool = False,
 ) -> list[Axes]:
     """Create an n_rows x n_cols grid of aligned axes, row-major, and label each one.
 
@@ -118,6 +120,9 @@ def grid_axes(
     cannot do, since it offsets every panel by its own measured decoration
     width. ``square`` additionally pins each axes box to a 1:1 aspect, so a grid
     whose row and column counts differ still holds square panels.
+
+    ``share_x``/``share_y`` put every panel on one common range and drop the
+    interior tick labels, so a reader compares panels against one scale.
 
     Callers hide the cells they do not fill; ``tight_layout`` then reclaims the
     space. Run it after all panels are drawn, since it measures rendered text.
@@ -130,7 +135,7 @@ def grid_axes(
     cell_px = width_px / n_cols
     cns.figure(width=width_px, height=int(cell_px * n_rows))
     fig = plt.gcf()
-    grid = fig.subplots(n_rows, n_cols, squeeze=False)
+    grid = fig.subplots(n_rows, n_cols, squeeze=False, sharex=share_x, sharey=share_y)
 
     names = list(labels) if labels is not None else panel_labels(n_rows * n_cols)
 

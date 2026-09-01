@@ -20,19 +20,29 @@ from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
 
-import cnsplots as cns
 import matplotlib.pyplot as plt
 import pandas as pd
 from loguru import logger
 
-from figures import FURNITURE_COLOR, apply_house_style, panel_labels, save_dual
+from figures import (
+    FURNITURE_COLOR,
+    JOURNAL_WIDTH_PX,
+    apply_house_style,
+    grid_axes,
+    panel_labels,
+    save_dual,
+)
 
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
 class Orientation(StrEnum):
-    """Panel arrangement and axis assignment for the MA plot."""
+    """Panel arrangement and axis assignment, which move together.
+
+    VERTICAL stacks n panels in one column with the effect on x; HORIZONTAL lays
+    them in one row with the abundance on x.
+    """
 
     VERTICAL = "vertical"
     HORIZONTAL = "horizontal"
@@ -61,14 +71,15 @@ def render_ma_figure(
     effect_label: str,
     title_prefix: str,
     orientation: Orientation = Orientation.VERTICAL,
-    stack: bool | None = None,
     point_colors: Sequence[pd.Series | str] | None = None,
-    panel_width: int = 220,
-    panel_height: int = 220,
     share_axes: bool = True,
     null_effect: float = 0.0,
 ) -> None:
-    """Render one MA panel per (title, abundance, effect) triple."""
+    """Render one square MA panel per (title, abundance, effect) triple.
+
+    All panels sit in a single line -- one column under VERTICAL, one row under
+    HORIZONTAL -- so the panel count alone sets the grid.
+    """
     logger.info(f"Rendering MA plot figure ({orientation})...")
 
     if not panels:
@@ -86,30 +97,27 @@ def render_ma_figure(
     n_panels = len(panels)
     logger.info(f"Creating figure with {n_panels} panels...")
 
-    # Arrangement is independent of axis assignment: the replicate branch draws
-    # horizontal axes in a vertical stack. Defaulting stack from orientation keeps
-    # the no-replicate branch's calls unchanged.
-    stacked = (orientation is Orientation.VERTICAL) if stack is None else stack
-
-    # Panels are identical in size and type, so a matplotlib grid applies: it
-    # aligns their axes edges, which cns.multipanel cannot, and sharing is
-    # declared up front instead of chained panel-to-panel afterwards.
+    stacked = orientation is Orientation.VERTICAL
     n_rows, n_cols = (n_panels, 1) if stacked else (1, n_panels)
-    cns.figure(width=panel_width * n_cols, height=panel_height * n_rows)
-    fig = plt.gcf()
-    axes = fig.subplots(
-        n_rows, n_cols, squeeze=False, sharex=share_axes, sharey=share_axes
-    )
+
+    # Panels are sized off the journal width divided by the panel count either
+    # way, so a stack is the transpose of a row rather than a page-wide column
+    # whose height would then grow to n x the page width.
+    cell_px = JOURNAL_WIDTH_PX // n_panels
+    width_px = cell_px if stacked else JOURNAL_WIDTH_PX
 
     labels = panel_labels(n_panels)
+    axes = grid_axes(
+        n_rows, n_cols, labels=labels, width_px=width_px,
+        share_x=share_axes, share_y=share_axes,
+    )
+
     colors = point_colors if point_colors is not None else [NONSIGNIFICANT_COLOR] * n_panels
 
-    for index, (label, (title, abundance, effect), color) in enumerate(
-        zip(labels, panels, colors, strict=True)
+    for ax, label, (title, abundance, effect), color in zip(
+        axes, labels, panels, colors, strict=True
     ):
         logger.info(f"  Panel {label}: {title} (n={len(effect)})")
-
-        ax = axes[index // n_cols][index % n_cols]
 
         match orientation:
             case Orientation.VERTICAL:
@@ -129,10 +137,8 @@ def render_ma_figure(
 
         ax.set_title(f"{title_prefix} - {title}")
 
-        plt.sca(ax)
-        cns.add_panel_label(label)
 
-    fig.tight_layout()
+    plt.gcf().tight_layout()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

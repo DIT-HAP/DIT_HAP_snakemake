@@ -5,10 +5,11 @@
 Replicate-Branch MA Plot Figure Renderer
 ========================================
 
-Render DESeq2 MA plots from a pre-computed TSV with one panel per timepoint:
-log2 fold change against the mean of normalized counts, points coloured
-darkred where the adjusted p-value clears the significance threshold and gray
-otherwise. This is the rendering half of pydeseq2's ``DeseqStats.plot_MA()``.
+Render DESeq2 MA plots from a pre-computed TSV with one square panel per
+timepoint in a single row: log2 fold change against the mean of normalized
+counts, points coloured darkred where the adjusted p-value clears the
+significance threshold and gray otherwise. This is the rendering half of
+pydeseq2's ``DeseqStats.plot_MA()``.
 
 This is the biological-replicates branch, distinct from ``plot_ma_plot.py``:
 that script handles the no-replicate branch, which computes M/A directly from
@@ -92,12 +93,6 @@ ABUNDANCE_LABEL = "mean of normalized counts"
 EFFECT_LABEL = "log2 fold change"
 TITLE_PREFIX = "MA plot"
 
-# The legacy replicate figure used a full-width vertical stack of short panels and
-# did not share axes between them, while assigning axes horizontally (abundance on
-# a log x-axis). Hence orientation=HORIZONTAL together with stack=True.
-PANEL_WIDTH = 510
-PANEL_HEIGHT = 200
-
 
 # =============================================================================
 # CORE LOGIC
@@ -176,9 +171,8 @@ def main() -> int:
             panels, config.output_stem,
             abundance_label=ABUNDANCE_LABEL, effect_label=EFFECT_LABEL,
             title_prefix=TITLE_PREFIX,
-            orientation=Orientation.HORIZONTAL, stack=True,
+            orientation=Orientation.HORIZONTAL,
             point_colors=colors,
-            panel_width=PANEL_WIDTH, panel_height=PANEL_HEIGHT, share_axes=False,
         )
 
     except Exception as e:
