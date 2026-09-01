@@ -39,6 +39,39 @@ rule plot_ma_plot:
             -o {params.stem} &> {log}
         """
 
+# Only the DESeq2 branch estimates dispersions, so only it produces the figure data.
+if config.get("use_DEseq2_for_biological_replicates", False):
+
+    rule plot_dispersions:
+        input:
+            f"projects/{project_name}/reports/dispersion_analysis/dispersion_data.tsv",
+        output:
+            journal=report(
+                f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis.pdf",
+                caption="../reports/captions/dispersion_analysis.rst",
+                category="2. Insertion-level results",
+                labels={
+                    "name": "DESeq2 Dispersion Estimates",
+                    "type": "Figure",
+                    "format": "PDF",
+                },
+            ),
+            review=f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis.review.png",
+        log:
+            f"projects/{project_name}/logs/figures/plot_dispersions.log",
+        params:
+            stem=f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis",
+        conda:
+            "../envs/cnsplots.yml"
+        message:
+            "*** Rendering DESeq2 dispersion figure..."
+        shell:
+            """
+            python workflow/scripts/figures/plot_dispersions.py \
+                -i {input} \
+                -o {params.stem} &> {log}
+            """
+
 rule plot_pbl_pbr_correlation:
     input:
         expand(rules.merge_strand_insertions.output, sample=samples, timepoint=timepoints, condition=conditions),
