@@ -545,9 +545,11 @@ def render_scatter_grid_figure(
                 loc="center left", bbox_to_anchor=LEGEND_ANCHOR,
                 frameon=False, title=hue, markerscale=LEGEND_MARKER_SCALE,
             )
-            # Over the entry labels rather than centred over the whole box, so the
-            # title reads as their heading.
-            legend.get_title().set_horizontalalignment("left")
+            # Left-align and position the title over the entry labels rather than
+            # centred over the whole box, so it reads as their heading.
+            title = legend.get_title()
+            title.set_horizontalalignment("left")
+            title.set_position((0, 0))  # Align with legend entries
             for handle in legend.legend_handles:
                 handle.set_alpha(1.0)
 
