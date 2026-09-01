@@ -26,8 +26,9 @@ from loguru import logger
 
 from figures import (
     FURNITURE_COLOR,
-    JOURNAL_WIDTH_PX,
+    PanelShape,
     apply_house_style,
+    fit_panels,
     grid_axes,
     panel_labels,
     save_dual,
@@ -100,15 +101,9 @@ def render_ma_figure(
     stacked = orientation is Orientation.VERTICAL
     n_rows, n_cols = (n_panels, 1) if stacked else (1, n_panels)
 
-    # Panels are sized off the journal width divided by the panel count either
-    # way, so a stack is the transpose of a row rather than a page-wide column
-    # whose height would then grow to n x the page width.
-    cell_px = JOURNAL_WIDTH_PX // n_panels
-    width_px = cell_px if stacked else JOURNAL_WIDTH_PX
-
     labels = panel_labels(n_panels)
     axes = grid_axes(
-        n_rows, n_cols, labels=labels, width_px=width_px,
+        n_rows, n_cols, labels=labels, shape=PanelShape.SQUARE,
         share_x=share_axes, share_y=share_axes,
     )
 
@@ -137,8 +132,7 @@ def render_ma_figure(
 
         ax.set_title(f"{title_prefix} - {title}")
 
-
-    plt.gcf().tight_layout()
+    fit_panels()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

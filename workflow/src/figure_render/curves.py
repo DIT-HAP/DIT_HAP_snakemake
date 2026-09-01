@@ -26,7 +26,9 @@ import pandas as pd
 from loguru import logger
 
 from figures import (
+    PanelShape,
     apply_house_style,
+    fit_panels,
     grid_axes,
     observed_fitted_colors,
     panel_labels,
@@ -63,6 +65,7 @@ def render_fitted_curves_figure(
     ylabel: str,
     ylim: tuple[float, float] | None = DEFAULT_YLIM,
     n_cols: int = 4,
+    shape: PanelShape = PanelShape.SQUARE,
 ) -> None:
     """Render one panel per row: observed points plus the model curve from its parameters."""
     logger.info("Rendering fitted curves figure...")
@@ -95,7 +98,7 @@ def render_fitted_curves_figure(
     observed_color, fitted_color = observed_fitted_colors()
 
     labels = panel_labels(n_panels)
-    axes = grid_axes(n_rows, n_cols, labels=labels)
+    axes = grid_axes(n_rows, n_cols, labels=labels, shape=shape)
 
     x_array = np.asarray(x_values, dtype=float)
     x_smooth = np.linspace(x_array.min(), x_array.max(), FITTED_CURVE_RESOLUTION)
@@ -122,7 +125,7 @@ def render_fitted_curves_figure(
     for ax in axes[n_panels:]:
         ax.set_visible(False)
 
-    plt.gcf().tight_layout()
+    fit_panels()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

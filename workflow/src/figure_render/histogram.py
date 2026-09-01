@@ -23,7 +23,15 @@ import pandas as pd
 from loguru import logger
 from matplotlib.axes import Axes
 
-from figures import FURNITURE_COLOR, apply_house_style, grid_axes, panel_labels, save_dual
+from figures import (
+    FURNITURE_COLOR,
+    PanelShape,
+    apply_house_style,
+    fit_panels,
+    grid_axes,
+    panel_labels,
+    save_dual,
+)
 
 from ._schema import require_columns
 
@@ -105,6 +113,7 @@ def render_histogram_grid_figure(
     show_summary_stats: bool = True,
     n_cols: int = 4,
     share_y_range: bool = False,
+    shape: PanelShape = PanelShape.SQUARE,
 ) -> None:
     """Render one histogram panel per named value column in a fixed-pitch grid."""
     logger.info("Rendering histogram grid figure...")
@@ -125,7 +134,7 @@ def render_histogram_grid_figure(
     logger.info(f"Creating figure with {n_rows}x{n_cols} grid ({n_panels} panels)...")
 
     labels = panel_labels(n_panels)
-    axes = grid_axes(n_rows, n_cols, labels=labels)
+    axes = grid_axes(n_rows, n_cols, labels=labels, shape=shape)
 
     finite_maxes = [m for c in value_columns if (m := df[c].max()) == m]
     shared_y_max = max(finite_maxes, default=0.0) if share_y_range else None
@@ -146,7 +155,7 @@ def render_histogram_grid_figure(
         if shared_y_max is not None and had_data:
             ax.set_ylim(0, shared_y_max)
 
-    plt.gcf().tight_layout()
+    fit_panels()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
@@ -171,6 +180,7 @@ def render_grouped_histogram_figure(
     upper_quantile: float | None = None,
     share_x_range: bool = True,
     share_y_range: bool = False,
+    shape: PanelShape = PanelShape.SQUARE,
 ) -> None:
     """Histogram one value column into one panel per row_key/col_key group in a fixed-pitch grid.
 
@@ -228,7 +238,7 @@ def render_grouped_histogram_figure(
     col_values = sorted(df[col_key].unique())
 
     labels = panel_labels(n_rows * n_cols)
-    axes = grid_axes(n_rows, n_cols, labels=labels)
+    axes = grid_axes(n_rows, n_cols, labels=labels, shape=shape)
 
     # A row/col combination absent from the data keeps its cell but shows no
     # frame, so the remaining panels stay in their own row and column.
@@ -278,7 +288,7 @@ def render_grouped_histogram_figure(
         ax.axvline(marker_value, color=FURNITURE_COLOR, linestyle="--", label=marker_label)
         ax.legend(loc="upper right")
 
-    plt.gcf().tight_layout()
+    fit_panels()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

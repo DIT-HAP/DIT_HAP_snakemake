@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from loguru import logger
 
-from figures import JOURNAL_HEIGHT_PX, JOURNAL_WIDTH_PX, apply_house_style, save_dual, series_colors
+from figures import PanelShape, apply_house_style, fit_panels, grid_axes, save_dual, series_colors
 
 from ._schema import require_columns
 
@@ -41,6 +41,10 @@ SERIES_SCATTER_KWS: dict[str, object] = {
 # Legend handles inherit the scatter's tiny size and low alpha, so they are
 # scaled up and forced opaque or the legend reads as blank.
 LEGEND_MARKER_SCALE = 6
+
+# Wide, not square: this is one axes carrying every series plus an in-axes
+# legend, so the extra width is what keeps the legend off the cloud.
+SERIES_PANEL_SHAPE = PanelShape.WIDE
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -80,9 +84,8 @@ def render_series_scatter_figure(
 
     colors = series_colors(len(series))
 
-    cns.figure(width=JOURNAL_WIDTH_PX, height=JOURNAL_HEIGHT_PX)
-    fig = plt.gcf()
-    ax = fig.add_subplot()
+    # A single-panel figure needs no panel letter, so no labels are requested.
+    ax = grid_axes(1, 1, labels=[], shape=SERIES_PANEL_SHAPE)[0]
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
@@ -91,26 +94,26 @@ def render_series_scatter_figure(
     if df.empty:
         logger.warning("No data to plot!")
         ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
-        save_dual(output_stem)
-        return
+    else:
+        x_values = df[x]
+        for item, color in zip(series, colors, strict=True):
+            logger.info(f"  Series {item.label}: {item.column} (n={df[item.column].notna().sum()})")
+            ax.scatter(x_values, df[item.column], c=color, label=item.label, **SERIES_SCATTER_KWS)
 
-    x_values = df[x]
-    for item, color in zip(series, colors, strict=True):
-        logger.info(f"  Series {item.label}: {item.column} (n={df[item.column].notna().sum()})")
-        ax.scatter(x_values, df[item.column], c=color, label=item.label, **SERIES_SCATTER_KWS)
+        if log_x:
+            ax.set_xscale("log")
+        if log_y:
+            ax.set_yscale("log")
 
-    if log_x:
-        ax.set_xscale("log")
-    if log_y:
-        ax.set_yscale("log")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
 
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
+        legend = ax.legend(loc="best", markerscale=LEGEND_MARKER_SCALE)
+        for handle in legend.legend_handles:
+            handle.set_alpha(1.0)
 
-    legend = ax.legend(loc="best", markerscale=LEGEND_MARKER_SCALE)
-    for handle in legend.legend_handles:
-        handle.set_alpha(1.0)
+    fit_panels()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)

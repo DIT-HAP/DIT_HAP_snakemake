@@ -22,6 +22,8 @@ from loguru import logger
 from figures import (
     JOURNAL_HEIGHT_PX,
     JOURNAL_WIDTH_PX,
+    PANEL_SIZES_PX,
+    PanelShape,
     apply_house_style,
     panel_labels,
     save_dual,
@@ -38,13 +40,15 @@ from .donut import draw_donut_panel
 # inside the donut host. The donuts must align with each other, which repeated
 # multipanel.panel() calls cannot deliver: each panel's origin is offset by the
 # rendered width of its own y decorations.
-BAR_PANEL_WIDTH_PX = 136
-BAR_PANEL_HEIGHT_PX = 110
+#
+# Bar and donut cells take explicit px dimensions. They could be expressed as
+# PanelShape values, but the bar's pad_left is tuned for the category names
+# (longer than the usual ylabel), so it stays as explicit px for now.
+BAR_PANEL_WIDTH_PX, BAR_PANEL_HEIGHT_PX = PANEL_SIZES_PX[PanelShape.SQUARE]
 BAR_PANEL_PAD_LEFT_PX = 45  # gap for the category names, as in the gallery
 BAR_PANEL_MARGIN_RIGHT_PX = 8  # match the donut host's right margin
 MULTIPANEL_MAX_WIDTH_PX = 250
-DONUT_PANEL_WIDTH_PX = 110
-DONUT_PANEL_HEIGHT_PX = 110
+DONUT_PANEL_WIDTH_PX, DONUT_PANEL_HEIGHT_PX = PANEL_SIZES_PX[PanelShape.SQUARE]
 DONUTS_PER_ROW = 2
 DONUT_PANEL_MARGIN_RIGHT_PX = 8
 

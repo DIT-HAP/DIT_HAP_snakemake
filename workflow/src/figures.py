@@ -11,19 +11,28 @@ cnsplots-documented matplotlib grid pattern: ``cns.figure()`` sizes the page,
 square and ``tight_layout`` fits the decorations. Heterogeneous figures use
 ``cns.multipanel`` directly.
 
+Sizing runs panel-first: titles, tick labels and axis labels are fixed at the
+house font sizes, so legibility depends on the *axes* box, not the page. A
+caller picks a ``PanelShape`` and the figure size follows from the grid, rather
+than dividing a fixed page width by the column count and letting panels shrink
+out of the legible range as the grid grows.
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-09-01
-Version:  2.0.0
+Version:  3.0.0
 """
 
 # =============================================================================
 # IMPORTS
 # =============================================================================
 from collections.abc import Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
+from loguru import logger
 from matplotlib.axes import Axes
 
 
@@ -31,9 +40,61 @@ from matplotlib.axes import Axes
 # CONSTANTS
 # =============================================================================
 # Page width in cnsplots layout pixels (72 per inch). Taken from cnsplots' own
-# multipanel default so figures built either way share one page width.
+# multipanel default. No longer sizes grids -- it is the journal's one-page cap
+# that derived widths are checked against.
 JOURNAL_WIDTH_PX = int(cns.settings.multipanel_max_width)
 JOURNAL_HEIGHT_PX = 425  # ~150 mm, 4:3 aspect
+
+
+class PanelShape(StrEnum):
+    """The three permitted axes-box footprints, in layout pixels."""
+
+    SQUARE = "square"  # 100 x 100
+    TALL = "tall"  # 100 wide x 150 high
+    WIDE = "wide"  # 150 wide x 100 high
+
+
+# Axes-box (width, height) per shape. 100-150 px is the legible band at the
+# house font sizes: below ~80 px a title or tick label is wider than the box it
+# annotates, above ~150 px the type looks undersized against the data area.
+PANEL_SIZES_PX: dict[PanelShape, tuple[int, int]] = {
+    PanelShape.SQUARE: (100, 100),
+    PanelShape.TALL: (100, 150),
+    PanelShape.WIDE: (150, 100),
+}
+
+# Layout pixels each cell needs on top of its axes box for decorations: y ticks +
+# ylabel + panel label across, title + x ticks + xlabel down. Constant across
+# grid sizes, since the house font sizes are fixed.
+PANEL_DECORATION_WIDTH_PX = 40
+PANEL_DECORATION_HEIGHT_PX = 31
+
+# tight_layout's outer pad, which is charged once per figure rather than per cell.
+# Solved from measured axes boxes at 1 and 2 columns: the per-cell terms above
+# are the slope, this is the intercept. Omitting it made a 1x1 figure's axes
+# 89 px instead of 100, since one cell absorbs the whole pad.
+FIGURE_PAD_PX = 19
+
+# fit_panels' measure-and-correct loop. Two passes take the worst measured case
+# (4 columns, 15 px short) to under a pixel; the tolerance is well below the
+# smallest visible difference, and stopping there avoids a pass that would only
+# chase rounding.
+_FIT_PASSES = 3
+_FIT_TOLERANCE_PX = 0.5
+
+# Where grid_axes parks the grid description for fit_panels. On the figure rather
+# than in a module global so two figures built in one process cannot cross.
+_GRID_SPEC_ATTR = "_house_grid_spec"
+
+
+@dataclass(kw_only=True, slots=True, frozen=True)
+class _GridSpecification:
+    """What fit_panels needs to know about the grid grid_axes built."""
+
+    n_rows: int
+    n_cols: int
+    shape: PanelShape
+    axes: tuple[Axes, ...]
 
 # Panel-label offsets from the axes corner, in layout pixels. cnsplots defaults
 # both to 0, which puts the letter on top of the y tick labels; measured over a
@@ -103,23 +164,100 @@ def panel_labels(n: int) -> list[str]:
     ]
 
 
+def figure_size_for_grid(
+    n_rows: int, n_cols: int, shape: PanelShape = PanelShape.SQUARE
+) -> tuple[int, int]:
+    """Return the (width, height) page size in layout pixels that gives every cell ``shape``.
+
+    The inverse of the usual arithmetic: the axes box is the fixed quantity and
+    the page grows with the grid, so a 4-column figure holds panels the same
+    size as a 1-column one instead of quartering them.
+
+    An estimate only: the decoration constants are averages over real panels, and
+    the actual reserve depends on how wide the tick labels render. ``fit_panels``
+    corrects the remainder by measurement.
+    """
+    if n_rows < 1:
+        raise ValueError(f"n_rows must be at least 1, got {n_rows}")
+    if n_cols < 1:
+        raise ValueError(f"n_cols must be at least 1, got {n_cols}")
+
+    panel_width, panel_height = PANEL_SIZES_PX[shape]
+    width = n_cols * (panel_width + PANEL_DECORATION_WIDTH_PX) + FIGURE_PAD_PX
+    height = n_rows * (panel_height + PANEL_DECORATION_HEIGHT_PX) + FIGURE_PAD_PX
+
+    if width > JOURNAL_WIDTH_PX:
+        logger.warning(
+            f"{n_cols} {shape} panels need {width} px, wider than the {JOURNAL_WIDTH_PX} px "
+            f"journal page: the figure will be scaled down at typesetting. "
+            f"Use fewer columns, or PanelShape.TALL for a narrower panel."
+        )
+
+    return width, height
+
+
+def fit_panels(*, rect: tuple[float, float, float, float] | None = None) -> None:
+    """Lay the current grid out and grow the page until each axes box matches its PanelShape.
+
+    Replaces a bare ``tight_layout()`` at the end of a ``grid_axes`` figure. The
+    estimate in ``figure_size_for_grid`` gets each panel within ~15 px, but the
+    residual grows with the column count, because ``set_box_aspect`` shrinks a
+    box whose cell is the wrong aspect and ``tight_layout`` does not give the
+    space back. Text extents are only knowable after a draw, so the correction
+    has to be measured rather than derived: each pass measures the shortfall,
+    charges it across the grid, and re-lays out.
+
+    ``rect`` is forwarded to ``tight_layout`` for callers reserving a strip
+    (e.g. a figure-level legend).
+    """
+    fig = plt.gcf()
+    spec: _GridSpecification | None = getattr(fig, _GRID_SPEC_ATTR, None)
+
+    fig.tight_layout(rect=rect)
+    if spec is None:
+        return
+
+    target_width, target_height = PANEL_SIZES_PX[spec.shape]
+    points_per_px = 72 / fig.dpi
+
+    for _ in range(_FIT_PASSES):
+        fig.canvas.draw()
+        visible = [ax for ax in spec.axes if ax.get_visible()]
+        if not visible:
+            return
+
+        box = visible[0].get_window_extent()
+        width_error = target_width - box.width * points_per_px
+        height_error = target_height - box.height * points_per_px
+        if abs(width_error) <= _FIT_TOLERANCE_PX and abs(height_error) <= _FIT_TOLERANCE_PX:
+            return
+
+        # One panel's shortfall is charged once per column (and per row), since
+        # every cell in the grid is the same size and misses by the same amount.
+        size = fig.get_size_inches()
+        fig.set_size_inches(
+            size[0] + spec.n_cols * width_error / 72,
+            size[1] + spec.n_rows * height_error / 72,
+        )
+        fig.tight_layout(rect=rect)
+
+
 def grid_axes(
     n_rows: int,
     n_cols: int,
     *,
     labels: Sequence[str] | None = None,
-    width_px: int = JOURNAL_WIDTH_PX,
-    square: bool = True,
+    shape: PanelShape = PanelShape.SQUARE,
     share_x: bool = False,
     share_y: bool = False,
 ) -> list[Axes]:
-    """Create an n_rows x n_cols grid of aligned axes, row-major, and label each one.
+    """Create an n_rows x n_cols grid of aligned ``shape`` axes, row-major, and label each one.
 
     GridSpec allots equal cells regardless of how wide a panel's tick labels
     render, so column x and row y agree by construction -- which cns.multipanel
     cannot do, since it offsets every panel by its own measured decoration
-    width. ``square`` additionally pins each axes box to a 1:1 aspect, so a grid
-    whose row and column counts differ still holds square panels.
+    width. ``set_box_aspect`` then pins every axes box to the shape's aspect, so
+    a grid whose row and column counts differ still holds equal panels.
 
     ``share_x``/``share_y`` put every panel on one common range and drop the
     interior tick labels, so a reader compares panels against one scale.
@@ -127,13 +265,10 @@ def grid_axes(
     Callers hide the cells they do not fill; ``tight_layout`` then reclaims the
     space. Run it after all panels are drawn, since it measures rendered text.
     """
-    if n_rows < 1:
-        raise ValueError(f"n_rows must be at least 1, got {n_rows}")
-    if n_cols < 1:
-        raise ValueError(f"n_cols must be at least 1, got {n_cols}")
+    width_px, height_px = figure_size_for_grid(n_rows, n_cols, shape)
+    panel_width, panel_height = PANEL_SIZES_PX[shape]
 
-    cell_px = width_px / n_cols
-    cns.figure(width=width_px, height=int(cell_px * n_rows))
+    cns.figure(width=width_px, height=height_px)
     fig = plt.gcf()
     grid = fig.subplots(n_rows, n_cols, squeeze=False, sharex=share_x, sharey=share_y)
 
@@ -142,12 +277,17 @@ def grid_axes(
     axes: list[Axes] = []
     for index in range(n_rows * n_cols):
         ax = grid[index // n_cols][index % n_cols]
-        if square:
-            ax.set_box_aspect(1)
+        ax.set_box_aspect(panel_height / panel_width)
         if index < len(names):
             plt.sca(ax)
             cns.add_panel_label(names[index])
         axes.append(ax)
+
+    setattr(
+        fig,
+        _GRID_SPEC_ATTR,
+        _GridSpecification(n_rows=n_rows, n_cols=n_cols, shape=shape, axes=tuple(axes)),
+    )
 
     return axes
 
