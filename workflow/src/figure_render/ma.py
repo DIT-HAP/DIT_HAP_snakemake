@@ -28,6 +28,7 @@ from figures import (
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
+    apply_log_scale,
     fit_panels,
     grid_axes,
     panel_labels,
@@ -118,14 +119,14 @@ def render_ma_figure(
             case Orientation.VERTICAL:
                 # Effect on x, abundance (log) on y: reference line is vertical.
                 ax.scatter(effect, abundance, c=color, **MA_SCATTER_KWS)
-                ax.set_yscale("log")
+                apply_log_scale(ax, x=False, y=True)
                 ax.axvline(null_effect, color=FURNITURE_COLOR, linestyle="--", zorder=3)
                 ax.set_xlabel(effect_label)
                 ax.set_ylabel(abundance_label)
             case Orientation.HORIZONTAL:
                 # Abundance (log) on x, effect on y: reference line is horizontal.
                 ax.scatter(abundance, effect, c=color, **MA_SCATTER_KWS)
-                ax.set_xscale("log")
+                apply_log_scale(ax, x=True, y=False)
                 ax.axhline(null_effect, color=FURNITURE_COLOR, linestyle="--", zorder=3)
                 ax.set_xlabel(abundance_label)
                 ax.set_ylabel(effect_label)

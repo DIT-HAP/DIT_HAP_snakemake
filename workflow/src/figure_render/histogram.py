@@ -27,6 +27,7 @@ from figures import (
     FURNITURE_COLOR,
     PanelShape,
     apply_house_style,
+    apply_log_scale,
     fit_panels,
     grid_axes,
     panel_labels,
@@ -95,7 +96,7 @@ def draw_histogram_panel(
     ax.set_ylabel(ylabel)
 
     if log_scale:
-        ax.set_xscale("log")
+        apply_log_scale(ax, x=True, y=False)
 
 
 # =============================================================================

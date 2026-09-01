@@ -40,6 +40,7 @@ from figures import (
     apply_house_style,
     apply_log_scale,
     apply_symlog_scale,
+    fit_panels,
     grid_axes,
     panel_labels,
     save_dual,
@@ -132,37 +133,6 @@ class ScatterPanel:
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-def _style_minor_ticks(ax: Axes) -> None:
-    """Shorten minor ticks relative to major ones so the two read as distinct."""
-    ax.tick_params(
-        which="minor",
-        length=plt.rcParams["xtick.major.size"] * MINOR_TICK_LENGTH_RATIO,
-        width=plt.rcParams["xtick.minor.width"],
-    )
-
-
-def _apply_log_axes_with_minor_ticks(ax: Axes) -> None:
-    """Set both axes to log scale with exponential major labels and visible minor ticks."""
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    for axis in (ax.xaxis, ax.yaxis):
-        axis.set_minor_locator(
-            LogLocator(base=10, subs=list(range(2, 10)), numticks=LOG_MINOR_NUMTICKS)
-        )
-    _style_minor_ticks(ax)
-
-
-def _apply_symlog_axes_with_minor_ticks(ax: Axes) -> None:
-    """Set both axes to symlog scale with exponential major labels and visible minor ticks."""
-    ax.set_xscale("symlog")
-    ax.set_yscale("symlog")
-    for axis in (ax.xaxis, ax.yaxis):
-        transform = axis.get_transform()
-        linthresh = getattr(transform, "linthresh", 1)
-        axis.set_minor_locator(SymmetricalLogLocator(base=10, linthresh=linthresh, subs=list(range(2, 10))))
-    _style_minor_ticks(ax)
-
-
 def _has_hue(df: pd.DataFrame, hue: str | None) -> bool:
     """Report whether hue colouring applies, matching render_scatter_panel's own test."""
     return hue is not None and hue in df.columns
@@ -501,7 +471,7 @@ def render_grouped_regression_figure(
     if share_limits:
         _apply_shared_square_limits(axes, df, x=x, y=y, scale=scale)
 
-    plt.gcf().tight_layout()
+    fit_panels()
 
     logger.info(f"Saving figure to {output_stem}...")
     save_dual(output_stem)
@@ -559,9 +529,10 @@ def render_scatter_grid_figure(
 
     fig = plt.gcf()
 
-    # tight_layout before the legend: it ignores figure-level legends, so adding
-    # the legend first lets it reclaim the reserved strip and overlap the panels.
-    fig.tight_layout(rect=LEGEND_LAYOUT_RECT if _has_hue(df, hue) else None)
+    # fit_panels before the legend: it measures each panel's box to ensure they
+    # match their PanelShape. Adding the legend first would include it in those
+    # measurements.
+    fit_panels(rect=LEGEND_LAYOUT_RECT if _has_hue(df, hue) else None)
 
     # One figure-level legend outside the axes. Per-panel legends repeat the same
     # hue levels in every cell and, at loc="best", land on the data or the stats
