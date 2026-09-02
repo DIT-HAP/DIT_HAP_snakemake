@@ -77,39 +77,66 @@ wildcard_constraints:
 # ---------------------------------------------------------------------------
 # Target rule
 # ---------------------------------------------------------------------------
+# `all` lists exactly the report()-annotated deliverables, grouped by the
+# categories they appear under in the Snakemake report. Intermediates (raw
+# read tables, filtered counts, gene_level_statistics.tsv, …) are pulled in
+# automatically as dependencies and are deliberately not listed here.
+#
+# Not part of `all` by design:
+#   - reference data (resources/pombase_data/...): downloaded on demand by the
+#     rules that consume it, only needed when bootstrapping a new project.
+#   - release/ packaging: run separately via
+#       snakemake --use-conda --cores <N> package_release
+#   - the report itself:
+#       snakemake --use-conda --cores <N> \
+#           --report projects/{project_name}/reports/snakemake_report/report.zip \
+#           --report-after-run -- all
 rule all:
     input:
-        # --- smoke-test target (uncomment one to run) ---
+        # --- report category: Quality Control ---
+        f"projects/{project_name}/reports/multiqc/quality_control_multiqc_report.html",
+        f"projects/{project_name}/reports/mapping_filtering_statistics/datavzrd_mapping_filtering_statistics",
+        f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
+        f"projects/{project_name}/reports/read_count_distribution_analysis/read_count_distribution_analysis.pdf",
         f"projects/{project_name}/reports/insertion_orientation_analysis/insertion_orientation_analysis.pdf",
         f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.pdf",
+        f"projects/{project_name}/reports/insertion_density_analysis/datavzrd_insertion_density_analysis",
         f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
-        # --- reference data ---
-        # f"resources/pombase_data/{config['Pombase_release_version']}/genome_region/coding_gene_primary_transcripts.bed",
 
-        # --- read processing ---
-        # expand(f"projects/{project_name}/results/10_annotated/{{sample}}_{{timepoint}}_{{condition}}.annotated.tsv", sample=samples, timepoint=timepoints, condition=conditions),
-        # expand(f"projects/{project_name}/results/11_concat_timepoints/{{sample}}_{{condition}}.counts.tsv", sample=samples, condition=conditions),
-        
-        # --- depletion scoring ---
-        # f"projects/{project_name}/results/13_filtered/raw_reads.filtered.tsv",
-        # f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-        # f"projects/{project_name}/results/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
-        # f"projects/{project_name}/results/16_gene_level_depletion_analysis/gene_level_statistics.tsv",
-        # f"projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
-        # --- quality control ---
-        # f"projects/{project_name}/reports/multiqc/quality_control_multiqc_report.html",
-        # f"projects/{project_name}/reports/PBL_PBR_correlation_analysis/PBL_PBR_correlation_analysis.pdf",
-        # f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis_histograms.pdf",
-        # f"projects/{project_name}/reports/gene_coverage_analysis",
-        
-        # --- packaging ---
-        # see workflow/rules/packaging.smk's package_release for the release/
-        # folder target; generate the Snakemake HTML/zip report separately with
-        # `snakemake --use-conda --cores <N> \
-        #     --report projects/{project_name}/reports/snakemake_report/report.zip \
-        #     --report-after-run -- all`
-        
-        
+        # --- report category: Insertion-level results ---
+        f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
+        f"projects/{project_name}/reports/ma_plot/ma_plot.pdf",
+        f"projects/{project_name}/reports/ma_plot/ma_plot_horizontal.pdf",
+        # DESeq2-replicates branch only (no p-values or dispersions without replicates):
+        *(
+            [
+                f"projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
+                f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis.pdf",
+            ]
+            if config.get("use_DEseq2_for_biological_replicates", False)
+            else []
+        ),
+        # Curve fitting & gene level require a time course; QC-only projects
+        # leave config["time_points"] unset and skip these.
+        *(
+            [
+                f"projects/{project_name}/results/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
+                f"projects/{project_name}/reports/insertion_level_curve_fitting/insertion_level_fitted_curves_sampled.pdf",
+                f"projects/{project_name}/reports/distribution_of_curve_fitting/distribution_of_curve_fitting.pdf",
+                f"projects/{project_name}/results/16_gene_level_depletion_analysis/insertion_weights.tsv",
+
+                # --- report category: Gene-level results ---
+                f"projects/{project_name}/results/16_gene_level_depletion_analysis/LFC.tsv",
+                f"projects/{project_name}/results/16_gene_level_depletion_analysis/datavzrd_gene_level_LFC",
+                f"projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
+                f"projects/{project_name}/results/17_gene_level_curve_fitting/datavzrd_gene_level_curve_fitting",
+                f"projects/{project_name}/reports/gene_level_curve_fitting/gene_level_fitted_curves_sampled.pdf",
+            ]
+            if config.get("time_points")
+            else []
+        ),
+
+
 # ---------------------------------------------------------------------------
 # Rule modules
 # ---------------------------------------------------------------------------
