@@ -1,8 +1,12 @@
-"""Sample metadata extraction from pipeline file naming conventions.
+"""
+Sample Metadata Extraction
+===========================
 
-Some pipeline outputs carry no sample/timepoint/condition columns, so the
-metadata survives only in the filename stem. Two conventions exist:
+Extract sample, timepoint, and condition metadata from pipeline file naming
+conventions. Some pipeline outputs carry no sample/timepoint/condition columns,
+so the metadata survives only in the filename stem.
 
+Two conventions exist:
 - ``{{sample}}_{{timepoint}}_{{condition}}.tsv`` — per-(sample, timepoint,
   condition) tables from ``merge_strand_insertions``;
 - ``{{sample}}_{{condition}}.*.tsv`` — per-(sample, condition) concatenations
@@ -12,6 +16,12 @@ This module is the single place that knows these conventions.
 
 If the upstream schema later gains explicit sample/timepoint/condition columns,
 callers should prefer those and this module becomes obsolete.
+
+This is a library module imported by pipeline scripts — no CLI or main().
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-09-02
+Version:  1.0.0
 """
 
 # =============================================================================

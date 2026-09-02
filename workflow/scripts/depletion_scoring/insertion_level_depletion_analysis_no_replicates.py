@@ -101,38 +101,6 @@ class InputOutputConfig:
 
 
 # =============================================================================
-# CORE LOGIC (FUNCTIONS / CLASSES)
-# =============================================================================
-@logger.catch
-def generate_MA_plots(M_values: pd.DataFrame, A_values: pd.DataFrame, output_path: Path):
-    """Generate MA plots for each timepoint and save as PDF."""
-    timepoints = M_values.columns.tolist()
-    n_rows = len(timepoints)
-
-    fig, ax = plt.subplots(n_rows, 1, figsize=(AX_WIDTH, AX_HEIGHT * n_rows), sharex=True, sharey=True)
-
-    for row, timepoint in enumerate(timepoints):
-        M_data = M_values[timepoint]
-        A_data = A_values[timepoint]
-
-        ax[row].scatter(
-            M_data,
-            A_data,
-            s=10,
-            facecolor="none",
-            edgecolor="black",
-            alpha=0.5,
-            rasterized=True,
-        )
-        ax[row].axvline(0, c="r", ls="--", lw=2, alpha=0.5)
-        ax[row].set_xlabel("M value")
-        ax[row].set_ylabel("A value")
-        ax[row].set_title(f"MA plot - {timepoint}")
-
-    fig.savefig(output_path)
-    plt.close()
-
-# =============================================================================
 # MAIN EXECUTION
 # =============================================================================
 def parse_args() -> argparse.Namespace:

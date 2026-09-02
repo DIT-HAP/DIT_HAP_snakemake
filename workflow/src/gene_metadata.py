@@ -1,4 +1,18 @@
-"""Gene ID resolution utilities for PomBase systematic IDs."""
+"""
+Gene ID Resolution
+==================
+
+Resolve gene identifiers to current PomBase systematic IDs. Looks up each gene
+in three mappings: current systematic IDs, gene names, and synonyms. Returns
+updated IDs where found, original identifiers where not, and np.nan for
+ambiguous matches.
+
+This is a library module imported by pipeline scripts — no CLI or main().
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-09-02
+Version:  1.0.0
+"""
 
 # =============================================================================
 # IMPORTS

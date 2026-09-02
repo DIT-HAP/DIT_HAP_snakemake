@@ -1,4 +1,18 @@
-"""Table I/O utilities for DIT-HAP insertion and annotation data."""
+"""
+Table I/O Utilities
+===================
+
+Read and write pandas DataFrames with automatic format detection based on file
+extensions. Supports TSV, CSV, BED, and Excel formats. Provides specialized
+readers for insertion tables with the standard 4-level index (Chr, Coordinate,
+Strand, Target).
+
+This is a library module imported by pipeline scripts — no CLI or main().
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-09-02
+Version:  1.0.0
+"""
 
 # =============================================================================
 # IMPORTS
