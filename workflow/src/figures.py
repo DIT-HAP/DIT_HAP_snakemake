@@ -133,28 +133,91 @@ FURNITURE_COLOR = cns.GRAY
 # equal density steps must read as equal colour steps.
 DENSITY_CMAP = "viridis"
 
+# cnsplots' style sets xtick.minor.size == xtick.major.size, so reading
+# minor.size back gives ticks indistinguishable from major ones. Derive the
+# minor length from major instead, at matplotlib's own default 2.0/3.5 ratio.
+_MINOR_TICK_LENGTH_RATIO = 0.57
+
 
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
+def _style_minor_ticks(ax: Axes) -> None:
+    """Shorten minor ticks relative to major ones so the two read as distinct."""
+    ax.tick_params(
+        which="minor",
+        length=plt.rcParams["xtick.major.size"] * _MINOR_TICK_LENGTH_RATIO,
+        width=plt.rcParams["xtick.minor.width"],
+    )
+
+
 def apply_log_scale(ax: Axes, *, x: bool = True, y: bool = True) -> None:
-    """Put the requested axes on log scale with exponential major ticks only.
+    """Put the requested axes on log scale with automatic minor ticks.
 
     The single place log axes are configured, so every renderer gets the same
     treatment rather than each calling bare ``set_xscale('log')``.
+
+    Minor ticks are styled to be shorter than major ticks. If both x and y are
+    scaled and matplotlib's automatic minor tick placement is inconsistent
+    (one axis gets minors, the other doesn't), both are disabled for uniformity.
     """
+    axes_to_scale = []
     if x:
         ax.set_xscale("log")
+        axes_to_scale.append(ax.xaxis)
     if y:
         ax.set_yscale("log")
+        axes_to_scale.append(ax.yaxis)
+
+    if not axes_to_scale:
+        return
+
+    _style_minor_ticks(ax)
+
+    # If both axes are log-scaled, check for consistency
+    if len(axes_to_scale) == 2:
+        # Force a draw to populate the minor locators
+        ax.figure.canvas.draw()
+
+        x_minors = len(ax.xaxis.get_minor_locator()())
+        y_minors = len(ax.yaxis.get_minor_locator()())
+
+        # If inconsistent (one has minors, the other doesn't), disable both
+        if (x_minors > 0) != (y_minors > 0):
+            ax.xaxis.set_minor_locator(plt.NullLocator())
+            ax.yaxis.set_minor_locator(plt.NullLocator())
 
 
 def apply_symlog_scale(ax: Axes, *, x: bool = True, y: bool = True) -> None:
-    """Put the requested axes on symlog scale for data spanning zero."""
+    """Put the requested axes on symlog scale for data spanning zero.
+
+    Minor ticks are styled to be shorter than major ticks. If both x and y are
+    scaled and matplotlib's automatic minor tick placement is inconsistent,
+    both are disabled for uniformity.
+    """
+    axes_to_scale = []
     if x:
         ax.set_xscale("symlog")
+        axes_to_scale.append(ax.xaxis)
     if y:
         ax.set_yscale("symlog")
+        axes_to_scale.append(ax.yaxis)
+
+    if not axes_to_scale:
+        return
+
+    _style_minor_ticks(ax)
+
+    # If both axes are symlog-scaled, check for consistency
+    if len(axes_to_scale) == 2:
+        ax.figure.canvas.draw()
+
+        x_minors = len(ax.xaxis.get_minor_locator()())
+        y_minors = len(ax.yaxis.get_minor_locator()())
+
+        if (x_minors > 0) != (y_minors > 0):
+            ax.xaxis.set_minor_locator(plt.NullLocator())
+            ax.yaxis.set_minor_locator(plt.NullLocator())
 
 
 def apply_house_style() -> None:
