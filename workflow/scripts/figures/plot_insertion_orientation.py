@@ -17,6 +17,21 @@ non-positive count are dropped — the same pairing semantics the former
 was retired. Rendering is delegated to the shared grouped-regression renderer:
 one panel per sample x timepoint with an identity guide line and n/r/P stats.
 
+Input
+-----
+- One or more filtered insertion TSV files (``-i/--input``): strand-indexed
+  tables with 4-level row index and 2-level column header (Sample, Timepoint).
+
+Output
+------
+- ``<output>.pdf`` — journal-quality vector figure with regression grid.
+- ``<output>.review.png`` — screen-review raster copy.
+
+Usage
+-----
+    python plot_insertion_orientation.py -i filtered/*.tsv -o figures/insertion_orientation
+    python plot_insertion_orientation.py -i filtered/*.tsv -o figures/insertion_orientation --verbose
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-28
 Version:  2.0.0

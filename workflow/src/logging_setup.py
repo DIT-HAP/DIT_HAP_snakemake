@@ -1,4 +1,17 @@
-"""Logging configuration for DIT-HAP scripts."""
+"""
+Logging Configuration
+=====================
+
+Shared logging setup for all DIT-HAP scripts. Configures loguru with a
+consistent format and log level. All scripts import and call ``setup_logger()``
+at the start of ``main()``.
+
+This is a library module imported by all pipeline scripts — no CLI or main().
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-09-02
+Version:  1.0.0
+"""
 
 # =============================================================================
 # IMPORTS

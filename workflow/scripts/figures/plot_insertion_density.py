@@ -12,6 +12,23 @@ density depletion vs. initial coverage, initial-vs-final read depth,
 initial-vs-final depth inequality), colored by PomBase gene viability
 (FYPOviability) when available.
 
+Input
+-----
+- Density statistics TSV (``-i/--input``): gene-level insertion density metrics
+  with columns for initial/final timepoints.
+- Initial timepoint label (``-it/--initial-timepoint``).
+- Final timepoint label (``-ft/--final-timepoint``).
+
+Output
+------
+- ``<output>.pdf`` — journal-quality vector figure with 4 scatter panels.
+- ``<output>.review.png`` — screen-review raster copy.
+
+Usage
+-----
+    python plot_insertion_density.py -i density_stats.tsv -it T0 -ft T14 -o figures/insertion_density
+    python plot_insertion_density.py -i density_stats.tsv -it T0 -ft T14 -o figures/insertion_density --verbose
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-14
 Version:  1.0.0

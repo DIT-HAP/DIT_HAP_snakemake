@@ -19,6 +19,21 @@ Points are coloured by 2D kernel density: each panel carries ~10^5 insertions,
 where a flat colour collapses the diagonal ridge into a solid block. Density is
 estimated on the log10 columns, so it matches the axes the panel displays.
 
+Input
+-----
+- One or more merged insertion TSV files (``-i/--input``): strand-merged tables
+  with PBL and PBR columns from ``merge_strand_insertions``.
+
+Output
+------
+- ``<output>.pdf`` — journal-quality vector figure with regression grid.
+- ``<output>.review.png`` — screen-review raster copy.
+
+Usage
+-----
+    python plot_pbl_pbr_correlation.py -i merged/*.tsv -o figures/pbl_pbr_correlation
+    python plot_pbl_pbr_correlation.py -i merged/*.tsv -o figures/pbl_pbr_correlation --verbose
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-27
 Version:  2.0.0

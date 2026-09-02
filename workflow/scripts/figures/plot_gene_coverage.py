@@ -14,6 +14,25 @@ surviving insertion are counted as covered; the covered/total tally is
 assembled per viability category in display order and rendered by the shared
 composition renderer as a grouped bar chart followed by one donut per category.
 
+Input
+-----
+- LFC TSV (``-l/--lfc``): insertion-level log fold change table with 4-level
+  index (Chr, Coordinate, Strand, Target).
+- Annotation TSV (``-a/--annotation``): per-insertion genomic annotations
+  with Systematic ID column.
+- Viability TSV (``-v/--viability``): PomBase gene viability categories,
+  two-column headerless format (gene_id, viability).
+
+Output
+------
+- ``<output>.pdf`` — journal-quality vector figure.
+- ``<output>.review.png`` — screen-review raster copy.
+
+Usage
+-----
+    python plot_gene_coverage.py -l LFC.tsv -a annotations.tsv -v viability.tsv -o figures/gene_coverage
+    python plot_gene_coverage.py -l LFC.tsv -a annotations.tsv -v viability.tsv -o figures/gene_coverage --verbose
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-28
 Version:  2.0.0

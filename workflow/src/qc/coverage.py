@@ -1,6 +1,19 @@
-"""Gene coverage analysis by viability: stats computation and table serialization.
+"""
+Gene Coverage Analysis
+======================
+
+Gene coverage statistics computation and table serialization. Tallies covered
+vs total genes per viability category from insertion-level LFC tables, genomic
+annotations, and PomBase gene-viability lists.
 
 Extracted from ``workflow/scripts/quality_control/gene_coverage_analysis.py``.
+Used by the single-stage ``plot_gene_coverage.py`` rendering script.
+
+This is a library module imported by QC scripts — no CLI or main().
+
+Author:   Yusheng Yang (guidance) + Claude (implementation)
+Date:     2026-09-02
+Version:  1.0.0
 """
 
 # =============================================================================

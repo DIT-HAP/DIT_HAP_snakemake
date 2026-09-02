@@ -8,6 +8,21 @@ Distribution of Curve Fitting Results Figure Renderer
 Render histograms of curve fitting metrics (A, DR, DL, t50, R², RMSE, etc.)
 from pre-computed fitting statistics TSV. One panel per metric in a grid layout.
 
+Input
+-----
+- Fitting statistics TSV (``-i/--input``): curve fitting results with columns
+  for model parameters and goodness-of-fit metrics.
+
+Output
+------
+- ``<output>.pdf`` — journal-quality vector figure with histogram grid.
+- ``<output>.review.png`` — screen-review raster copy.
+
+Usage
+-----
+    python plot_distribution_of_curve_fitting.py -i fitting_stats.tsv -o figures/fitting_distribution
+    python plot_distribution_of_curve_fitting.py -i fitting_stats.tsv -o figures/fitting_distribution --bins 50 --verbose
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-14
 Version:  1.0.0

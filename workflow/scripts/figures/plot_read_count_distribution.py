@@ -18,6 +18,25 @@ bars are laid out evenly in log10 space exactly like the previous pre-binned
 figure, while ticks show real read counts and the cutoff marker sits at the raw
 cutoff value.
 
+Input
+-----
+- One or more read count TSV files (``-i/--input``): per-(sample, condition)
+  tables with numeric timepoint columns.
+- Hard filtering cutoff (``-c/--cutoff``): minimum read count threshold.
+- Initial timepoint label (``-it/--initial-timepoint``): column to compute
+  retention statistics from.
+
+Output
+------
+- ``<output>.pdf`` — journal-quality vector figure with histogram grid and
+  retention footer.
+- ``<output>.review.png`` — screen-review raster copy.
+
+Usage
+-----
+    python plot_read_count_distribution.py -i counts/*.tsv -c 10 -it T0 -o figures/read_count_distribution
+    python plot_read_count_distribution.py -i counts/*.tsv -c 10 -it T0 -o figures/read_count_distribution --verbose
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-08-27
 Version:  2.0.0

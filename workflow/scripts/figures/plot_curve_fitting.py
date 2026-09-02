@@ -13,6 +13,25 @@ points + fitted sigmoid overlay in a grid layout.
 For insertion-level data, panel titles include both insertion position and
 the gene/interval context.
 
+Input
+-----
+- Fitting statistics TSV (``-s/--stats``): curve fitting results with Status,
+  model parameters (A, DR, DL), and goodness-of-fit metrics (R2, RMSE).
+- LFC TSV (``-l/--lfc``): log fold change values, same index as stats file,
+  one column per timepoint.
+- Optional annotation TSV (``-a/--annotation``): for insertion data, maps
+  insertions to gene/interval context.
+
+Output
+------
+- ``<output>.pdf`` — journal-quality vector figure (scatter rasterized).
+- ``<output>.review.png`` — screen-review raster copy.
+
+Usage
+-----
+    python plot_curve_fitting.py -s fitting_stats.tsv -l LFC.tsv -o figures/curves
+    python plot_curve_fitting.py -s fitting_stats.tsv -l LFC.tsv -o figures/curves -a annotations.tsv --verbose
+
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-09-02
 Version:  2.0.0
