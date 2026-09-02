@@ -101,8 +101,8 @@ class _GridSpecification:
 # 2x6 log grid, this is the smallest pair with no overlap against either the
 # tick labels or the axes title. Increased pad_top from 6 to 10 to prevent
 # overlap with longer panel titles.
-PANEL_LABEL_PAD_LEFT_PX = 18
-PANEL_LABEL_PAD_TOP_PX = 10
+PANEL_LABEL_PAD_LEFT_PX = 25
+PANEL_LABEL_PAD_TOP_PX = 25
 
 # Uppercase A-Z, then A1, A2, ... A bare chr(65 + i) emits '[', '\\', ']' past Z.
 _ALPHABET_SIZE = 26
