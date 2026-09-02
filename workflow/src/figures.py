@@ -34,7 +34,6 @@ import cnsplots as cns
 import matplotlib.pyplot as plt
 from loguru import logger
 from matplotlib.axes import Axes
-from matplotlib.ticker import LogLocator, SymmetricalLogLocator
 
 
 # =============================================================================
@@ -134,75 +133,28 @@ FURNITURE_COLOR = cns.GRAY
 # equal density steps must read as equal colour steps.
 DENSITY_CMAP = "viridis"
 
-# cnsplots' style sets xtick.minor.size == xtick.major.size, so reading
-# minor.size back gives ticks indistinguishable from major ones. Derive the
-# minor length from major instead, at matplotlib's own default 2.0/3.5 ratio.
-_MINOR_TICK_LENGTH_RATIO = 0.57
-
-# LogLocator's default numticks='auto' sizes the tick budget from the axes'
-# physical extent and returns *no* ticks at all once a small panel spans more
-# than ~4 decades -- the usual range of this project's count axes. An explicit
-# budget opts out of that heuristic; the locator still only emits ticks inside
-# the view limits, so an oversized value costs nothing.
-_LOG_MINOR_NUMTICKS = 999
-
-# Decade subdivisions 2..9; 1 and 10 are already the majors.
-_LOG_MINOR_SUBS = tuple(range(2, 10))
-
 
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-def style_minor_ticks(ax: Axes) -> None:
-    """Shorten minor ticks relative to major ones so the two read as distinct."""
-    ax.tick_params(
-        which="minor",
-        length=plt.rcParams["xtick.major.size"] * _MINOR_TICK_LENGTH_RATIO,
-        width=plt.rcParams["xtick.minor.width"],
-    )
-
-
 def apply_log_scale(ax: Axes, *, x: bool = True, y: bool = True) -> None:
-    """Put the requested axes on log scale with exponential majors and visible minor ticks.
+    """Put the requested axes on log scale with exponential major ticks only.
 
     The single place log axes are configured, so every renderer gets the same
-    minor-tick treatment rather than each calling bare ``set_xscale('log')``.
+    treatment rather than each calling bare ``set_xscale('log')``.
     """
-    axes_to_scale = []
     if x:
         ax.set_xscale("log")
-        axes_to_scale.append(ax.xaxis)
     if y:
         ax.set_yscale("log")
-        axes_to_scale.append(ax.yaxis)
-
-    for axis in axes_to_scale:
-        axis.set_minor_locator(
-            LogLocator(base=10, subs=list(_LOG_MINOR_SUBS), numticks=_LOG_MINOR_NUMTICKS)
-        )
-
-    if axes_to_scale:
-        style_minor_ticks(ax)
 
 
 def apply_symlog_scale(ax: Axes, *, x: bool = True, y: bool = True) -> None:
-    """Put the requested axes on symlog scale with visible minor ticks, for data spanning zero."""
-    axes_to_scale = []
+    """Put the requested axes on symlog scale for data spanning zero."""
     if x:
         ax.set_xscale("symlog")
-        axes_to_scale.append(ax.xaxis)
     if y:
         ax.set_yscale("symlog")
-        axes_to_scale.append(ax.yaxis)
-
-    for axis in axes_to_scale:
-        linthresh = getattr(axis.get_transform(), "linthresh", 1)
-        axis.set_minor_locator(
-            SymmetricalLogLocator(base=10, linthresh=linthresh, subs=list(_LOG_MINOR_SUBS))
-        )
-
-    if axes_to_scale:
-        style_minor_ticks(ax)
 
 
 def apply_house_style() -> None:

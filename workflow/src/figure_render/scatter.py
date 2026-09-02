@@ -26,13 +26,13 @@ from typing import Any, Literal
 
 import cnsplots as cns
 import matplotlib.pyplot as plt
-import num2tex
 import numpy as np
 import pandas as pd
 from loguru import logger
 from matplotlib.axes import Axes
 from matplotlib.collections import PathCollection
 from matplotlib.colors import Normalize
+from scipy import special
 from scipy.stats import pearsonr
 
 from figures import (
@@ -138,6 +138,43 @@ def _has_hue(df: pd.DataFrame, hue: str | None) -> bool:
     return hue is not None and hue in df.columns
 
 
+def _pearson_log10_p(r: float, n: int) -> float:
+    """Two-sided Pearson p-value in log10 space, immune to double underflow.
+
+    ``scipy.stats.pearsonr`` computes this same regularized incomplete beta
+    (verified identical to machine precision above ~1e-300) but returns the
+    linear-space value, which flushes to exactly 0.0 once the true p drops
+    below the double-precision floor (~1e-308) -- a strong correlation over a
+    few thousand points already gets there. Evaluating the incomplete beta's
+    leading asymptotic term in log space keeps the true magnitude instead of
+    reporting 0.
+    """
+    df = n - 2
+    x = 1.0 - min(abs(r), 1.0) ** 2
+    if x <= 0.0:
+        return -np.inf
+
+    a, b = df / 2.0, 0.5
+    p = special.betainc(a, b, x)
+    if p > 0:
+        return float(np.log10(p))
+
+    log_p_nats = a * np.log(x) + b * np.log1p(-x) - np.log(a) - special.betaln(a, b)
+    return float(log_p_nats / np.log(10))
+
+
+def _format_log10_p(log10_p: float) -> str:
+    """Render a log10 p-value as mantissa-times-ten-power, matching the old ``:.2e`` look."""
+    exponent = int(np.floor(log10_p))
+    mantissa = 10 ** (log10_p - exponent)
+    # log10 of a value just under a power of ten can round the mantissa up to
+    # 10.00; roll that into the next exponent so it still reads as one digit.
+    if mantissa >= 10.0:
+        mantissa /= 10.0
+        exponent += 1
+    return rf"{mantissa:.2f}\times 10^{{{exponent}}}"
+
+
 def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
     """Annotate n, r, and P at regplot's own text position/style, so toggling show_stats doesn't reflow the panel."""
     valid = df[[x, y]].replace([np.inf, -np.inf], np.nan).dropna()
@@ -145,11 +182,13 @@ def _annotate_fit_stats(ax: Axes, df: pd.DataFrame, *, x: str, y: str) -> None:
         logger.warning(f"Not enough finite pairs ({len(valid)}) to compute r/P for {x!r} vs {y!r}")
         return
 
-    r, p_value = pearsonr(valid[x], valid[y])
+    r, _ = pearsonr(valid[x], valid[y])
+    log10_p = _pearson_log10_p(r, len(valid))
+    p_str = "0" if np.isneginf(log10_p) else _format_log10_p(log10_p)
     ax.text(
         0.05,
         0.95,
-        rf"$n={len(valid)}$" "\n" rf"$r={r:.2f}$" "\n" rf"$P={p_value:.2e}$",
+        rf"$n={len(valid)}$" "\n" rf"$r={r:.2f}$" "\n" rf"$P={p_str}$",
         transform=ax.transAxes,
         ha="left",
         va="top",
