@@ -77,7 +77,21 @@ Rule modules (`workflow/rules/`), included by `Snakefile` in this order:
 - `use_DEseq2_for_biological_replicates` — DESeq2 (has replicates) vs. a no-replicate log-fold-change path for insertion-level depletion.
 - `time_points` (list of numeric hours/generations, one per timepoint column) — required for curve fitting and everything downstream of it (steps 15-17, including gene-level depletion, since its weights transitively depend on curve fitting in the no-replicate branch). Projects without it stop at insertion-level depletion (step 14) and QC; `packaging.smk` is branch-aware and skips the gene-level release targets accordingly.
 
-Analysis scripts live in `workflow/scripts/{reference_data,read_processing,depletion_scoring,quality_control}/` and follow the `python-script-conventions` standard (Modern Python 3.12+: 7-section layout, frozen dataclasses, loguru, native generics).
+Analysis scripts live in `workflow/scripts/{reference_data,read_processing,depletion_scoring,quality_control}/` and follow the `python-script-conventions` standard (Modern Python 3.12+: 7-section layout, frozen dataclasses, loguru, pathlib, type hints). All 70 Python files in the workflow have been systematically refactored (2026-09-02) to ensure 100% compliance with the coding standard: unified section markers, comprehensive module docstrings, consistent import ordering, and zero style violations.
+
+Figure rendering scripts (migrated from inline plotting code, 2026-09-02) live in `workflow/scripts/figures/` and use the shared `workflow/src/figure_render/` module powered by cnsplots. Computation and visualization are now fully decoupled: `depletion_scoring/curve_fitting.py` performs fitting only; `figures/plot_curve_fitting.py` renders curves from its output, auto-detecting data type (gene vs. insertion) and optionally enriching insertion titles with gene context via `-a/--annotation`.
+
+### Code Quality Standards
+
+All Python code in this project follows strict conventions:
+- **Section layout**: IMPORTS → CONSTANTS → CONFIG → LOGGING → CORE LOGIC → MAIN
+- **Type safety**: 100% of functions have type hints (parameters and return values)
+- **Logging**: Consistent use of `loguru` logger (no `print()` statements)
+- **Path handling**: All file operations use `pathlib.Path`
+- **Configuration**: Immutable `@dataclass(kw_only=True, slots=True, frozen=True)` configs
+- **Entry points**: All scripts use `if __name__ == "__main__": sys.exit(main())` pattern
+
+See `/data/a/yangyusheng/.claude/skills/python-script-conventions/` for the complete coding standard.
 
 ## Output structure
 
@@ -91,10 +105,12 @@ projects/{project_name}/
 │   ├── 15_insertion_level_curve_fitting/       # requires time_points
 │   ├── 16_gene_level_depletion_analysis/       # requires time_points
 │   └── 17_gene_level_curve_fitting/            # requires time_points
-├── reports/
+├── reports/                                # one subfolder per report artifact
 │   ├── multiqc/  fastqc/  samtools_mapping_statistics/  picard_insert_size/
 │   ├── mapping_filtering_statistics/  read_count_distribution_analysis/
 │   ├── insertion_orientation_analysis/  insertion_density_analysis/  gene_coverage_analysis/
+│   ├── ma_plot/  dispersion_analysis/                                  # insertion-level figures + their figure data
+│   ├── insertion_level_curve_fitting/  distribution_of_curve_fitting/  # requires time_points
 │   └── snakemake_report/report.zip         # ← self-contained Snakemake report (see below)
 ├── release/                                # ← downstream interface (see Packaging & release)
 │   ├── insertion_level/
