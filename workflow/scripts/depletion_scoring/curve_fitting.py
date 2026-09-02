@@ -58,7 +58,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-import matplotlib.pyplot as plt
 
 # Force BLAS/OpenMP threads to 1 BEFORE numpy is imported. Curve fitting is
 # parallelised across datasets with joblib (process pool), so per-worker BLAS
@@ -98,11 +97,6 @@ from depletion.curve_fitting import (  # noqa: E402
 from depletion.curve_model import sigmoid_function  # noqa: E402
 
 # =============================================================================
-# GLOBAL CONSTANTS & ENUMS
-# =============================================================================
-# Configure matplotlib for publication quality
-
-# =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -127,94 +121,6 @@ class CurveFittingConfig:
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
-# =============================================================================
-# CORE LOGIC (FUNCTIONS / CLASSES)
-# =============================================================================
-@logger.catch
-def create_fitted_plot(ax: plt.Axes, x_values: np.ndarray, y_values: np.ndarray,
-                      params: dict[str, str | float], ID: str) -> None:
-    """Create a publication-quality plot for fitted curve."""
-    ax.grid(True)
-
-    if params['Status'] == 'Success':
-        A, DR, DL, _, _, _, _, _, _, _, AIC, BIC = params['A'], params['DR'], params['DL'], params['t10'], params['t50'], params['t90'], params['t_window'], params['t_inflection'], params['y_inflection'], params['auc'], params['AIC'], params['BIC'],
-
-        # Plot data points
-        ax.scatter(x_values, y_values,
-                  color=COLORS[1], alpha=0.8,
-                  edgecolors='white',
-                  label='Data')
-
-        # Plot fitted curve
-        x_smooth = np.linspace(min(x_values), max(x_values), 100)
-        y_fit = sigmoid_function(x_smooth, A, DR, DL)
-        ax.plot(x_smooth, y_fit,
-               color=COLORS[2], label='Fitted')
-
-        # Add constraint lines
-        ax.axhline(y=A, color=COLORS[0],
-                  linestyle='--', alpha=0.3)
-        ax.axvline(x=DL, color=COLORS[0],
-                  linestyle='--', alpha=0.3)
-
-        # Add parameter text
-        param_text = f'A={A:.2f}    R²={params["R2"]:.3f}\nDR={DR:.2f}  RMSE={params["RMSE"]:.3f}\nDL={DL:.2f}    NRMSE={params["normalized_RMSE"]:.3f}\nAIC={AIC:.2f}    BIC={BIC:.2f}'
-        ax.text(0.05, 0.95, param_text,
-               transform=ax.transAxes,
-               verticalalignment='top')
-    else:
-        # Plot failed fit
-        ax.scatter(x_values, y_values,
-                  color='gray', alpha=0.6)
-        ax.text(0.5, 0.5, 'Fit Failed',
-               transform=ax.transAxes,
-               horizontalalignment='center', color='red')
-
-    # ax.set_ylim(-1.5, 8.5)
-    ax.set_ylim(-8.5, 1.5)
-    ax.set_title(" ".join(ID.split("=")))
-
-
-@logger.catch
-def generate_fitting_plots(results_df: pd.DataFrame, x_values: np.ndarray,
-                          y_values: np.ndarray, output_plot: Path) -> None:
-    """Generate multi-page PDF with fitting plots."""
-    plots_per_page = 32
-    num_pages = int(np.ceil(len(results_df) / plots_per_page))
-
-    logger.info(f"Generating {num_pages} pages of plots...")
-
-    with PdfPages(output_plot) as pdf:
-        for page in range(num_pages):
-            fig, axes = plt.subplots(8, 4, figsize=(AX_WIDTH*4, AX_HEIGHT*8))
-            axes = axes.flatten()
-
-            if page % 10 == 0:
-                logger.info(f"Generating page {page+1} of {num_pages}...")
-
-            start_idx = page * plots_per_page
-            end_idx = min((page + 1) * plots_per_page, len(results_df))
-
-            for idx in range(start_idx, end_idx):
-                ax_idx = idx % plots_per_page
-                row = results_df.iloc[idx]
-                ID = " ".join(map(str, row.name))
-
-                create_fitted_plot(
-                    axes[ax_idx],
-                    x_values,
-                    y_values[idx],
-                    row.to_dict(),
-                    ID
-                )
-
-            # Hide unused subplots
-            for ax_idx in range(end_idx - start_idx, plots_per_page):
-                axes[ax_idx].set_visible(False)
-
-            pdf.savefig(fig)
-            plt.close(fig)
-
 # =============================================================================
 # MAIN EXECUTION
 # =============================================================================

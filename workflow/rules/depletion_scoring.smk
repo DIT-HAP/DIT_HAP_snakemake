@@ -162,39 +162,6 @@ rule insertion_level_curve_fitting:
         """
 
 
-# Plot insertion-level curve fitting
-# -----------------------------------------------------
-rule plot_insertion_level_curve_fitting:
-    input:
-        stats=rules.insertion_level_curve_fitting.output.stats,
-        lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-    output:
-        report(
-            "projects/{project_name}/reports/insertion_level_curve_fitting/insertion_level_fitted_curves.pdf",
-            category="2. Insertion-level results",
-            labels={
-                "name": "Insertion-level Fitted Curves",
-                "type": "Figure",
-                "format": "PDF",
-            },
-        ),
-    log:
-        "projects/{project_name}/logs/figures/plot_insertion_level_curve_fitting.log",
-    params:
-        stem=lambda wildcards, output: Path(output[0]).with_suffix(''),
-    conda:
-        "../envs/cnsplots.yml"
-    message:
-        "*** Plotting insertion-level fitted curves..."
-    shell:
-        """
-        python workflow/scripts/figures/plot_curve_fitting.py \
-            -s {input.stats} \
-            -l {input.lfc} \
-            -o {params.stem} &> {log}
-        """
-
-
 # Insertion-level aggregation weights
 # -----------------------------------------------------
 # The branch decision lives here, not in gene_level_depletion_analysis: with

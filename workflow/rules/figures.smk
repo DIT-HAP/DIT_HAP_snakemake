@@ -241,3 +241,74 @@ rule plot_gene_coverage:
             -v {input.gene_viability} \
             -o {params.stem} &> {log}
         """
+
+# Curve fitting plots (require time_points config)
+if config.get("time_points"):
+
+    rule plot_insertion_level_curve_fitting:
+        input:
+            stats=f"projects/{project_name}/results/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
+            lfc=f"projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
+            annotation=rules.concat_counts_and_annotations.output.annotations,
+        output:
+            journal=report(
+                f"projects/{project_name}/reports/insertion_level_curve_fitting/insertion_level_fitted_curves_sampled.pdf",
+                caption="../reports/captions/insertion_level_curve_fitting.rst",
+                category="2. Insertion-level results",
+                labels={
+                    "name": "Insertion-level Fitted Curves (sampled)",
+                    "type": "Curve Fitting",
+                    "format": "PDF",
+                },
+            ),
+            review=f"projects/{project_name}/reports/insertion_level_curve_fitting/insertion_level_fitted_curves_sampled.review.png",
+        log:
+            f"projects/{project_name}/logs/figures/plot_insertion_level_curve_fitting.log",
+        params:
+            stem=f"projects/{project_name}/reports/insertion_level_curve_fitting/insertion_level_fitted_curves_sampled",
+        conda:
+            "../envs/cnsplots.yml"
+        message:
+            "*** Rendering insertion-level curve fitting figure..."
+        shell:
+            """
+            python workflow/scripts/figures/plot_curve_fitting.py \
+                -s {input.stats} \
+                -l {input.lfc} \
+                -a {input.annotation} \
+                -o {params.stem} \
+                -n 32 &> {log}
+            """
+
+    rule plot_gene_level_curve_fitting:
+        input:
+            stats=f"projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
+            lfc=f"projects/{project_name}/results/16_gene_level_depletion_analysis/LFC.tsv",
+        output:
+            journal=report(
+                f"projects/{project_name}/reports/gene_level_curve_fitting/gene_level_fitted_curves_sampled.pdf",
+                caption="../reports/captions/gene_level_curve_fitting.rst",
+                category="3. Gene-level results",
+                labels={
+                    "name": "Gene-level Fitted Curves (sampled)",
+                    "type": "Curve Fitting",
+                    "format": "PDF",
+                },
+            ),
+            review=f"projects/{project_name}/reports/gene_level_curve_fitting/gene_level_fitted_curves_sampled.review.png",
+        log:
+            f"projects/{project_name}/logs/figures/plot_gene_level_curve_fitting.log",
+        params:
+            stem=f"projects/{project_name}/reports/gene_level_curve_fitting/gene_level_fitted_curves_sampled",
+        conda:
+            "../envs/cnsplots.yml"
+        message:
+            "*** Rendering gene-level curve fitting figure..."
+        shell:
+            """
+            python workflow/scripts/figures/plot_curve_fitting.py \
+                -s {input.stats} \
+                -l {input.lfc} \
+                -o {params.stem} \
+                -n 32 &> {log}
+            """

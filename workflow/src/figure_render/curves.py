@@ -40,9 +40,9 @@ from ._schema import require_columns
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-# Preserved from the legacy renderer so panels stay comparable across projects.
-# Callers may override, or pass None to autoscale.
-DEFAULT_YLIM: tuple[float, float] = (-1.5, 8.5)
+# Updated y-axis range to accommodate LFC values from -10 to 3
+# (changed from the original -1.5 to 8.5 to support newer data format)
+DEFAULT_YLIM: tuple[float, float] = (-10.5, 3.5)
 
 # Points used to draw the fitted curve smoothly between the observed x values.
 FITTED_CURVE_RESOLUTION = 100
@@ -66,11 +66,16 @@ def render_fitted_curves_figure(
     ylim: tuple[float, float] | None = DEFAULT_YLIM,
     n_cols: int = 4,
     shape: PanelShape = PanelShape.WIDE,
+    title_column: str | None = None,
 ) -> None:
     """Render one panel per row: observed points plus the model curve from its parameters.
 
     Panels default to WIDE: x is a handful of timepoints and y is the fitted
     curve, so the extra width is what separates the observed points.
+
+    Args:
+        title_column: Optional column name to use for panel titles instead of the index.
+                     Useful for insertion data where titles include gene context.
     """
     logger.info("Rendering fitted curves figure...")
 
@@ -118,7 +123,11 @@ def render_fitted_curves_figure(
             text = "\n".join(f"{name}={row[name]:.3f}" for name in annotations)
             ax.text(0.05, 0.95, text, transform=ax.transAxes, verticalalignment="top")
 
-        title = row_index if isinstance(row_index, str) else " ".join(map(str, np.atleast_1d(row_index)))
+        # Use title_column if provided, otherwise format the index
+        if title_column and title_column in row:
+            title = str(row[title_column])
+        else:
+            title = row_index if isinstance(row_index, str) else " ".join(map(str, np.atleast_1d(row_index)))
         ax.set_title(title)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
