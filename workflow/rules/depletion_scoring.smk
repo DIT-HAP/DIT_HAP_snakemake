@@ -76,6 +76,7 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 },
             ),
             dispersion_data="projects/{project_name}/reports/dispersion_analysis/dispersion_data.tsv",
+            basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv"
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_has_replicates.log",
         params:
@@ -111,6 +112,7 @@ else:
                     "format": "TSV",
                 },
             ),
+            basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv"
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_no_replicates.log",
         params:
@@ -299,58 +301,3 @@ rule gene_level_curve_fitting:
             -j {threads} \
             -o {output} &> {log}
         """
-
-
-# Plot distribution of curve fitting results
-# -----------------------------------------------------
-rule plot_distribution_of_curve_fitting:
-    input:
-        rules.insertion_level_curve_fitting.output.stats,
-    output:
-        report(
-            "projects/{project_name}/reports/distribution_of_curve_fitting/distribution_of_curve_fitting.pdf",
-            category="2. Insertion-level results",
-            labels={
-                "name": "Distribution of Curve Fitting Results",
-                "type": "Figure",
-                "format": "PDF",
-            },
-        ),
-    log:
-        "projects/{project_name}/logs/figures/plot_distribution_of_curve_fitting.log",
-    params:
-        stem=lambda wildcards, output: Path(output[0]).with_suffix(''),
-    conda:
-        "../envs/cnsplots.yml"
-    message:
-        "*** Plotting distribution of curve fitting results..."
-    shell:
-        """
-        python workflow/scripts/figures/plot_distribution_of_curve_fitting.py \
-            -i {input} \
-            -o {params.stem} &> {log}
-        """
-
-# Datavzrd report for gene-level curve fitting statistics
-# -----------------------------------------------------
-rule datavzrd_gene_level_curve_fitting:
-    input:
-        config="workflow/reports/datavzrd/gene_level_curve_fitting.yaml",
-        table=rules.gene_level_curve_fitting.output[0],
-    params:
-        extra="",
-    output:
-        report(
-            directory("projects/{project_name}/results/17_gene_level_curve_fitting/datavzrd_gene_level_curve_fitting"),
-            htmlindex="index.html",
-            category="3. Gene-level results",
-            labels={
-                "name": "Gene-level Curve Fitting Statistics (Table)",
-                "type": "Datavzrd Report",
-                "format": "Datavzrd HTML",
-            },
-        ),
-    log:
-        "projects/{project_name}/logs/depletion_scoring/gene_level_curve_fitting_datavzrd.log",
-    wrapper:
-        f"{snakemake_wrapper_version}/utils/datavzrd"

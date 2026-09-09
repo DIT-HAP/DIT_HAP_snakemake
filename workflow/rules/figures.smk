@@ -1,76 +1,4 @@
-# Plot MA plot (unified for both replicate and no-replicate branches)
-# -----------------------------------------------------
-rule plot_ma_plot:
-    input:
-        basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv",
-        lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
-    output:
-        report(
-            "projects/{project_name}/reports/ma_plot/ma_plot.pdf",
-            category="2. Insertion-level results",
-            labels={
-                "name": "MA Plot",
-                "type": "Figure",
-                "format": "PDF",
-            },
-        ),
-        report(
-            "projects/{project_name}/reports/ma_plot/ma_plot_horizontal.pdf",
-            category="2. Insertion-level results",
-            labels={
-                "name": "MA Plot (horizontal)",
-                "type": "Figure",
-                "format": "PDF",
-            },
-        ),
-    log:
-        "projects/{project_name}/logs/figures/plot_ma_plot.log",
-    params:
-        stem=lambda wildcards, output: Path(output[0]).with_suffix(''),
-    conda:
-        "../envs/cnsplots.yml"
-    message:
-        "*** Plotting MA plot..."
-    shell:
-        """
-        python workflow/scripts/figures/plot_ma_plot.py \
-            -b {input.basemean} \
-            -l {input.lfc} \
-            -o {params.stem} &> {log}
-        """
 
-# Only the DESeq2 branch estimates dispersions, so only it produces the figure data.
-if config.get("use_DEseq2_for_biological_replicates", False):
-
-    rule plot_dispersions:
-        input:
-            f"projects/{project_name}/reports/dispersion_analysis/dispersion_data.tsv",
-        output:
-            journal=report(
-                f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis.pdf",
-                caption="../reports/captions/dispersion_analysis.rst",
-                category="2. Insertion-level results",
-                labels={
-                    "name": "DESeq2 Dispersion Estimates",
-                    "type": "Figure",
-                    "format": "PDF",
-                },
-            ),
-            review=f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis.review.png",
-        log:
-            f"projects/{project_name}/logs/figures/plot_dispersions.log",
-        params:
-            stem=f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis",
-        conda:
-            "../envs/cnsplots.yml"
-        message:
-            "*** Rendering DESeq2 dispersion figure..."
-        shell:
-            """
-            python workflow/scripts/figures/plot_dispersions.py \
-                -i {input} \
-                -o {params.stem} &> {log}
-            """
 
 rule plot_pbl_pbr_correlation:
     input:
@@ -242,6 +170,80 @@ rule plot_gene_coverage:
             -o {params.stem} &> {log}
         """
 
+# Plot MA plot (unified for both replicate and no-replicate branches)
+# -----------------------------------------------------
+rule plot_ma_plot:
+    input:
+        basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv",
+        lfc="projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
+    output:
+        report(
+            "projects/{project_name}/reports/ma_plot/ma_plot.pdf",
+            category="2. Insertion-level results",
+            labels={
+                "name": "MA Plot",
+                "type": "Figure",
+                "format": "PDF",
+            },
+        ),
+        report(
+            "projects/{project_name}/reports/ma_plot/ma_plot_horizontal.pdf",
+            category="2. Insertion-level results",
+            labels={
+                "name": "MA Plot (horizontal)",
+                "type": "Figure",
+                "format": "PDF",
+            },
+        ),
+    log:
+        "projects/{project_name}/logs/figures/plot_ma_plot.log",
+    params:
+        stem=lambda wildcards, output: Path(output[0]).with_suffix(''),
+    conda:
+        "../envs/cnsplots.yml"
+    message:
+        "*** Plotting MA plot..."
+    shell:
+        """
+        python workflow/scripts/figures/plot_ma_plot.py \
+            -b {input.basemean} \
+            -l {input.lfc} \
+            -o {params.stem} &> {log}
+        """
+
+# Only the DESeq2 branch estimates dispersions, so only it produces the figure data.
+if config.get("use_DEseq2_for_biological_replicates", False):
+
+    rule plot_dispersions:
+        input:
+            f"projects/{project_name}/reports/dispersion_analysis/dispersion_data.tsv",
+        output:
+            journal=report(
+                f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis.pdf",
+                caption="../reports/captions/dispersion_analysis.rst",
+                category="2. Insertion-level results",
+                labels={
+                    "name": "DESeq2 Dispersion Estimates",
+                    "type": "Figure",
+                    "format": "PDF",
+                },
+            ),
+            review=f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis.review.png",
+        log:
+            f"projects/{project_name}/logs/figures/plot_dispersions.log",
+        params:
+            stem=f"projects/{project_name}/reports/dispersion_analysis/dispersion_analysis",
+        conda:
+            "../envs/cnsplots.yml"
+        message:
+            "*** Rendering DESeq2 dispersion figure..."
+        shell:
+            """
+            python workflow/scripts/figures/plot_dispersions.py \
+                -i {input} \
+                -o {params.stem} &> {log}
+            """
+
 # Curve fitting plots (require time_points config)
 if config.get("time_points"):
 
@@ -311,4 +313,33 @@ if config.get("time_points"):
                 -l {input.lfc} \
                 -o {params.stem} \
                 -n 32 &> {log}
+            """
+    # Plot distribution of curve fitting results
+    # -----------------------------------------------------
+    rule plot_distribution_of_curve_fitting:
+        input:
+            rules.insertion_level_curve_fitting.output.stats,
+        output:
+            report(
+                "projects/{project_name}/reports/distribution_of_curve_fitting/distribution_of_curve_fitting.pdf",
+                category="2. Insertion-level results",
+                labels={
+                    "name": "Distribution of Curve Fitting Results",
+                    "type": "Figure",
+                    "format": "PDF",
+                },
+            ),
+        log:
+            "projects/{project_name}/logs/figures/plot_distribution_of_curve_fitting.log",
+        params:
+            stem=lambda wildcards, output: Path(output[0]).with_suffix(''),
+        conda:
+            "../envs/cnsplots.yml"
+        message:
+            "*** Plotting distribution of curve fitting results..."
+        shell:
+            """
+            python workflow/scripts/figures/plot_distribution_of_curve_fitting.py \
+                -i {input} \
+                -o {params.stem} &> {log}
             """

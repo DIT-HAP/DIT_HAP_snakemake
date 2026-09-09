@@ -45,3 +45,27 @@ rule datavzrd_insertion_density_analysis:
         f"projects/{project_name}/logs/quality_control/insertion_density_analysis_datavzrd.log",
     wrapper:
         f"{snakemake_wrapper_version}/utils/datavzrd"
+
+# Datavzrd report for gene-level curve fitting statistics
+# -----------------------------------------------------
+rule datavzrd_gene_level_curve_fitting:
+    input:
+        config="workflow/reports/datavzrd/gene_level_curve_fitting.yaml",
+        table=rules.gene_level_curve_fitting.output[0],
+    params:
+        extra="",
+    output:
+        report(
+            directory("projects/{project_name}/results/17_gene_level_curve_fitting/datavzrd_gene_level_curve_fitting"),
+            htmlindex="index.html",
+            category="3. Gene-level results",
+            labels={
+                "name": "Gene-level Curve Fitting Statistics (Table)",
+                "type": "Datavzrd Report",
+                "format": "Datavzrd HTML",
+            },
+        ),
+    log:
+        "projects/{project_name}/logs/depletion_scoring/gene_level_curve_fitting_datavzrd.log",
+    wrapper:
+        f"{snakemake_wrapper_version}/utils/datavzrd"
