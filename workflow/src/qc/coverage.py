@@ -41,6 +41,9 @@ class ViabilityCol(StrEnum):
     VIABILITY = "viability"
 
 
+CODING_GENE_TYPE = "protein coding gene"
+
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
@@ -82,8 +85,16 @@ def load_covered_genes(lfc_file: Path, annotation_file: Path) -> set[str]:
 
 
 @logger.catch
-def load_gene_viability(viability_file: Path) -> pd.DataFrame:
-    """Load the headerless gene-viability TSV into a labelled DataFrame."""
+def load_gene_viability(viability_file: Path, gene_metadata_file: Path) -> pd.DataFrame:
+    """Load the gene-viability TSV, restricted to protein-coding genes.
+
+    PomBase's ``gene_viability.tsv`` lists every gene type (protein-coding,
+    lncRNA, tRNA, rRNA, snoRNA, pseudogene, ...), almost all non-coding
+    entries carrying "unknown" viability. The per-insertion annotation this
+    is joined against only ever resolves to coding-gene systematic IDs, so
+    including non-coding genes here would inflate ``total`` with genes that
+    could never be "covered".
+    """
     viability = pd.read_csv(
         viability_file,
         sep="\t",
@@ -91,7 +102,12 @@ def load_gene_viability(viability_file: Path) -> pd.DataFrame:
         names=[ViabilityCol.GENE_ID, ViabilityCol.VIABILITY],
     )
     viability[ViabilityCol.GENE_ID] = viability[ViabilityCol.GENE_ID].astype(str)
-    logger.info(f"Loaded viability for {len(viability):,} genes")
+
+    gene_metadata = pd.read_csv(gene_metadata_file, sep="\t", usecols=["gene_systematic_id", "gene_type"])
+    coding_gene_ids = set(gene_metadata.loc[gene_metadata["gene_type"] == CODING_GENE_TYPE, "gene_systematic_id"])
+
+    viability = viability[viability[ViabilityCol.GENE_ID].isin(coding_gene_ids)]
+    logger.info(f"Loaded viability for {len(viability):,} protein-coding genes")
 
     return viability
 

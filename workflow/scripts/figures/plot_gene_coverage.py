@@ -22,6 +22,11 @@ Input
   with Systematic ID column.
 - Viability TSV (``-v/--viability``): PomBase gene viability categories,
   two-column headerless format (gene_id, viability).
+- Gene metadata TSV (``-g/--gene-metadata``): PomBase
+  ``gene_IDs_names_products.tsv``, used to restrict the viability table to
+  protein-coding genes (PomBase's viability file also lists ncRNA/tRNA/rRNA/
+  pseudogene entries, which the coding-only annotation could never mark as
+  covered).
 
 Output
 ------
@@ -69,11 +74,12 @@ class PlotConfig:
     lfc_file: Path
     annotation_file: Path
     viability_file: Path
+    gene_metadata_file: Path
     output_stem: Path
 
     def __post_init__(self) -> None:
         """Validate that every input exists and output directory can be created."""
-        for path in (self.lfc_file, self.annotation_file, self.viability_file):
+        for path in (self.lfc_file, self.annotation_file, self.viability_file, self.gene_metadata_file):
             if not path.exists():
                 raise ValueError(f"Input file does not exist: {path}")
         self.output_stem.parent.mkdir(parents=True, exist_ok=True)
@@ -111,10 +117,10 @@ def load_coverage_data(input_path: Path) -> pd.DataFrame:
 
 
 @logger.catch(reraise=True)
-def compute_coverage_frame(lfc_file: Path, annotation_file: Path, viability_file: Path) -> pd.DataFrame:
+def compute_coverage_frame(lfc_file: Path, annotation_file: Path, viability_file: Path, gene_metadata_file: Path) -> pd.DataFrame:
     """Tally covered vs total genes per viability category into the render-ready frame."""
     covered_genes = load_covered_genes(lfc_file, annotation_file)
-    viability = load_gene_viability(viability_file)
+    viability = load_gene_viability(viability_file, gene_metadata_file)
     stats = compute_coverage_stats(viability, covered_genes)
 
     df = pd.DataFrame(
@@ -142,6 +148,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-i", "--input", type=Path, required=True, help="Insertion-level LFC TSV")
     parser.add_argument("-a", "--annotation", type=Path, required=True, help="Per-insertion annotation TSV (with Systematic ID column)")
     parser.add_argument("-v", "--gene-viability", type=Path, required=True, help="PomBase gene viability TSV (headerless: id, viability)")
+    parser.add_argument("-g", "--gene-metadata", type=Path, required=True, help="PomBase gene_IDs_names_products TSV (for gene_type filtering)")
     parser.add_argument("-o", "--output", type=Path, required=True, help="Output file stem (extension will be added)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose (DEBUG) logging")
     return parser.parse_args()
@@ -159,6 +166,7 @@ def main() -> int:
             lfc_file=args.input,
             annotation_file=args.annotation,
             viability_file=args.gene_viability,
+            gene_metadata_file=args.gene_metadata,
             output_stem=output_stem,
         )
     except ValueError as e:
@@ -168,7 +176,7 @@ def main() -> int:
     logger.info("=== Gene Coverage Figure Rendering ===")
 
     try:
-        df = compute_coverage_frame(config.lfc_file, config.annotation_file, config.viability_file)
+        df = compute_coverage_frame(config.lfc_file, config.annotation_file, config.viability_file, config.gene_metadata_file)
 
         render_composition_figure(
             df, config.output_stem,

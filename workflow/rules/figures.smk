@@ -144,6 +144,9 @@ rule plot_gene_coverage:
         gene_viability=(
             f"resources/pombase_data/{config['Pombase_release_version']}/Gene_metadata/gene_viability.tsv"
         ),
+        gene_metadata=(
+            f"resources/pombase_data/{config['Pombase_release_version']}/Gene_metadata/gene_IDs_names_products.tsv"
+        ),
     output:
         journal=report(
             f"projects/{project_name}/reports/gene_coverage_analysis/gene_coverage_analysis.pdf",
@@ -170,6 +173,7 @@ rule plot_gene_coverage:
             -i {input.lfc} \
             -a {input.annotation} \
             -v {input.gene_viability} \
+            -g {input.gene_metadata} \
             -o {params.stem} &> {log}
         """
 
