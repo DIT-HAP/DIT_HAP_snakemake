@@ -26,6 +26,10 @@ rule control_insertion_selection:
         """
 
 
+# =============================================================================
+# Insertion-level analysis
+# =============================================================================
+
 # Distinguish replicates vs. no-replicates branches
 # -----------------------------------------------------
 if config.get("use_DEseq2_for_biological_replicates", False):
@@ -61,20 +65,12 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 "projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
                 category="2. Insertion-level results",
                 labels={
-                    "name": "Insertion-level LFC",
+                    "name": "3. Insertion-level LFC",
                     "type": "Statistics Table",
                     "format": "TSV",
                 },
             ),
-            padj=report(
-                "projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
-                category="2. Insertion-level results",
-                labels={
-                    "name": "Insertion-level adjusted p-values",
-                    "type": "Statistics Table",
-                    "format": "TSV",
-                },
-            ),
+            padj="projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
             dispersion_data="projects/{project_name}/reports/dispersion_analysis/dispersion_data.tsv",
             basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv"
         log:
@@ -107,7 +103,7 @@ else:
                 "projects/{project_name}/results/14_insertion_level_depletion_analysis/LFC.tsv",
                 category="2. Insertion-level results",
                 labels={
-                    "name": "Insertion-level LFC",
+                    "name": "3. Insertion-level LFC",
                     "type": "Statistics Table",
                     "format": "TSV",
                 },
@@ -140,7 +136,7 @@ rule insertion_level_curve_fitting:
             "projects/{project_name}/results/15_insertion_level_curve_fitting/insertion_level_fitting_statistics.tsv",
             category="2. Insertion-level results",
             labels={
-                "name": "Insertion-level Curve Fitting Statistics",
+                "name": "4. Insertion-level Curve Fitting Statistics",
                 "type": "Statistics Table",
                 "format": "TSV",
             },
@@ -184,7 +180,7 @@ rule compute_insertion_weights:
             "projects/{project_name}/results/16_gene_level_depletion_analysis/insertion_weights.tsv",
             category="2. Insertion-level results",
             labels={
-                "name": "Insertion-level Aggregation Weights",
+                "name": "5. Insertion-level Aggregation Weights",
                 "type": "Statistics Table",
                 "format": "TSV",
             },
@@ -210,6 +206,10 @@ rule compute_insertion_weights:
         """
 
 
+# =============================================================================
+# Gene-level analysis
+# =============================================================================
+
 # Gene-level depletion analysis
 # -----------------------------------------------------
 rule gene_level_depletion_analysis:
@@ -223,7 +223,7 @@ rule gene_level_depletion_analysis:
             "projects/{project_name}/results/16_gene_level_depletion_analysis/LFC.tsv",
             category="3. Gene-level results",
             labels={
-                "name": "Gene-level LFC",
+                "name": "1. Gene-level LFC",
                 "type": "Statistics Table",
                 "format": "TSV",
             },
@@ -243,32 +243,6 @@ rule gene_level_depletion_analysis:
             -o {output.all_statistics} &> {log}
         """
 
-
-# Datavzrd report for gene-level LFC
-# -----------------------------------------------------
-rule datavzrd_gene_level_LFC:
-    input:
-        config="workflow/reports/datavzrd/gene_level_LFC.yaml",
-        table=rules.gene_level_depletion_analysis.output.LFC,
-    params:
-        extra="",
-    output:
-        report(
-            directory("projects/{project_name}/results/16_gene_level_depletion_analysis/datavzrd_gene_level_LFC"),
-            htmlindex="index.html",
-            category="3. Gene-level results",
-            labels={
-                "name": "Gene-level LFC (Table)",
-                "type": "Datavzrd Report",
-                "format": "Datavzrd HTML",
-            },
-        ),
-    log:
-        "projects/{project_name}/logs/depletion_scoring/gene_level_LFC_datavzrd.log",
-    wrapper:
-        f"{snakemake_wrapper_version}/utils/datavzrd"
-
-
 # Gene-level curve fitting
 # -----------------------------------------------------
 rule gene_level_curve_fitting:
@@ -279,7 +253,7 @@ rule gene_level_curve_fitting:
             "projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
             category="3. Gene-level results",
             labels={
-                "name": "Gene-level Curve Fitting Statistics",
+                "name": "3. Gene-level Curve Fitting Statistics",
                 "type": "Statistics Table",
                 "format": "TSV",
             },
@@ -301,3 +275,4 @@ rule gene_level_curve_fitting:
             -j {threads} \
             -o {output} &> {log}
         """
+

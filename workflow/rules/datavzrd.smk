@@ -46,6 +46,31 @@ rule datavzrd_insertion_density_analysis:
     wrapper:
         f"{snakemake_wrapper_version}/utils/datavzrd"
 
+
+# Datavzrd report for gene-level LFC
+# -----------------------------------------------------
+rule datavzrd_gene_level_LFC:
+    input:
+        config="workflow/reports/datavzrd/gene_level_LFC.yaml",
+        table=rules.gene_level_depletion_analysis.output.LFC,
+    params:
+        extra="",
+    output:
+        report(
+            directory("projects/{project_name}/results/16_gene_level_depletion_analysis/datavzrd_gene_level_LFC"),
+            htmlindex="index.html",
+            category="3. Gene-level results",
+            labels={
+                "name": "2. Gene-level LFC (Table)",
+                "type": "Datavzrd Report",
+                "format": "Datavzrd HTML",
+            },
+        ),
+    log:
+        "projects/{project_name}/logs/depletion_scoring/gene_level_LFC_datavzrd.log",
+    wrapper:
+        f"{snakemake_wrapper_version}/utils/datavzrd"
+
 # Datavzrd report for gene-level curve fitting statistics
 # -----------------------------------------------------
 rule datavzrd_gene_level_curve_fitting:
@@ -60,7 +85,7 @@ rule datavzrd_gene_level_curve_fitting:
             htmlindex="index.html",
             category="3. Gene-level results",
             labels={
-                "name": "Gene-level Curve Fitting Statistics (Table)",
+                "name": "4. Gene-level Curve Fitting Statistics (Table)",
                 "type": "Datavzrd Report",
                 "format": "Datavzrd HTML",
             },
@@ -69,3 +94,4 @@ rule datavzrd_gene_level_curve_fitting:
         "projects/{project_name}/logs/depletion_scoring/gene_level_curve_fitting_datavzrd.log",
     wrapper:
         f"{snakemake_wrapper_version}/utils/datavzrd"
+
