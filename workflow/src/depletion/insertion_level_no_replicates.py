@@ -3,7 +3,8 @@
 Perform insertion-level depletion analysis on transposon sequencing data that
 lacks replicates. Loads insertion counts and a set of control insertions,
 normalises counts against the control-insertion medians, and computes
-log-fold changes (LFC / M values) relative to an initial timepoint.
+log-fold changes (LFC / M values) relative to an initial timepoint. Depletion is
+reported as a negative fold change, matching the replicated (DESeq2) branch.
 
 Input
 -----
@@ -75,7 +76,7 @@ def calculate_MA_values(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Calculate M (log-fold change) and A (average abundance) values for MA plots."""
     M_values = (
-        -(normalized_counts + 1)
+        (normalized_counts + 1)
         .div((normalized_counts.xs(init_timepoint, level=1, axis=1) + 1), axis=0)
         .map(np.log2)
     )
