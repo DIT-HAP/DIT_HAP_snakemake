@@ -242,7 +242,14 @@ rule mapping_filtering_statistics:
 # two-stage layout stays for this chain.
 rule insertion_density_data:
     input:
-        insertion_data=rules.hard_filtering.output,
+        # Density must use the exact table insertion-level LFC is computed from:
+        # the FR-imputed, replicate-complete table when replicates exist,
+        # otherwise the hard-filtered table (the no-replicate LFC input).
+        insertion_data=(
+            f"projects/{project_name}/results/13_filtered/imputed_raw_reads.tsv"
+            if config.get("use_DEseq2_for_biological_replicates", False)
+            else rules.hard_filtering.output
+        ),
         annotation=rules.concat_counts_and_annotations.output.annotations,
     output:
         f"projects/{project_name}/reports/insertion_density_analysis/insertion_density_analysis.tsv",
@@ -255,6 +262,7 @@ rule insertion_density_data:
     params:
         initial_time_point=config["initial_time_point"],
         final_time_point=config["final_time_point"],
+        distance_to_stop_codon_cutoff=config["in_gene_distance_to_stop_codon_cutoff"],
     shell:
         """
         python workflow/scripts/quality_control/insertion_density_analysis.py \
@@ -262,6 +270,7 @@ rule insertion_density_data:
             -a {input.annotation} \
             -t {params.initial_time_point} \
             -f {params.final_time_point} \
+            -d {params.distance_to_stop_codon_cutoff} \
             -o {output} &> {log}
         """
 

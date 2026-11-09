@@ -47,11 +47,14 @@ if config.get("use_DEseq2_for_biological_replicates", False):
             "../envs/statistics_and_computation.yml"
         message:
             "*** Imputing missing values using FR..."
+        params:
+            distance_to_stop_codon_cutoff=config["in_gene_distance_to_stop_codon_cutoff"],
         shell:
             """
             python workflow/scripts/depletion_scoring/impute_missing_values_using_FR.py \
                 -i {input.filtered_reads} \
                 -a {input.annotation} \
+                -d {params.distance_to_stop_codon_cutoff} \
                 -o {output} &> {log}
             """
 
@@ -193,6 +196,7 @@ rule compute_insertion_weights:
             if config.get("use_DEseq2_for_biological_replicates", False)
             else "--no-has-replicates"
         ),
+        distance_to_stop_codon_cutoff=config["in_gene_distance_to_stop_codon_cutoff"],
     conda:
         "../envs/statistics_and_computation.yml"
     message:
@@ -201,6 +205,7 @@ rule compute_insertion_weights:
         """
         python workflow/scripts/depletion_scoring/compute_insertion_weights.py \
             {params.has_replicates} \
+            -d {params.distance_to_stop_codon_cutoff} \
             -s {input.stats} -l {input.lfc} -a {input.annotations} \
             -o {output} &> {log}
         """

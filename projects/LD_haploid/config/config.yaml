@@ -62,6 +62,7 @@ merge_similar_timepoints: FALSE
 hard_filtering_cutoff: 8
 initial_time_point: "0h"
 final_time_point: "YES6"
+in_gene_distance_to_stop_codon_cutoff: 4
 
 # Depletion analysis configuration
 # -----------------------------------------------------

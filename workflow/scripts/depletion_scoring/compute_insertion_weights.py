@@ -111,6 +111,8 @@ class WeightsConfig:
         for path in (self.stats_file, self.lfc_file, self.annotations_file):
             if not path.exists():
                 raise ValueError(f"Input file does not exist: {path}")
+        if self.distance_to_stop_codon_cutoff < 0:
+            raise ValueError("distance_to_stop_codon_cutoff must be non-negative")
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 # =============================================================================

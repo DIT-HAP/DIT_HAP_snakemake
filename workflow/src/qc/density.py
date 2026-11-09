@@ -124,10 +124,16 @@ def load_annotation_data(annotations_path: Path) -> pd.DataFrame:
 
 
 @logger.catch
-def filter_in_gene_insertions(insertion_data: pd.DataFrame,
-                             annotations: pd.DataFrame) -> pd.DataFrame:
-    """Filter insertions to include only those within genes using established criteria."""
-    logger.info("Filtering for in-gene insertions")
+def filter_in_gene_insertions(
+    insertion_data: pd.DataFrame,
+    annotations: pd.DataFrame,
+    distance_to_stop_codon_cutoff: int,
+) -> pd.DataFrame:
+    """Filter insertions to include only those within genes using the shared cutoff."""
+    logger.info(
+        f"Filtering for in-gene insertions "
+        f"(Distance_to_stop_codon > {distance_to_stop_codon_cutoff})"
+    )
 
     merged_data = pd.merge(
         insertion_data, annotations,
@@ -135,10 +141,10 @@ def filter_in_gene_insertions(insertion_data: pd.DataFrame,
         how='inner'
     )
 
-    # Apply in-gene filtering criteria (same as gene_level_depletion_analysis.py)
+    # Apply in-gene filtering criteria shared across the workflow via config
     in_gene_mask = (
         (merged_data['Type'] != 'Intergenic region') &
-        (merged_data['Distance_to_stop_codon'] > 4)
+        (merged_data['Distance_to_stop_codon'] > distance_to_stop_codon_cutoff)
     )
 
     in_gene_insertions = merged_data[in_gene_mask].copy()
@@ -252,7 +258,7 @@ def calculate_gini_coefficient(values: np.ndarray) -> float:
         return 0.0
 
     # Calculate Gini coefficient
-    gini = (2 * np.sum((np.arange(1, n+1) * sorted_values))) / (n * cumsum[-1]) - (n + 1) / n
+    gini = (2 * np.sum(np.arange(1, n+1) * sorted_values)) / (n * cumsum[-1]) - (n + 1) / n
 
     return max(0.0, min(1.0, gini))  # Ensure result is between 0 and 1
 

@@ -57,6 +57,9 @@ drop_columns:                    # columns to drop after merging
 hard_filtering_cutoff: 8    # min read count at initial_time_point to keep an insertion
 initial_time_point: "YES0"  # reference timepoint column name
 
+# --- In-gene insertion definition --------------------------------------------
+in_gene_distance_to_stop_codon_cutoff: 4   # Distance_to_stop_codon must exceed this to count as in-gene
+
 # --- Depletion analysis ------------------------------------------------------
 use_DEseq2_for_biological_replicates: True   # optional (default false); True = DESeq2 branch
 time_points:                # generation/doubling value per timepoint column, in order

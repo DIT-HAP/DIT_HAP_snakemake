@@ -16,10 +16,11 @@ the initial and final timepoints to reveal the classic piggyBac phenotyping
 signal: insertion sites well-covered at the initial timepoint that drop out
 by the final timepoint mark depleted (typically essential) genes.
 
-Loads raw insertion read counts (summed across biological replicates) and
-genomic annotations, filters for in-gene insertions using established
-criteria (non-intergenic and distance to stop codon > 4), and computes
-per-gene density metrics at both timepoints plus their change.
+Loads the same insertion table that insertion-level LFC is computed from (the
+FR-imputed, replicate-complete table when biological replicates exist,
+otherwise the hard-filtered table), sums read counts across replicate samples
+at each timepoint, and filters for in-gene insertions using the shared
+``Distance_to_stop_codon`` cutoff supplied by the workflow config.
 
 For each gene it derives insertion-site density per kilobase at the initial
 and final timepoint (and their difference / log2 fold-change), gap-distribution
@@ -34,8 +35,11 @@ Rendering (histograms, initial-vs-final scatter panels) lives in
 Input
 -----
 - Insertion data (``-i``): tab-separated file with a 4-level row index and a
-  2-level column header (Sample, Timepoint). Read counts are summed across
-  samples (replicates) at the initial (``-t``) and final (``-f``) timepoints.
+  2-level column header (Sample, Timepoint); the same table fed to the
+  insertion-level LFC analysis. Read counts are summed across samples
+  (replicates) at the initial (``-t``) and final (``-f``) timepoints.
+- In-gene cutoff (``-d``): insertions with ``Distance_to_stop_codon`` greater
+  than this value are treated as in-gene.
 - Annotation data (``-a``): tab-separated file with a 4-level index and gene
   annotation columns (Type, Distance_to_stop_codon, Systematic ID, Name,
   FYPOviability, Chr_Interval, Strand_Interval, ParentalRegion_start,
@@ -59,7 +63,8 @@ Output
 
 Usage
 -----
-    python insertion_density_analysis.py -i raw_reads.filtered.tsv -a annotations.tsv -o density_stats.tsv -t YES0 -f YES4
+    python insertion_density_analysis.py -i imputed_raw_reads.tsv -a annotations.tsv \\
+        -o density_stats.tsv -t YES0 -f YES4 -d 4
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
@@ -86,20 +91,14 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from io_tables import read_insertion_table  # noqa: E402
-from qc.density import (  # noqa: E402
+from logging_setup import setup_logger
+from qc.density import (
     AnalysisResult,
-    load_insertion_data,
-    load_annotation_data,
-    filter_in_gene_insertions,
-    calculate_insertion_statistics,
-    calculate_gap_statistics,
-    calculate_gini_coefficient,
-    calculate_read_statistics,
-    calculate_strand_statistics,
     analyze_gene_insertions,
+    filter_in_gene_insertions,
     generate_summary_statistics,
+    load_annotation_data,
+    load_insertion_data,
 )
 
 
@@ -108,13 +107,14 @@ from qc.density import (  # noqa: E402
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class InputOutputConfig:
-    """Validated input/output paths and the initial/final timepoint column names."""
+    """Validated input/output paths, timepoints and the shared in-gene cutoff."""
 
     insertion_data_path: Path
     annotations_path: Path
     output_path: Path
     initial_timepoint: str
     final_timepoint: str
+    distance_to_stop_codon_cutoff: int
 
     def __post_init__(self) -> None:
         for path in (self.insertion_data_path, self.annotations_path):
@@ -126,6 +126,9 @@ class InputOutputConfig:
                 raise ValueError(f"Input file must be CSV or TSV format. Got: {path.suffix}")
             if path.stat().st_size == 0:
                 raise ValueError(f"Input file is empty: {path}")
+
+        if self.distance_to_stop_codon_cutoff < 0:
+            raise ValueError("distance_to_stop_codon_cutoff must be non-negative")
 
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         if self.output_path.suffix.lower() not in ['.csv', '.tsv', '.txt']:
@@ -148,6 +151,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-o", "--output_path", type=Path, required=True, help="Output TSV file with density statistics")
     parser.add_argument("-t", "--initial_timepoint", type=str, required=True, help="Initial timepoint column name")
     parser.add_argument("-f", "--final_timepoint", type=str, required=True, help="Final timepoint column name")
+    parser.add_argument("-d", "--distance_to_stop_codon_cutoff", type=int, required=True,
+                        help="Insertions with Distance_to_stop_codon greater than this value are treated as in-gene")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
@@ -168,6 +173,7 @@ def main() -> int:
             output_path=args.output_path,
             initial_timepoint=args.initial_timepoint,
             final_timepoint=args.final_timepoint,
+            distance_to_stop_codon_cutoff=args.distance_to_stop_codon_cutoff,
         )
 
         # Get file sizes for result tracking
@@ -179,6 +185,7 @@ def main() -> int:
         logger.info(f"Annotations file: {config.annotations_path} ({annotation_file_size:,} bytes)")
         logger.info(f"Initial timepoint: {config.initial_timepoint}")
         logger.info(f"Final timepoint: {config.final_timepoint}")
+        logger.info(f"In-gene Distance_to_stop_codon cutoff: {config.distance_to_stop_codon_cutoff}")
 
         # Load data
         insertion_data = load_insertion_data(
@@ -187,7 +194,9 @@ def main() -> int:
         annotations = load_annotation_data(config.annotations_path)
 
         # Filter for in-gene insertions
-        in_gene_insertions = filter_in_gene_insertions(insertion_data, annotations)
+        in_gene_insertions = filter_in_gene_insertions(
+            insertion_data, annotations, config.distance_to_stop_codon_cutoff
+        )
         logger.info(f"Analyzing {in_gene_insertions['Systematic ID'].nunique()} genes")
 
         # Analyze each gene via a single grouped pass (avoids re-filtering the full

@@ -100,6 +100,8 @@ class ImputationConfig:
             raise ValueError(f"Annotation file does not exist: {self.annotation_file}")
         if self.annotation_file.suffix != ".tsv":
             raise ValueError(f"Annotation file must be a TSV file: {self.annotation_file}")
+        if self.distance_to_stop_codon_cutoff < 0:
+            raise ValueError("distance_to_stop_codon_cutoff must be non-negative")
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
 

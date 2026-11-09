@@ -173,6 +173,15 @@ properties:
       Minimum read count at initial_time_point for an insertion to be retained
       in hard_filtering.
 
+  in_gene_distance_to_stop_codon_cutoff:
+    type: integer
+    minimum: 0
+    description: >
+      Insertions whose Distance_to_stop_codon is strictly greater than this
+      cutoff (and whose Type is not "Intergenic region") are treated as in-gene.
+      Shared by insertion density analysis, FR imputation and insertion-level
+      weighting so every stage uses the same in-gene insertion set.
+
   initial_time_point:
     type: string
     description: >
@@ -221,6 +230,7 @@ required:
   - chunk_size
   - merge_similar_timepoints
   - hard_filtering_cutoff
+  - in_gene_distance_to_stop_codon_cutoff
   - initial_time_point
 
 if:
