@@ -79,7 +79,8 @@ SUCCESS_STATUS = "Success"
 # from a given stats file are skipped.
 METRIC_COLUMNS = [
     "A", "DR", "DL", "t10", "t50", "t90", "t_window", "t_inflection",
-    "y_inflection", "auc", "R2", "RMSE", "normalized_RMSE", "AIC", "BIC",
+    "t_plateau", "DPD", "y_inflection", "auc", "R2", "RMSE",
+    "normalized_RMSE", "AIC", "BIC",
 ]
 
 

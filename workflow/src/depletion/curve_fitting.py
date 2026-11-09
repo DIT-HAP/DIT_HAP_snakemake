@@ -57,6 +57,8 @@ class FittingResult:
     t90: float
     t_window: float
     t_inflection: float
+    t_plateau: float
+    DPD: float
     y_inflection: float
     auc: float
     AIC: float
@@ -165,6 +167,8 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
             normalized_rmse = rmse / (y_values.max() - y_values.min())
 
             t_inflection = DL + abs(A) / (abs(DR) * np.e)
+            t_plateau = np.nan if DR == 0 else DL + abs(A) / abs(DR)
+            dpd = 0.0 if DR == 0 else max(0.0, t_last - t_plateau)
             y_inflection = A / np.e
 
             t10 = time_at_p_effect(0.1, A, DR, DL)
@@ -190,7 +194,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
             return {
                 'ID': ID,
                 'Status': 'Success',
-                'A': A, 'DR': DR, 'DL': DL, 't10': t10, 't50': t50, 't90': t90, 't_window': t_window, 't_inflection': t_inflection, 'y_inflection': y_inflection, 'auc': auc, 'AIC': aic, 'BIC': bic,
+                'A': A, 'DR': DR, 'DL': DL, 't10': t10, 't50': t50, 't90': t90, 't_window': t_window, 't_inflection': t_inflection, 't_plateau': t_plateau, 'DPD': dpd, 'y_inflection': y_inflection, 'auc': auc, 'AIC': aic, 'BIC': bic,
                 'R2': r_squared, 'RMSE': rmse, 'normalized_RMSE': normalized_rmse,
             }
         else:
@@ -198,7 +202,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
             return {
                 'ID': ID,
                 'Status': 'Optimization failed',
-                'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
+                'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 't_plateau': np.nan, 'DPD': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
                 'R2': np.nan, 'RMSE': np.nan, 'normalized_RMSE': np.nan,
             }
 
@@ -207,7 +211,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
         return {
             'ID': ID,
             'Status': 'Fitting error',
-            'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
+            'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 't_plateau': np.nan, 'DPD': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
             'R2': np.nan, 'RMSE': np.nan, 'normalized_RMSE': np.nan,
         }
 
