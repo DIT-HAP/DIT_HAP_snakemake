@@ -197,7 +197,7 @@ def main() -> int:
 
         # Round numeric columns
         numeric_columns = {
-            'A':3, 'DR':3, 'DL':3, 't10':3, 't50':3, 't90':3, 't_window':3, 't_inflection':3, 't_plateau':3, 'DPD':3, 'y_inflection':3, 'auc':3, 'R2':6, 'RMSE':3, 'normalized_RMSE':6, 'AIC':3, 'BIC':3,
+            'A':3, 'DR':3, 'DL':3, 'DPD':3, 't10':3, 't50':3, 't90':3, 't_window':3, 't_inflection':3, 't_plateau':3, 'y_inflection':3, 'auc':3, 'R2':6, 'RMSE':3, 'normalized_RMSE':6, 'AIC':3, 'BIC':3,
         }
         results_df[list(numeric_columns.keys())] = results_df[list(numeric_columns.keys())].round(numeric_columns)
 

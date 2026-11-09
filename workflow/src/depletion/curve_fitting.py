@@ -194,7 +194,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
             return {
                 'ID': ID,
                 'Status': 'Success',
-                'A': A, 'DR': DR, 'DL': DL, 't10': t10, 't50': t50, 't90': t90, 't_window': t_window, 't_inflection': t_inflection, 't_plateau': t_plateau, 'DPD': dpd, 'y_inflection': y_inflection, 'auc': auc, 'AIC': aic, 'BIC': bic,
+                'A': A, 'DR': DR, 'DL': DL, 'DPD': dpd, 't10': t10, 't50': t50, 't90': t90, 't_window': t_window, 't_inflection': t_inflection, 't_plateau': t_plateau, 'y_inflection': y_inflection, 'auc': auc, 'AIC': aic, 'BIC': bic,
                 'R2': r_squared, 'RMSE': rmse, 'normalized_RMSE': normalized_rmse,
             }
         else:
@@ -202,7 +202,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
             return {
                 'ID': ID,
                 'Status': 'Optimization failed',
-                'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 't_plateau': np.nan, 'DPD': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
+                'A': np.nan, 'DR': np.nan, 'DL': np.nan, 'DPD': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 't_plateau': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
                 'R2': np.nan, 'RMSE': np.nan, 'normalized_RMSE': np.nan,
             }
 
@@ -211,7 +211,7 @@ def fit_single_curve(x_values: np.ndarray, y_values: np.ndarray,
         return {
             'ID': ID,
             'Status': 'Fitting error',
-            'A': np.nan, 'DR': np.nan, 'DL': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 't_plateau': np.nan, 'DPD': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
+            'A': np.nan, 'DR': np.nan, 'DL': np.nan, 'DPD': np.nan, 't10': np.nan, 't50': np.nan, 't90': np.nan, 't_window': np.nan, 't_inflection': np.nan, 't_plateau': np.nan, 'y_inflection': np.nan, 'auc': np.nan, 'AIC': np.nan, 'BIC': np.nan,
             'R2': np.nan, 'RMSE': np.nan, 'normalized_RMSE': np.nan,
         }
 
