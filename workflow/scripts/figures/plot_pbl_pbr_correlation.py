@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 PBL-PBR Correlation Figure (extraction + rendering, single stage)
@@ -56,11 +55,10 @@ use("Agg")
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from sample_metadata import parse_filename  # noqa: E402
-from figure_render.scatter import render_grouped_regression_figure  # noqa: E402
-from figure_render._schema import require_columns  # noqa: E402
-
+from figure_render._schema import require_columns
+from figure_render.scatter import render_grouped_regression_figure
+from logging_setup import setup_logger
+from sample_metadata import parse_filename
 
 # =============================================================================
 # CONSTANTS

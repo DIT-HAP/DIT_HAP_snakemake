@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -71,16 +70,17 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from depletion.gene_level import (  # noqa: E402
+from depletion.gene_level import (
     GENE_ID,
+    aggregate_to_gene_level,
+    display_summary,
+    generate_summary,
+    load_gene_metadata,
     load_lfc_long,
     load_weights_long,
-    load_gene_metadata,
-    aggregate_to_gene_level,
-    generate_summary,
-    display_summary,
 )
+from logging_setup import setup_logger
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES

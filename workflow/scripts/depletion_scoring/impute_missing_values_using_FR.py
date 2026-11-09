@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -21,9 +20,11 @@ strands at the same genomic locus; when one strand's replicate counts are all
 missing while the opposite-strand insertion has complete data, the missing
 values are imputed from that opposite-strand insertion.
 
-Only in-gene insertions are imputed. Complete intergenic insertions are carried
-through unchanged and concatenated with the imputed in-gene set to form the
-final complete-data table used by downstream depletion analysis.
+Only in-gene insertions (``Type != 'Intergenic region'`` with
+``Distance_to_stop_codon`` above the configured cutoff) are imputed. Complete
+intergenic insertions are carried through unchanged and concatenated with the
+imputed in-gene set to form the final complete-data table used by downstream
+depletion analysis.
 
 Input
 -----
@@ -42,8 +43,8 @@ Output
 
 Usage
 -----
-    python impute_missing_values_using_FR.py -i counts.tsv -a annotations.tsv -o imputed_counts.tsv
-    python impute_missing_values_using_FR.py -i counts.tsv -a annotations.tsv -o imputed_counts.tsv --verbose
+    python impute_missing_values_using_FR.py -i counts.tsv -a annotations.tsv -d 4 -o imputed_counts.tsv
+    python impute_missing_values_using_FR.py -i counts.tsv -a annotations.tsv -d 4 -o imputed_counts.tsv --verbose
 
 Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
@@ -69,26 +70,25 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from io_tables import read_insertion_table  # noqa: E402
-from depletion.imputation import (  # noqa: E402
-    ImputationResult,
-    filter_insertions,
-    transfer_FR_index,
-    impute_missing_values,
+from depletion.imputation import (
     calculate_imputation_statistics,
+    filter_insertions,
+    impute_missing_values,
     print_imputation_statistics,
 )
+from logging_setup import setup_logger
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class ImputationConfig:
-    """Validated input/output paths for the imputation run."""
+    """Validated input/output paths and the shared in-gene cutoff."""
     input_file: Path
     annotation_file: Path
     output_file: Path
+    distance_to_stop_codon_cutoff: int
 
     def __post_init__(self) -> None:
         """Validate that inputs exist as TSVs and ensure the output directory exists."""
@@ -112,6 +112,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-i", "--input", type=Path, required=True, help="Path to the input counts data file")
     parser.add_argument("-a", "--annotation", type=Path, required=True, help="Path to the insertion annotation file")
     parser.add_argument("-o", "--output", type=Path, required=True, help="Path to the output imputed counts file")
+    parser.add_argument("-d", "--distance-to-stop-codon-cutoff", type=int, required=True,
+                        help="Insertions with Distance_to_stop_codon greater than this value are treated as in-gene")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
@@ -127,7 +129,8 @@ def main() -> int:
         config = ImputationConfig(
             input_file=args.input,
             annotation_file=args.annotation,
-            output_file=args.output
+            output_file=args.output,
+            distance_to_stop_codon_cutoff=args.distance_to_stop_codon_cutoff,
         )
 
         logger.info(f"Starting imputation of {config.input_file}")
@@ -139,7 +142,9 @@ def main() -> int:
         timepoints = counts_df.columns.get_level_values(1).unique()
 
         # Filter insertions by genomic location
-        _, in_gene_insertions = filter_insertions(insertion_annotations)
+        _, in_gene_insertions = filter_insertions(
+            insertion_annotations, config.distance_to_stop_codon_cutoff
+        )
 
         # Separate in-gene and intergenic insertions
         in_gene_counts_df = counts_df[counts_df.index.isin(in_gene_insertions)].copy()

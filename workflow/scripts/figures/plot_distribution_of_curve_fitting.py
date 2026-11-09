@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Distribution of Curve Fitting Results Figure Renderer
@@ -46,8 +45,8 @@ import pandas as pd
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from figure_render.histogram import render_histogram_grid_figure  # noqa: E402
+from figure_render.histogram import render_histogram_grid_figure
+from logging_setup import setup_logger
 
 
 # =============================================================================

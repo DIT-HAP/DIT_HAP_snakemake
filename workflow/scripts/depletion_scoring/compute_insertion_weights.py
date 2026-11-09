@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -48,6 +47,8 @@ Input
   timepoint. Cells with no LFC are excluded from the normalising denominator.
 - ``--annotations`` (TSV): genomic annotations, same 4-level index, with
   ``Type``, ``Distance_to_stop_codon`` and ``Systematic ID`` columns.
+- ``--distance-to-stop-codon-cutoff``: insertions with ``Distance_to_stop_codon``
+  greater than this value are treated as in-gene.
 
 Output
 ------
@@ -56,9 +57,9 @@ Output
 
 Usage
 -----
-    python compute_insertion_weights.py --has-replicates \
+    python compute_insertion_weights.py --has-replicates -d 4 \
         -s padj.tsv -l LFC.tsv -a annotations.tsv -o insertion_weights.tsv
-    python compute_insertion_weights.py --no-has-replicates \
+    python compute_insertion_weights.py --no-has-replicates -d 4 \
         -s insertion_level_fitting_statistics.tsv -l LFC.tsv \
         -a annotations.tsv -o insertion_weights.tsv --verbose
 
@@ -83,26 +84,28 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from depletion.weights import (  # noqa: E402
-    load_inputs,
-    filter_in_gene,
-    raw_weights,
-    normalise_per_gene_timepoint,
+from depletion.weights import (
     display_summary,
+    filter_in_gene,
+    load_inputs,
+    normalise_per_gene_timepoint,
+    raw_weights,
 )
+from logging_setup import setup_logger
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class WeightsConfig:
-    """Validated inputs and branch selection for weight computation."""
+    """Validated inputs, branch selection and shared in-gene cutoff."""
     has_replicates: bool
     stats_file: Path
     lfc_file: Path
     annotations_file: Path
     output_file: Path
+    distance_to_stop_codon_cutoff: int
 
     def __post_init__(self) -> None:
         for path in (self.stats_file, self.lfc_file, self.annotations_file):
@@ -133,6 +136,8 @@ def parse_args() -> argparse.Namespace:
                         help="Genomic annotations TSV")
     parser.add_argument("-o", "--output", type=Path, required=True,
                         help="Output long-format weights TSV")
+    parser.add_argument("-d", "--distance-to-stop-codon-cutoff", type=int, required=True,
+                        help="Insertions with Distance_to_stop_codon greater than this value are treated as in-gene")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable DEBUG level logging")
 
@@ -151,6 +156,7 @@ def main() -> int:
             lfc_file=args.lfc,
             annotations_file=args.annotations,
             output_file=args.output,
+            distance_to_stop_codon_cutoff=args.distance_to_stop_codon_cutoff,
         )
     except ValueError as exc:
         logger.error(f"Configuration error: {exc}")
@@ -163,7 +169,7 @@ def main() -> int:
         inputs = load_inputs(
             config.stats_file, config.lfc_file, config.annotations_file, config.has_replicates
         )
-        inputs = filter_in_gene(inputs)
+        inputs = filter_in_gene(inputs, config.distance_to_stop_codon_cutoff)
         weights = normalise_per_gene_timepoint(
             raw_weights(inputs, config.has_replicates), inputs
         )

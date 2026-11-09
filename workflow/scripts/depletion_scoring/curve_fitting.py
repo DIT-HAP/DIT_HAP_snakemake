@@ -76,7 +76,6 @@ for _thr_var in (
     os.environ[_thr_var] = "1"
 
 # 2. Data Processing Imports
-import numpy as np
 import pandas as pd
 
 # 3. Third-party Imports
@@ -87,14 +86,14 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from depletion.curve_fitting import (  # noqa: E402
+from depletion.curve_fitting import (
+    display_summary_table,
     fit_and_augment,
     generate_summary_statistics,
-    display_summary_table,
     process_depletion_data,
 )
-from depletion.curve_model import sigmoid_function  # noqa: E402
+from logging_setup import setup_logger
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES

@@ -52,9 +52,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from loguru import logger
-
 from io_tables import read_insertion_table
+from loguru import logger
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS
@@ -120,7 +119,7 @@ def load_inputs(stats_file: Path, lfc_file: Path, annotations_file: Path, has_re
 
 
 @logger.catch
-def filter_in_gene(inputs: WeightInputs) -> WeightInputs:
+def filter_in_gene(inputs: WeightInputs, distance_to_stop_codon_cutoff: int) -> WeightInputs:
     """Restrict the LFC and stats tables to in-gene insertions.
 
     The annotations table is deliberately left FULL and unfiltered. Gene-level
@@ -135,7 +134,7 @@ def filter_in_gene(inputs: WeightInputs) -> WeightInputs:
     """
     in_gene_index = inputs.annotations.query(
         f"(`{AnnotCol.TYPE}` != 'Intergenic region') "
-        f"and (`{AnnotCol.DISTANCE_TO_STOP}` > 4)"
+        f"and (`{AnnotCol.DISTANCE_TO_STOP}` > {distance_to_stop_codon_cutoff})"
     ).index
 
     filtered = WeightInputs(

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -72,12 +71,12 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from read_processing.insertions import (  # noqa: E402
-    InsertionCounts,
+from logging_setup import setup_logger
+from read_processing.insertions import (
     ExtractionStats,
-    extract_insertion_sites,
+    InsertionCounts,
     create_output_dataframe,
+    extract_insertion_sites,
 )
 
 # =============================================================================

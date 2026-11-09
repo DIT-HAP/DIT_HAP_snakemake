@@ -17,8 +17,6 @@ from pathlib import Path
 import cnsplots as cns
 import matplotlib.pyplot as plt
 import pandas as pd
-from loguru import logger
-
 from figures import (
     JOURNAL_HEIGHT_PX,
     JOURNAL_WIDTH_PX,
@@ -28,6 +26,7 @@ from figures import (
     panel_labels,
     save_dual,
 )
+from loguru import logger
 
 from ._schema import require_columns
 from .donut import draw_donut_panel

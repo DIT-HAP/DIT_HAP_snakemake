@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -82,20 +81,17 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from io_tables import read_insertion_table  # noqa: E402
-from depletion.insertion_level_replicates import (  # noqa: E402
+from depletion.insertion_level_replicates import (
     AnalysisResult,
-    load_and_preprocess_data,
-    create_deseq_dataset,
-    perform_differential_analysis,
-    write_dispersion_data_tsv,
     concatenate_results,
+    create_deseq_dataset,
+    load_and_preprocess_data,
+    perform_differential_analysis,
     transform_index_to_multiindex,
+    write_dispersion_data_tsv,
 )
-from pydeseq2.dds import DeseqDataSet
-from pydeseq2.default_inference import DefaultInference
-from pydeseq2.ds import DeseqStats
+from logging_setup import setup_logger
+
 
 # =============================================================================
 # CONFIGURATION & DATACLASSES

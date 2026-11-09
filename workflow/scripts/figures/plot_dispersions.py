@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 DESeq2 Dispersion Estimates Figure Renderer
@@ -55,9 +54,9 @@ use("Agg")
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from figure_render.series import Series, render_series_scatter_figure  # noqa: E402
-from figure_render._schema import require_columns  # noqa: E402
+from figure_render._schema import require_columns
+from figure_render.series import Series, render_series_scatter_figure
+from logging_setup import setup_logger
 
 
 # =============================================================================

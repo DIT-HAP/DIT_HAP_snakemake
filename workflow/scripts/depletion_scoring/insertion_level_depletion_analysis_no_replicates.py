@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -58,9 +57,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 2. Data Processing Imports
-import numpy as np
-import pandas as pd
-
 # 3. Third-party Imports
 from loguru import logger
 
@@ -68,14 +64,12 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from io_tables import read_insertion_table  # noqa: E402
-from depletion.insertion_level_no_replicates import (  # noqa: E402
-    AnalysisResult,
+from depletion.insertion_level_no_replicates import (
+    calculate_MA_values,
     load_and_preprocess_data,
     perform_median_normalization,
-    calculate_MA_values,
 )
+from logging_setup import setup_logger
 
 # =============================================================================
 # GLOBAL CONSTANTS & ENUMS

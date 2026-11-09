@@ -37,9 +37,7 @@ def read_table(path: Path, **kwargs) -> pd.DataFrame:
     suffix = path.suffix.lower()
     name_lower = path.name.lower()
 
-    if suffix == ".tsv" or "tsv" in name_lower:
-        return pd.read_csv(path, sep="\t", **kwargs)
-    elif suffix == ".bed" or "bed" in name_lower:
+    if suffix == ".tsv" or "tsv" in name_lower or suffix == ".bed" or "bed" in name_lower:
         return pd.read_csv(path, sep="\t", **kwargs)
     elif suffix == ".csv" or "csv" in name_lower:
         return pd.read_csv(path, sep=",", **kwargs)

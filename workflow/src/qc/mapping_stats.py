@@ -79,7 +79,7 @@ def parse_log_file(log_file: Path) -> dict[str, FilteringStatistics]:
         with open(log_file, "r") as f:
             content = f.read()
     except Exception as e:
-        logger.error(f"Error reading {log_file}: {str(e)}")
+        logger.error(f"Error reading {log_file}: {e!s}")
         return {}
 
     matches = SUMMARY_PATTERN.findall(content)

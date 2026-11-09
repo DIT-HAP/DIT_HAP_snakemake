@@ -41,7 +41,6 @@ from loguru import logger
 # =============================================================================
 # Configuration constants for filtering
 INTERGENIC_DISTANCE_THRESHOLD = 500
-DISTANCE_TO_STOP_CODON_THRESHOLD = 3
 
 # =============================================================================
 # DATACLASSES
@@ -64,7 +63,9 @@ class ImputationResult:
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
 @logger.catch
-def filter_insertions(insertion_annotations: pd.DataFrame) -> tuple[pd.Index, pd.Index]:
+def filter_insertions(
+    insertion_annotations: pd.DataFrame, distance_to_stop_codon_cutoff: int
+) -> tuple[pd.Index, pd.Index]:
     """Split insertions into intergenic and in-gene index sets based on annotations."""
     intergenic_insertions_filtered = insertion_annotations[
         (insertion_annotations["Type"] == "Intergenic region") &
@@ -73,7 +74,7 @@ def filter_insertions(insertion_annotations: pd.DataFrame) -> tuple[pd.Index, pd
     ].index
 
     in_gene_insertions = insertion_annotations.query(
-        f"Type != 'Intergenic region' & Distance_to_stop_codon > {DISTANCE_TO_STOP_CODON_THRESHOLD}"
+        f"Type != 'Intergenic region' & Distance_to_stop_codon > {distance_to_stop_codon_cutoff}"
     ).index
 
     return intergenic_insertions_filtered, in_gene_insertions

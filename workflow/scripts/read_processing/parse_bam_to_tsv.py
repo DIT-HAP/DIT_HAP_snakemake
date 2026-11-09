@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -75,20 +74,15 @@ from loguru import logger
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-import pyarrow as pa
 import pyarrow.parquet as pq
 import pysam
-from read_processing.bam import (  # noqa: E402
-    ReadInfo,
-    ReadPairInfo,
-    extract_read_info,
-    determine_proper_pair_status,
-    process_read_pair,
-    format_output_line,
+from logging_setup import setup_logger
+from read_processing.bam import (
     build_header,
     build_schema,
     flush_batch,
+    format_output_line,
+    process_read_pair,
 )
 
 # =============================================================================

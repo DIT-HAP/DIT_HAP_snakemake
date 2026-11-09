@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Read Count Distribution Figure (single stage)
@@ -59,11 +58,10 @@ use("Agg")
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from sample_metadata import parse_sample_name  # noqa: E402
-from qc.read_counts import STATS_COLUMNS, calculate_cutoff_statistics  # noqa: E402
-from figure_render.histogram import render_grouped_histogram_figure  # noqa: E402
-
+from figure_render.histogram import render_grouped_histogram_figure
+from logging_setup import setup_logger
+from qc.read_counts import calculate_cutoff_statistics
+from sample_metadata import parse_sample_name
 
 # =============================================================================
 # CONSTANTS

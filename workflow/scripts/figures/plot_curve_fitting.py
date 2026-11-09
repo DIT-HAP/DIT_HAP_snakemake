@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Curve Fitting Figure Renderer
@@ -52,11 +51,10 @@ use("Agg")
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
-from logging_setup import setup_logger  # noqa: E402
-from depletion.curve_model import sigmoid_function  # noqa: E402
-from figure_render.curves import render_fitted_curves_figure  # noqa: E402
-
-import pandas as pd  # noqa: E402
+import pandas as pd
+from depletion.curve_model import sigmoid_function
+from figure_render.curves import render_fitted_curves_figure
+from logging_setup import setup_logger
 
 
 # =============================================================================

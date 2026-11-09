@@ -28,10 +28,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from depletion.curve_model import sigmoid_function
 from loguru import logger
 from scipy.optimize import minimize
-
-from depletion.curve_model import sigmoid_function
 
 # =============================================================================
 # CONSTANTS

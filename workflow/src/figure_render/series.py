@@ -16,11 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-import cnsplots as cns
-import matplotlib.pyplot as plt
 import pandas as pd
-from loguru import logger
-
 from figures import (
     PanelShape,
     apply_house_style,
@@ -30,6 +26,7 @@ from figures import (
     save_dual,
     series_colors,
 )
+from loguru import logger
 
 from ._schema import require_columns
 

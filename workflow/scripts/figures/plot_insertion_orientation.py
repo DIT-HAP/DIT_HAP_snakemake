@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Insertion Orientation Figure (extraction + rendering, single stage)
@@ -54,11 +53,10 @@ use("Agg")
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from io_tables import read_table  # noqa: E402
-from figure_render.scatter import render_grouped_regression_figure  # noqa: E402
-from figure_render._schema import require_columns  # noqa: E402
-
+from figure_render._schema import require_columns
+from figure_render.scatter import render_grouped_regression_figure
+from io_tables import read_table
+from logging_setup import setup_logger
 
 # =============================================================================
 # CONSTANTS

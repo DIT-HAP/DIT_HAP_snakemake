@@ -20,11 +20,8 @@ Version:  2.0.0
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from loguru import logger
-
 from figures import (
     PanelShape,
     apply_house_style,
@@ -34,6 +31,7 @@ from figures import (
     panel_labels,
     save_dual,
 )
+from loguru import logger
 
 from ._schema import require_columns
 

@@ -17,12 +17,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import cnsplots as cns
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from loguru import logger
-from matplotlib.axes import Axes
-
 from figures import (
     FURNITURE_COLOR,
     PanelShape,
@@ -33,6 +29,8 @@ from figures import (
     panel_labels,
     save_dual,
 )
+from loguru import logger
+from matplotlib.axes import Axes
 
 from ._schema import require_columns
 

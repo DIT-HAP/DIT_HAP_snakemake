@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # (Optional) PEP 723 inline script metadata for self-contained execution with `uv`.
 # Remove or adjust if managing dependencies via a traditional virtual environment.
@@ -87,13 +86,13 @@ from pybedtools import BedTool
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.append(str((SCRIPT_DIR / "../../src").resolve()))
 
-from logging_setup import setup_logger  # noqa: E402
-from io_tables import read_table  # noqa: E402
-from gene_metadata import resolve_gene_ids  # noqa: E402
-from reference_data.genome_region import (  # noqa: E402
+from gene_metadata import resolve_gene_ids
+from io_tables import read_table
+from logging_setup import setup_logger
+from reference_data.genome_region import (
+    annotate_intergenic_region_flanks,
     build_genome_intervals,
     build_intergenic_bed,
-    annotate_intergenic_region_flanks,
     find_overlapping_regions,
     gff_features_to_bed,
     parse_gff_data,

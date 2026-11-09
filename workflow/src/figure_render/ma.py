@@ -20,10 +20,7 @@ from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import pandas as pd
-from loguru import logger
-
 from figures import (
     FURNITURE_COLOR,
     PanelShape,
@@ -34,6 +31,7 @@ from figures import (
     panel_labels,
     save_dual,
 )
+from loguru import logger
 
 
 # =============================================================================
