@@ -234,6 +234,7 @@ rule export_filtered_bam:
             --threads {threads} \
             -o {output.unsorted} &> {log}
         samtools sort -@ {threads} -o {output.bam} {output.unsorted} &>> {log}
+        rm -f {output.unsorted}
         samtools index -@ {threads} {output.bam} &>> {log}
         samtools quickcheck {output.bam} &>> {log}
         """
