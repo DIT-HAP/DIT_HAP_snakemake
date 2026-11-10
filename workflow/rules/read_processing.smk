@@ -209,9 +209,6 @@ rule export_filtered_bam:
     output:
         bam=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.bam",
         bai=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.bam.bai",
-        unsorted=temp(
-            f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.unsorted.bam"
-        ),
     log:
         f"projects/{project_name}/logs/read_processing/export_filtered_bam/{{sample}}_{{timepoint}}_{{condition}}.log",
     conda:
@@ -223,6 +220,8 @@ rule export_filtered_bam:
         """
         set -euo pipefail
         mkdir -p projects/{project_name}/results/6_filtered/bam projects/{project_name}/logs/read_processing/export_filtered_bam
+        unsorted="{output.bam}.unsorted.bam"
+        trap 'rm -f "$unsorted"' EXIT
         python workflow/scripts/read_processing/export_filtered_bam.py \
             --pbl-parquet {input.pbl_parquet} \
             --pbr-parquet {input.pbr_parquet} \
@@ -232,9 +231,8 @@ rule export_filtered_bam:
             --timepoint {wildcards.timepoint} \
             --condition {wildcards.condition} \
             --threads {threads} \
-            -o {output.unsorted} &> {log}
-        samtools sort -@ {threads} -o {output.bam} {output.unsorted} &>> {log}
-        rm -f {output.unsorted}
+            -o "$unsorted" &> {log}
+        samtools sort -@ {threads} -o {output.bam} "$unsorted" &>> {log}
         samtools index -@ {threads} {output.bam} &>> {log}
         samtools quickcheck {output.bam} &>> {log}
         """
