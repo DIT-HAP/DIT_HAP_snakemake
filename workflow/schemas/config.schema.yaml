@@ -165,6 +165,19 @@ properties:
       type: string
     description: "Timepoint columns to drop after merging (only used when merge_similar_timepoints)."
 
+  # --- Genome browser export (optional) -----------------------------------
+  export_genome_browser_bams:
+    type: boolean
+    default: false
+    description: >
+      Whether to export the filtered alignments as coordinate-sorted, indexed
+      BAMs under results/6_filtered/bam/ (one per sample/timepoint/condition,
+      PBL+PBR combined) and include them in the default target. When
+      merge_similar_timepoints is true, an additional
+      {sample}_{merged_timepoint}_{condition}.merged.bam is produced by
+      samtools-merging the similar timepoints' filtered BAMs. Optional;
+      defaults to false.
+
   # --- Hard filtering -----------------------------------------------------
   hard_filtering_cutoff:
     type: integer

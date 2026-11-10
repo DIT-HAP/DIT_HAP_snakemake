@@ -56,6 +56,22 @@ samples    = sample_sheet["Sample"].unique().tolist()
 timepoints = sample_sheet["Timepoint"].unique().tolist()
 conditions = sample_sheet["Condition"].unique().tolist()
 
+# Genome-browser BAM export: every timepoint gets a filtered BAM; when
+# merge_similar_timepoints is true, the similar timepoints additionally get one
+# merged BAM named after merged_timepoint. Both files are kept.
+bam_targets = [
+    f"projects/{project_name}/results/6_filtered/bam/{sample}_{tp}_{condition}.filtered.bam"
+    for sample in samples
+    for tp in timepoints
+    for condition in conditions
+]
+if config["merge_similar_timepoints"]:
+    bam_targets += [
+        f"projects/{project_name}/results/6_filtered/bam/{sample}_{config['merged_timepoint']}_{condition}.merged.bam"
+        for sample in samples
+        for condition in conditions
+    ]
+
 sample_sheet_dict = {
     s: {t: {c: {"fq1": None, "fq2": None} for c in conditions} for t in timepoints}
     for s in samples
@@ -135,6 +151,19 @@ rule all:
             if config.get("time_points")
             else []
         ),
+
+        # --- Genome browser BAMs (optional export) ---
+        *(bam_targets if config.get("export_genome_browser_bams", False) else []),
+
+
+# ---------------------------------------------------------------------------
+# Genome-browser BAM export target
+# ---------------------------------------------------------------------------
+# Request this target to export only the filtered BAMs without traversing the
+# rest of `all`: snakemake --use-conda --cores <N> genome_browser_bams
+rule genome_browser_bams:
+    input:
+        bam_targets,
 
 
 # ---------------------------------------------------------------------------

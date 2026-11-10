@@ -177,6 +177,95 @@ rule filter_aligned_reads:
         """
 
 
+# Export filtered alignments as genome-browser BAMs
+# -----------------------------------------------------
+# Every timepoint gets a filtered BAM reconstructed from the existing
+# 4_sorted BAM (records) and filtered Parquet (QueryName whitelist).
+# existing_or_scheduled() marks already-computed inputs as ancient so the
+# export does not rebuild the temp()-deleted mapping chain; a missing file
+# (fresh run) keeps its normal producer dependency. When
+# merge_similar_timepoints is true, export_merged_filtered_bam additionally
+# samtools-merges the similar timepoints' filtered BAMs into a separate
+# .merged.bam; the per-timepoint BAMs remain available.
+def existing_or_scheduled(path: str) -> str:
+    """Reuse an already-computed file instead of re-running its temp-deleted producers."""
+    return ancient(path) if Path(path).exists() else path
+
+
+rule export_filtered_bam:
+    input:
+        pbl_parquet=lambda w: existing_or_scheduled(
+            f"projects/{project_name}/results/6_filtered/{w.sample}_{w.timepoint}_{w.condition}.PBL.filtered.parquet"
+        ),
+        pbr_parquet=lambda w: existing_or_scheduled(
+            f"projects/{project_name}/results/6_filtered/{w.sample}_{w.timepoint}_{w.condition}.PBR.filtered.parquet"
+        ),
+        pbl_bam=lambda w: existing_or_scheduled(
+            f"projects/{project_name}/results/4_sorted/{w.sample}_{w.timepoint}_{w.condition}.PBL.sorted.bam"
+        ),
+        pbr_bam=lambda w: existing_or_scheduled(
+            f"projects/{project_name}/results/4_sorted/{w.sample}_{w.timepoint}_{w.condition}.PBR.sorted.bam"
+        ),
+    output:
+        bam=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.bam",
+        bai=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.bam.bai",
+        unsorted=temp(
+            f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.unsorted.bam"
+        ),
+    log:
+        f"projects/{project_name}/logs/read_processing/export_filtered_bam/{{sample}}_{{timepoint}}_{{condition}}.log",
+    conda:
+        "../envs/pysam.yml"
+    threads: 8
+    message:
+        "*** Exporting {wildcards.sample}_{wildcards.timepoint}_{wildcards.condition} filtered alignments as BAM..."
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p projects/{project_name}/results/6_filtered/bam projects/{project_name}/logs/read_processing/export_filtered_bam
+        python workflow/scripts/read_processing/export_filtered_bam.py \
+            --pbl-parquet {input.pbl_parquet} \
+            --pbr-parquet {input.pbr_parquet} \
+            --pbl-bam {input.pbl_bam} \
+            --pbr-bam {input.pbr_bam} \
+            --sample {wildcards.sample} \
+            --timepoint {wildcards.timepoint} \
+            --condition {wildcards.condition} \
+            --threads {threads} \
+            -o {output.unsorted} &> {log}
+        samtools sort -@ {threads} -o {output.bam} {output.unsorted} &>> {log}
+        samtools index -@ {threads} {output.bam} &>> {log}
+        samtools quickcheck {output.bam} &>> {log}
+        """
+
+
+if config["merge_similar_timepoints"]:
+    rule export_merged_filtered_bam:
+        input:
+            bams=lambda w: [
+                f"projects/{project_name}/results/6_filtered/bam/{w.sample}_{tp}_{w.condition}.filtered.bam"
+                for tp in config["similar_timepoints"]
+            ],
+        output:
+            bam=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{config['merged_timepoint']}_{{condition}}.merged.bam",
+            bai=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{config['merged_timepoint']}_{{condition}}.merged.bam.bai",
+        log:
+            f"projects/{project_name}/logs/read_processing/export_merged_filtered_bam/{{sample}}_{config['merged_timepoint']}_{{condition}}.log",
+        conda:
+            "../envs/pysam.yml"
+        threads: 8
+        message:
+            "*** Merging similar-timepoint filtered BAMs for {wildcards.sample}_{wildcards.condition}..."
+        shell:
+            """
+            set -euo pipefail
+            mkdir -p projects/{project_name}/results/6_filtered/bam projects/{project_name}/logs/read_processing/export_merged_filtered_bam
+            samtools merge -@ {threads} -f {output.bam} {input.bams} &>> {log}
+            samtools index -@ {threads} {output.bam} &>> {log}
+            samtools quickcheck {output.bam} &>> {log}
+            """
+
+
 # Extract insertion sites
 # -----------------------------------------------------
 rule extract_insertion_sites:

@@ -57,6 +57,10 @@ merged_timepoint: "YES0"
 drop_columns:
   - "0h"
 
+# Genome browser BAM export configuration
+# -----------------------------------------------------
+export_genome_browser_bams: FALSE
+
 # Hard filtering configuration and DEseq2 configuration
 # -----------------------------------------------------
 hard_filtering_cutoff: 8

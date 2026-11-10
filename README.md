@@ -68,7 +68,7 @@ Rule modules (`workflow/rules/`), included by `Snakefile` in this order:
 | Module                    | Responsibility                                                                                                                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `reference_data.smk`    | Download PomBase genome/annotation, index (samtools/BWA), extract genome regions                                                               |
-| `read_processing.smk`   | fastp → junction classification → mapping → BAM parsing → filtering → insertion sites → annotation → concatenation → hard filtering    |
+| `read_processing.smk`   | fastp → junction classification → mapping → BAM parsing → filtering → insertion sites → annotation → concatenation → hard filtering; optional genome-browser BAM export |
 | `depletion_scoring.smk` | Control selection → insertion-level depletion (DESeq2 or no-replicate) → curve fitting → gene-level aggregation → gene-level curve fitting |
 | `quality_control.smk`   | MultiQC, mapping/filtering statistics, PBL/PBR correlation, read-count distribution, insertion orientation, insertion density, gene coverage   |
 | `packaging.smk`         | Copies each project's depletion/curve-fitting tables into `release/`; separately archives shared PomBase reference data                       |
@@ -100,6 +100,7 @@ projects/{project_name}/
 ├── config/                                 # project_name's config.yaml + sample_sheet.tsv
 ├── results/
 │   ├── 1_fastp/ ... 9_concatenated/            # read processing (per-sample)
+│   ├── 6_filtered/bam/                         # optional genome-browser filtered/merged BAMs (+ .bai)
 │   ├── 10_annotated/ ... 13_filtered/          # annotation, concatenation, hard filtering
 │   ├── 14_insertion_level_depletion_analysis/  # insertion-level LFC
 │   ├── 15_insertion_level_curve_fitting/       # requires time_points
@@ -119,6 +120,34 @@ projects/{project_name}/
 
 resources/pombase_data/{release_version}/   # shared across projects, auto-downloaded
 ```
+
+## Genome browser BAMs
+
+Set `export_genome_browser_bams: true` in a project's config to export the
+filtered alignments as coordinate-sorted, indexed BAMs for IGV/JBrowse:
+
+```
+results/6_filtered/bam/{sample}_{timepoint}_{condition}.filtered.bam(+.bai)
+results/6_filtered/bam/{sample}_{merged_timepoint}_{condition}.merged.bam(+.bai)
+```
+
+- Every timepoint gets a filtered BAM. The exported read set is exactly the
+  filtered Parquet produced by `filter_aligned_reads`; records are taken from
+  the existing `results/4_sorted/` BAMs, so SEQ, QUAL, SAM tags, and flags are
+  preserved.
+- PBL and PBR are combined into one BAM per sample/timepoint/condition, with
+  `@RG` IDs `{sample}_{timepoint}_{condition}_{PBL,PBR}`.
+- When `merge_similar_timepoints` is true, the similar timepoints additionally
+  get one `samtools merge`-built BAM named after `merged_timepoint` (e.g.
+  `0h` + `YES0` -> `{sample}_YES0_{condition}.merged.bam`). The per-timepoint
+  `.filtered.bam` files remain available.
+- The export reuses the existing `4_sorted` BAMs and filtered Parquets and does
+  not re-run mapping or filtering. To export only these files, run
+  `snakemake --use-conda --cores <N> genome_browser_bams`.
+- The reuse is implemented with Snakemake `ancient()`: an existing `4_sorted`
+  BAM or filtered Parquet is consumed as-is even if its own temp() inputs are
+  gone. If one is stale and must be rebuilt, delete it and re-run so Snakemake
+  re-creates it from the upstream stage.
 
 ## Snakemake report
 

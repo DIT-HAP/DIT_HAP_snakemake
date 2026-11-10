@@ -53,6 +53,9 @@ merged_timepoint: "YES0"         # name of the merged column
 drop_columns:                    # columns to drop after merging
   - "0h"
 
+# --- Genome browser export (optional) ----------------------------------------
+export_genome_browser_bams: False   # True: write 6_filtered/bam/*.filtered.bam (+ merged *.merged.bam)
+
 # --- Hard filtering ----------------------------------------------------------
 hard_filtering_cutoff: 8    # min read count at initial_time_point to keep an insertion
 initial_time_point: "YES0"  # reference timepoint column name
