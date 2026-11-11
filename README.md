@@ -142,12 +142,18 @@ results/6_filtered/bam/{sample}_{merged_timepoint}_{condition}.merged.bam(+.bai)
   `0h` + `YES0` -> `{sample}_YES0_{condition}.merged.bam`). The per-timepoint
   `.filtered.bam` files remain available.
 - The export reuses the existing `4_sorted` BAMs and filtered Parquets and does
-  not re-run mapping or filtering. To export only these files, run
-  `snakemake --use-conda --cores <N> genome_browser_bams`.
-- The reuse is implemented with Snakemake `ancient()`: an existing `4_sorted`
-  BAM or filtered Parquet is consumed as-is even if its own temp() inputs are
-  gone. If one is stale and must be rebuilt, delete it and re-run so Snakemake
-  re-creates it from the upstream stage.
+  not re-run mapping or filtering. On an already-processed project the mapping
+  chain's `temp()` intermediates are gone, so export only these files with
+  mtime-only rerun triggers:
+
+  ```bash
+  snakemake --use-conda --cores <N> --rerun-triggers mtime -- genome_browser_bams
+  ```
+
+  Without `--rerun-triggers mtime`, Snakemake's provenance checks (code,
+  params, software env) can still schedule the upstream rules whose temp
+  outputs no longer exist. With it, only the missing export outputs trigger
+  jobs, and the upstream rules stay in the DAG but are not executed.
 
 ## Snakemake report
 

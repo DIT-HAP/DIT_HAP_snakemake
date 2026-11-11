@@ -181,31 +181,19 @@ rule filter_aligned_reads:
 # -----------------------------------------------------
 # Every timepoint gets a filtered BAM reconstructed from the existing
 # 4_sorted BAM (records) and filtered Parquet (QueryName whitelist).
-# existing_or_scheduled() marks already-computed inputs as ancient so the
-# export does not rebuild the temp()-deleted mapping chain; a missing file
-# (fresh run) keeps its normal producer dependency. When
+# On an already-processed project, run the export with
+# `--rerun-triggers mtime`: the mapping chain's temp() intermediates are gone,
+# and mtime-only triggers keep those upstream rules from being scheduled while
+# the export's own missing outputs still trigger the export jobs. When
 # merge_similar_timepoints is true, export_merged_filtered_bam additionally
 # samtools-merges the similar timepoints' filtered BAMs into a separate
 # .merged.bam; the per-timepoint BAMs remain available.
-def existing_or_scheduled(path: str) -> str:
-    """Reuse an already-computed file instead of re-running its temp-deleted producers."""
-    return ancient(path) if Path(path).exists() else path
-
-
 rule export_filtered_bam:
     input:
-        pbl_parquet=lambda w: existing_or_scheduled(
-            f"projects/{project_name}/results/6_filtered/{w.sample}_{w.timepoint}_{w.condition}.PBL.filtered.parquet"
-        ),
-        pbr_parquet=lambda w: existing_or_scheduled(
-            f"projects/{project_name}/results/6_filtered/{w.sample}_{w.timepoint}_{w.condition}.PBR.filtered.parquet"
-        ),
-        pbl_bam=lambda w: existing_or_scheduled(
-            f"projects/{project_name}/results/4_sorted/{w.sample}_{w.timepoint}_{w.condition}.PBL.sorted.bam"
-        ),
-        pbr_bam=lambda w: existing_or_scheduled(
-            f"projects/{project_name}/results/4_sorted/{w.sample}_{w.timepoint}_{w.condition}.PBR.sorted.bam"
-        ),
+        pbl_parquet=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBL.filtered.parquet",
+        pbr_parquet=f"projects/{project_name}/results/6_filtered/{{sample}}_{{timepoint}}_{{condition}}.PBR.filtered.parquet",
+        pbl_bam=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBL.sorted.bam",
+        pbr_bam=f"projects/{project_name}/results/4_sorted/{{sample}}_{{timepoint}}_{{condition}}.PBR.sorted.bam",
     output:
         bam=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.bam",
         bai=f"projects/{project_name}/results/6_filtered/bam/{{sample}}_{{timepoint}}_{{condition}}.filtered.bam.bai",
