@@ -34,8 +34,8 @@ aligned_read_filtering:
     no_sa: True             # require no supplementary alignments
   read_2_filtering:
     mapq_threshold: 40
-    ncigar_value: 10
-    nm_threshold: 15
+    ncigar_value: 5
+    nm_threshold: 6
     no_sa: True
   require_proper_pair: True
   # Pair-level: keep a pair only if at least one mate has no XA tag and a
