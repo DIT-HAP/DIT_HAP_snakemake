@@ -30,7 +30,7 @@ PBR_reverseComplement_adapter: CCCTAGAAAGATAATCATATTGTGACGTACGTTAAAGATAATCATGCGT
 # -----------------------------------------------------
 aligned_read_filtering:
   read_1_filtering:
-    mapq_threshold: 20
+    mapq_threshold: 40
     ncigar_value: 1
     nm_threshold: 3
     no_sa: True # require no supplementary alignments

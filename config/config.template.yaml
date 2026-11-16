@@ -28,7 +28,7 @@ PBR_reverseComplement_adapter: CCCTAGAAAGATAATCATATTGTGACGTACGTTAAAGATAATCATGCGT
 # --- Aligned-read filtering thresholds ---------------------------------------
 aligned_read_filtering:
   read_1_filtering:
-    mapq_threshold: 20      # 0-60
+    mapq_threshold: 40      # 0-60
     ncigar_value: 1         # max CIGAR ops
     nm_threshold: 3         # max edit distance (NM)
     no_sa: True             # require no supplementary alignments
