@@ -4,7 +4,9 @@ Filters aligned read pairs from BAM-derived tables using thresholds loaded
 from a YAML configuration file. R1 and R2 reads are filtered independently
 with separate MAPQ, NCIGAR, and NM thresholds, plus optional rejection of
 reads that carry supplementary (SA) or secondary (XA) alignments and an
-optional proper-pair requirement.
+optional proper-pair requirement. A pair-level rule additionally keeps only
+pairs where at least one mate is XA-free with a suboptimal alignment score
+XS below ``xs_as_ratio_cutoff`` x AS.
 
 ``filter_aligned_reads.py``'s ``filter_read_pairs`` is the chunk loop, reader,
 and writer and stays in that script per Phase 4 convention 3.
@@ -12,10 +14,12 @@ and writer and stays in that script per Phase 4 convention 3.
 Input
 -----
 - A chunk (DataFrame) of read-pair data with columns ``R1_MAPQ``, ``R2_MAPQ``,
-  ``R1_NCIGAR``, ``R2_NCIGAR``, ``R1_NM``, ``R2_NM``, ``R1_SA``, ``R2_SA``,
-  ``R1_XA``, ``R2_XA``, and ``Is_Proper_Pair``.
+  ``R1_NCIGAR``, ``R2_NCIGAR``, ``R1_NM``, ``R2_NM``, ``R1_AS``, ``R1_XS``,
+  ``R2_AS``, ``R2_XS``, ``R1_SA``, ``R2_SA``, ``R1_XA``, ``R2_XA``, and
+  ``Is_Proper_Pair``.
 - YAML config with an ``aligned_read_filtering`` section containing
-  ``read_1_filtering``, ``read_2_filtering``, and ``require_proper_pair``.
+  ``read_1_filtering``, ``read_2_filtering``, ``require_proper_pair``, and
+  ``xs_as_ratio_cutoff``.
 
 Output
 ------
@@ -110,11 +114,12 @@ def load_config_from_yaml(config_file) -> dict[str, Any]:
         )
 
     internal_config["require_proper_pair"] = filtering_config.get("require_proper_pair")
+    internal_config["xs_as_ratio_cutoff"] = filtering_config.get("xs_as_ratio_cutoff")
 
     logger.info(f"Loaded configuration from: {config_file}")
     logger.debug(f"R1 filters: MAPQ={internal_config['read_1_filtering'].mapq_threshold}, NCIGAR={internal_config['read_1_filtering'].ncigar_value}, NM={internal_config['read_1_filtering'].nm_threshold}")
     logger.debug(f"R2 filters: MAPQ={internal_config['read_2_filtering'].mapq_threshold}, NCIGAR={internal_config['read_2_filtering'].ncigar_value}, NM={internal_config['read_2_filtering'].nm_threshold}")
-    logger.debug(f"Pair filters: no_sa={internal_config['read_1_filtering'].no_sa}, no_xa={internal_config['read_1_filtering'].no_xa}, proper_pair={internal_config['require_proper_pair']}")
+    logger.debug(f"Pair filters: no_sa={internal_config['read_1_filtering'].no_sa}, no_xa={internal_config['read_1_filtering'].no_xa}, proper_pair={internal_config['require_proper_pair']}, xs_as_ratio_cutoff={internal_config['xs_as_ratio_cutoff']}")
 
     return internal_config
 
@@ -140,12 +145,19 @@ def coerce_column_dtypes(chunk: pd.DataFrame) -> pd.DataFrame:
     return chunk
 
 
+def xa_absent(chunk: pd.DataFrame, read_prefix: str) -> pd.Series:
+    """Return a mask of reads whose XA (alternative-alignment) tag is absent."""
+    xa = chunk[f"{read_prefix}_XA"]
+    return xa.isna() | (xa == "N/A")
+
+
 @logger.catch
 def build_filter_mask(
     chunk: pd.DataFrame,
     r1_filters: FilterThresholds,
     r2_filters: FilterThresholds,
     require_proper_pair: bool,
+    xs_as_ratio_cutoff: float | None,
 ) -> pd.Series:
     """Build a boolean mask selecting read pairs that pass every configured criterion."""
     # Initialize mask with all True
@@ -165,7 +177,7 @@ def build_filter_mask(
         filter_mask &= (chunk["R1_SA"].isna() | (chunk["R1_SA"] == "N/A"))
 
     if r1_filters.no_xa:
-        filter_mask &= (chunk["R1_XA"].isna() | (chunk["R1_XA"] == "N/A"))
+        filter_mask &= xa_absent(chunk, "R1")
 
     # Apply R2 filters
     if r2_filters.mapq_threshold is not None:
@@ -181,7 +193,18 @@ def build_filter_mask(
         filter_mask &= (chunk["R2_SA"].isna() | (chunk["R2_SA"] == "N/A"))
 
     if r2_filters.no_xa:
-        filter_mask &= (chunk["R2_XA"].isna() | (chunk["R2_XA"] == "N/A"))
+        filter_mask &= xa_absent(chunk, "R2")
+
+    # Pair-level rule: at least one mate must be XA-free with a clearly best
+    # alignment (XS < AS * xs_as_ratio_cutoff).
+    if xs_as_ratio_cutoff is not None:
+        r1_confident = xa_absent(chunk, "R1") & (
+            chunk["R1_XS"] < chunk["R1_AS"] * xs_as_ratio_cutoff
+        )
+        r2_confident = xa_absent(chunk, "R2") & (
+            chunk["R2_XS"] < chunk["R2_AS"] * xs_as_ratio_cutoff
+        )
+        filter_mask &= r1_confident | r2_confident
 
     # Apply proper pair filter
     if require_proper_pair:
@@ -197,6 +220,7 @@ def process_chunk(
     r1_filters: FilterThresholds,
     r2_filters: FilterThresholds,
     require_proper_pair: bool,
+    xs_as_ratio_cutoff: float | None,
     first_chunk: bool,
 ) -> tuple[pd.DataFrame, bool]:
     """Filter a single chunk and log first-chunk diagnostics and periodic progress."""
@@ -221,6 +245,7 @@ def process_chunk(
         r1_filters,
         r2_filters,
         require_proper_pair,
+        xs_as_ratio_cutoff,
     )
 
     filtered_chunk = chunk[filter_mask]

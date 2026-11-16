@@ -20,7 +20,9 @@ Filter aligned read pairs from BAM-derived Parquet files using thresholds
 loaded from a YAML configuration file. R1 and R2 reads are filtered
 independently with separate MAPQ, NCIGAR, and NM thresholds, plus optional
 rejection of reads that carry supplementary (SA) or secondary (XA) alignments
-and an optional proper-pair requirement.
+and an optional proper-pair requirement. A pair-level rule additionally keeps
+only pairs where at least one mate is XA-free with a suboptimal alignment
+score XS below ``xs_as_ratio_cutoff`` x AS.
 
 All filtering criteria are read from the ``aligned_read_filtering`` section of
 the config so runs stay consistent and reproducible. The input Parquet file is
@@ -31,9 +33,11 @@ Input
 -----
 - Parquet file with read-pair data from BAM parsing. Expected columns include
   ``R1_MAPQ``, ``R2_MAPQ``, ``R1_NCIGAR``, ``R2_NCIGAR``, ``R1_NM``, ``R2_NM``,
-  ``R1_SA``, ``R2_SA``, ``R1_XA``, ``R2_XA``, and ``Is_Proper_Pair``.
+  ``R1_AS``, ``R1_XS``, ``R2_AS``, ``R2_XS``, ``R1_SA``, ``R2_SA``, ``R1_XA``,
+  ``R2_XA``, and ``Is_Proper_Pair``.
 - YAML config with an ``aligned_read_filtering`` section containing
-  ``read_1_filtering``, ``read_2_filtering``, and ``require_proper_pair``.
+  ``read_1_filtering``, ``read_2_filtering``, ``require_proper_pair``, and
+  ``xs_as_ratio_cutoff``.
 
 Output
 ------
@@ -151,6 +155,7 @@ def filter_read_pairs(config: InputOutputConfig) -> AnalysisResult:
                 config.config_data["read_1_filtering"],
                 config.config_data["read_2_filtering"],
                 config.config_data["require_proper_pair"],
+                config.config_data["xs_as_ratio_cutoff"],
                 first_chunk,
             )
             filtered_rows += len(filtered_chunk)

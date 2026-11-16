@@ -103,8 +103,8 @@ properties:
             description: "Require no supplementary alignments (SA tag absent) for read 1."
           no_xa:
             type: boolean
-            description: "Require no secondary alignments (XA tag absent) for read 1."
-        required: [mapq_threshold, ncigar_value, nm_threshold, no_sa, no_xa]
+            description: "Optional per-read requirement: no secondary alignments (XA tag absent) for read 1."
+        required: [mapq_threshold, ncigar_value, nm_threshold, no_sa]
       read_2_filtering:
         type: object
         properties:
@@ -126,12 +126,20 @@ properties:
             description: "Require no supplementary alignments (SA tag absent) for read 2."
           no_xa:
             type: boolean
-            description: "Require no secondary alignments (XA tag absent) for read 2."
-        required: [mapq_threshold, ncigar_value, nm_threshold, no_sa, no_xa]
+            description: "Optional per-read requirement: no secondary alignments (XA tag absent) for read 2."
+        required: [mapq_threshold, ncigar_value, nm_threshold, no_sa]
       require_proper_pair:
         type: boolean
         description: "Require reads to be flagged as a proper pair."
-    required: [read_1_filtering, read_2_filtering, require_proper_pair]
+      xs_as_ratio_cutoff:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1
+        description: >
+          Pair-level requirement: retain a read pair only if at least one mate
+          has no XA (alternative-alignment) tag and a suboptimal alignment
+          score XS below AS * this cutoff. Example: 0.8.
+    required: [read_1_filtering, read_2_filtering, require_proper_pair, xs_as_ratio_cutoff]
 
   # --- Performance --------------------------------------------------------
   chunk_size:
