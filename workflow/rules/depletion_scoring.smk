@@ -40,7 +40,8 @@ if config.get("use_DEseq2_for_biological_replicates", False):
             filtered_reads=rules.hard_filtering.output,
             annotation=rules.concat_counts_and_annotations.output.annotations,
         output:
-            "projects/{project_name}/results/13_filtered/imputed_raw_reads.tsv",
+            imputed="projects/{project_name}/results/13_filtered/imputed_raw_reads.tsv",
+            statistics="projects/{project_name}/results/13_filtered/imputation_statistics.tsv",
         log:
             "projects/{project_name}/logs/depletion_scoring/impute_missing_values_using_FR.log",
         conda:
@@ -55,13 +56,13 @@ if config.get("use_DEseq2_for_biological_replicates", False):
                 -i {input.filtered_reads} \
                 -a {input.annotation} \
                 -d {params.distance_to_stop_codon_cutoff} \
-                -o {output} &> {log}
+                -o {output.imputed} &> {log}
             """
 
     # Insertion-level depletion analysis (DESeq2 — has replicates)
     rule insertion_level_depletion_analysis_has_replicates:
         input:
-            counts_df=rules.impute_missing_values_using_FR.output,
+            counts_df=rules.impute_missing_values_using_FR.output.imputed,
             control_insertions_df=rules.control_insertion_selection.output,
         output:
             LFC=report(
@@ -75,7 +76,14 @@ if config.get("use_DEseq2_for_biological_replicates", False):
             ),
             padj="projects/{project_name}/results/14_insertion_level_depletion_analysis/padj.tsv",
             dispersion_data="projects/{project_name}/reports/dispersion_analysis/dispersion_data.tsv",
-            basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv"
+            basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv",
+            normed_counts="projects/{project_name}/results/14_insertion_level_depletion_analysis/normed_counts.tsv",
+            count_X="projects/{project_name}/results/14_insertion_level_depletion_analysis/count_X.tsv",
+            cooks="projects/{project_name}/results/14_insertion_level_depletion_analysis/cooks.tsv",
+            insertion_level_statistics="projects/{project_name}/results/14_insertion_level_depletion_analysis/insertion_level_statistics.tsv",
+            lfcSE="projects/{project_name}/results/14_insertion_level_depletion_analysis/lfcSE.tsv",
+            stat="projects/{project_name}/results/14_insertion_level_depletion_analysis/stat.tsv",
+            pvalue="projects/{project_name}/results/14_insertion_level_depletion_analysis/pvalue.tsv"
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_has_replicates.log",
         params:
@@ -111,7 +119,8 @@ else:
                     "format": "TSV",
                 },
             ),
-            basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv"
+            basemean="projects/{project_name}/results/14_insertion_level_depletion_analysis/baseMean.tsv",
+            normed_counts="projects/{project_name}/results/14_insertion_level_depletion_analysis/normed_counts.tsv"
         log:
             "projects/{project_name}/logs/depletion_scoring/insertion_level_depletion_analysis_no_replicates.log",
         params:
@@ -144,6 +153,8 @@ rule insertion_level_curve_fitting:
                 "format": "TSV",
             },
         ),
+        fitting_LFCs="projects/{project_name}/results/15_insertion_level_curve_fitting/fitting_LFCs.tsv",
+        fitting_results="projects/{project_name}/results/15_insertion_level_curve_fitting/fitting_results.tsv",
     log:
         "projects/{project_name}/logs/depletion_scoring/insertion_level_curve_fitting.log",
     params:
@@ -254,7 +265,7 @@ rule gene_level_curve_fitting:
     input:
         LFC=rules.gene_level_depletion_analysis.output.LFC,
     output:
-        report(
+        stats=report(
             "projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
             category="3. Gene-level results",
             labels={
@@ -263,6 +274,8 @@ rule gene_level_curve_fitting:
                 "format": "TSV",
             },
         ),
+        fitting_LFCs="projects/{project_name}/results/17_gene_level_curve_fitting/fitting_LFCs.tsv",
+        fitting_results="projects/{project_name}/results/17_gene_level_curve_fitting/fitting_results.tsv",
     log:
         "projects/{project_name}/logs/depletion_scoring/gene_level_curve_fitting.log",
     params:
@@ -278,6 +291,6 @@ rule gene_level_curve_fitting:
             -i {input.LFC} \
             -t {params.time_points} \
             -j {threads} \
-            -o {output} &> {log}
+            -o {output.stats} &> {log}
         """
 

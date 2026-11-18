@@ -6,7 +6,7 @@ snakemake_wrapper_version: v9.13.0
 
 # Working directory and project name
 # -----------------------------------------------------
-workdir: /data/c/yangyusheng_optimized/DIT_HAP
+workdir: /data/c/yangyusheng_optimized/DIT_HAP_snakemake
 project_name: LD_DIT_HAP
 
 # MultiQC configuration

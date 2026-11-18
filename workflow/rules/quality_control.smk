@@ -152,7 +152,7 @@ rule multiqc_preprocessing:
             fragment=["PBL", "PBR"]
         ),
     output:
-        report(
+        html=report(
             f"projects/{project_name}/reports/multiqc/quality_control_multiqc_report.html",
             category="1. Quality Control",
             labels={
@@ -160,6 +160,9 @@ rule multiqc_preprocessing:
                 "type": "MultiQC Report",
                 "format": "HTML",
             },
+        ),
+        data_dir=directory(
+            f"projects/{project_name}/reports/multiqc/quality_control_multiqc_report_data"
         ),
     log:
         f"projects/{project_name}/logs/quality_control/multiqc_quality_control.log",

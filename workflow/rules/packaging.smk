@@ -6,17 +6,14 @@
 # that form the upstream<->downstream contract. Shared reference data
 # (pombase_data) is packaged separately by package_reference below.
 #
-# package_release is run as a separate step after the main pipeline (`all`)
-# and, if desired, the Snakemake HTML/zip report — it is not folded into any
-# aggregate target. package_reference stays standalone too, since it archives
-# reference data shared across projects, not any single project's results.
+# release/ is part of the default `all` target via _release_targets() below;
+# `snakemake -- package_release` remains available as a standalone target.
+# package_reference stays standalone too, since it archives reference data
+# shared across projects, not any single project's results.
 #
-# IMPORTANT — side-outputs: several source files (baseMean.tsv, normed_counts.tsv,
-# insertion_level_statistics.tsv, fitting_*.tsv, imputation_statistics.tsv) are
-# written by scripts NEXT TO a rule's declared output but are NOT themselves
-# declared in any rule's `output:`. Snakemake cannot build an undeclared file
-# on demand, so each release target depends on its rule's DECLARED sibling
-# ("anchor") to drive the DAG, then copies the real source ("src") in the shell.
+# Each release target depends on its source file ("anchor"). Every source is
+# now a declared rule output; the (anchor, src) pairs are kept from when some
+# of them were undeclared side-outputs.
 # =============================================================================
 
 import re
@@ -112,8 +109,7 @@ if config.get("time_points"):
 _ANNOTATIONS_SRC = "12_concatenated/annotations.tsv"
 _ANNOTATIONS_DST = "insertion_level/annotations.tsv.gz"
 
-# imputation_statistics.tsv is a side-output of the DESeq2-replicates branch,
-# anchored on that branch's declared imputed_raw_reads.tsv.
+# imputation_statistics.tsv is written by the DESeq2-replicates branch.
 _HAS_IMPUTATION = config.get("use_DEseq2_for_biological_replicates", False)
 _IMPUTATION_ANCHOR = "13_filtered/imputed_raw_reads.tsv"
 _IMPUTATION_SRC = "13_filtered/imputation_statistics.tsv"

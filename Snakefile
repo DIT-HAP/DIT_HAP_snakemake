@@ -13,8 +13,8 @@ min_version("9.0")
 # ---------------------------------------------------------------------------
 # Select the active project (edit this line to switch experiments).
 # Each project lives under projects/{project}/ with its own config/ and outputs.
-# project = "LD_DIT_HAP"
-project = "HD_DIT_HAP"
+project = "LD_DIT_HAP"
+# project = "HD_DIT_HAP"
 # project = "HD_diploid"
 # project = "LD_haploid"
 # project = "Spikein"
@@ -93,20 +93,25 @@ wildcard_constraints:
 # ---------------------------------------------------------------------------
 # Target rule
 # ---------------------------------------------------------------------------
-# `all` lists exactly the report()-annotated deliverables, grouped by the
-# categories they appear under in the Snakemake report. Intermediates (raw
-# read tables, filtered counts, gene_level_statistics.tsv, …) are pulled in
-# automatically as dependencies and are deliberately not listed here.
+# `all` lists the report()-annotated deliverables, grouped by the categories
+# they appear under in the Snakemake report, plus release/ packaging (via
+# *_release_targets()). Intermediates (raw read tables, filtered counts,
+# gene_level_statistics.tsv, …) are pulled in automatically as dependencies;
+# they are not listed here, but `--notemp` keeps the temp() intermediates on
+# disk after the run.
 #
 # Not part of `all` by design:
 #   - reference data (resources/pombase_data/...): downloaded on demand by the
 #     rules that consume it, only needed when bootstrapping a new project.
-#   - release/ packaging: run separately via
-#       snakemake --use-conda --cores <N> package_release
-#   - the report itself:
+#   - the report itself (CLI-generated after the run):
 #       snakemake --use-conda --cores <N> \
 #           --report projects/{project_name}/reports/snakemake_report/report.zip \
 #           --report-after-run -- all
+
+# Packaging is included before `all` so the release files are part of the
+# default target.
+include: "workflow/rules/packaging.smk"
+
 rule all:
     input:
         # --- report category: Quality Control ---
@@ -145,6 +150,7 @@ rule all:
                 f"projects/{project_name}/results/16_gene_level_depletion_analysis/LFC.tsv",
                 f"projects/{project_name}/results/16_gene_level_depletion_analysis/datavzrd_gene_level_LFC",
                 f"projects/{project_name}/results/17_gene_level_curve_fitting/gene_level_fitting_statistics.tsv",
+                f"projects/{project_name}/reports/distribution_of_gene_level_curve_fitting/distribution_of_gene_level_curve_fitting.pdf",
                 f"projects/{project_name}/results/17_gene_level_curve_fitting/datavzrd_gene_level_curve_fitting",
                 f"projects/{project_name}/reports/gene_level_curve_fitting/gene_level_fitted_curves_sampled.pdf",
             ]
@@ -154,6 +160,9 @@ rule all:
 
         # --- Genome browser BAMs (optional export) ---
         *(bam_targets if config.get("export_genome_browser_bams", False) else []),
+
+        # --- Release packaging ---
+        *_release_targets(),
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +182,5 @@ include: "workflow/rules/reference_data.smk"
 include: "workflow/rules/read_processing.smk"
 include: "workflow/rules/depletion_scoring.smk"
 include: "workflow/rules/quality_control.smk"
-include: "workflow/rules/packaging.smk"
 include: "workflow/rules/figures.smk"
 include: "workflow/rules/datavzrd.smk"

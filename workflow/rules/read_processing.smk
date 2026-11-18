@@ -56,6 +56,8 @@ rule junction_classification:
         PBL_r2=temp(f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBL_2.fq.gz"),
         PBR_r1=temp(f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBR_1.fq.gz"),
         PBR_r2=temp(f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.PBR_2.fq.gz"),
+        unknown_r1=f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.unknown_1.fq.gz",
+        unknown_r2=f"projects/{project_name}/results/2_junction_classification/{{sample}}_{{timepoint}}_{{condition}}.unknown_2.fq.gz",
         json=f"projects/{project_name}/reports/junction_classification/{{sample}}_{{timepoint}}_{{condition}}.json",
     log:
         f"projects/{project_name}/logs/read_processing/junction_classification/{{sample}}_{{timepoint}}_{{condition}}.log",

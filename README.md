@@ -35,15 +35,18 @@ The active project is selected in `Snakefile` — edit the `project = "..."` lin
 # Dry run
 snakemake -n --use-conda
 
-# Full run (active project's default target — see Snakefile's rule all)
-snakemake --use-conda --cores 16
+# Full run (active project's default target — see Snakefile's rule all).
+# `--notemp` keeps the temp() intermediates (1_fastp, 2_junction, 3_mapped,
+# 5_tabulated) on disk after the run.
+snakemake --use-conda --cores 16 --notemp
 
-# Full run + Snakemake HTML/zip report, in one command (see Snakemake report)
-snakemake --use-conda --cores 16 \
+# Full run + release packaging + Snakemake HTML/zip report, in one command.
+# release/ is part of `all`; the report is generated after the run.
+snakemake --use-conda --cores 16 --notemp \
     --report projects/<project_name>/reports/snakemake_report/report.zip \
     --report-after-run -- all
 
-# Package this project's release/ folder (run after the full run above)
+# package_release also remains available as a standalone target
 snakemake --use-conda --cores 16 -- package_release
 
 # Create conda environments only
@@ -59,7 +62,7 @@ Sample sheets (TSV with `Sample`, `Timepoint`, `Condition`, `read1`, `read2`) ar
 
 1. Copy `config/config.template.yaml` to `projects/<name>/config/config.yaml` and `config/sample_sheet.template.tsv` to `projects/<name>/config/sample_sheet.tsv`; fill in both. `project_name` in the config must equal the `<name>` folder (`Snakefile` asserts this).
 2. Uncomment `project = "<name>"` in `Snakefile` (and comment out whichever was active).
-3. Run the full-run + report and `package_release` commands shown above.
+3. Run the full-run + report command shown above (`release/` is included in `all`).
 
 ## Architecture
 

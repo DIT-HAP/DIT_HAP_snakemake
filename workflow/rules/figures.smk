@@ -335,7 +335,7 @@ if config.get("time_points"):
     # -----------------------------------------------------
     rule plot_distribution_of_gene_level_curve_fitting:
         input:
-            rules.gene_level_curve_fitting.output[0],
+            rules.gene_level_curve_fitting.output.stats,
         output:
             report(
                 "projects/{project_name}/reports/distribution_of_gene_level_curve_fitting/distribution_of_gene_level_curve_fitting.pdf",
@@ -356,7 +356,7 @@ if config.get("time_points"):
             "*** Plotting distribution of gene-level curve fitting results..."
         shell:
             """
-            python workflow/scripts/figures/plot_distribution_of_gene_level_curve_fitting.py \
+            python workflow/scripts/figures/plot_distribution_of_curve_fitting.py \
                 -i {input} \
                 -o {params.stem} &> {log}
             """

@@ -76,7 +76,7 @@ rule datavzrd_gene_level_LFC:
 rule datavzrd_gene_level_curve_fitting:
     input:
         config="workflow/reports/datavzrd/gene_level_curve_fitting.yaml",
-        table=rules.gene_level_curve_fitting.output[0],
+        table=rules.gene_level_curve_fitting.output.stats,
     params:
         extra="",
     output:
