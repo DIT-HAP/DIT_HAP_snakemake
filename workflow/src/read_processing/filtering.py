@@ -58,7 +58,9 @@ ALWAYS_INT_FIELDS = frozenset({"MAPQ", "NCIGAR", "Flag", "FLAG"})
 
 # Base fields plus numeric tags that CAN be "N/A" -- coerced to nullable float
 # to match the dtype pd.read_csv would infer for a column containing NaN.
-NULLABLE_NUMERIC_FIELDS = frozenset({"LEN", "Pos", "Ref_Start", "Ref_End"}) | NUMERIC_TAGS
+NULLABLE_NUMERIC_FIELDS = (
+    frozenset({"LEN", "Pos", "Ref_Start", "Ref_End"}) | NUMERIC_TAGS
+)
 
 # Columns checked via .isna() in build_filter_mask -- need the "N/A"/"NA"/""
 # string sentinels turned into real NaN. Every other string column is left
@@ -66,12 +68,14 @@ NULLABLE_NUMERIC_FIELDS = frozenset({"LEN", "Pos", "Ref_Start", "Ref_End"}) | NU
 # unparseable on its own, and no other string column is null-checked.
 ISNA_CHECKED_COLUMNS = ("R1_SA", "R1_XA", "R2_SA", "R2_XA")
 
+
 # =============================================================================
 # DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class FilterThresholds:
     """Per-read filtering thresholds for MAPQ, NCIGAR, NM, and SA/XA alignments."""
+
     mapq_threshold: float | None = None
     ncigar_value: int | None = None
     nm_threshold: int | None = None
@@ -82,11 +86,13 @@ class FilterThresholds:
 @dataclass(kw_only=True, slots=True, frozen=True)
 class AnalysisResult:
     """Statistics from a filtering run."""
+
     total_rows: int
     filtered_rows: int
     removed_rows: int
     retention_rate: float
     chunks_processed: int
+
 
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
@@ -117,16 +123,22 @@ def load_config_from_yaml(config_file) -> dict[str, Any]:
     internal_config["xs_as_ratio_cutoff"] = filtering_config.get("xs_as_ratio_cutoff")
 
     logger.info(f"Loaded configuration from: {config_file}")
-    logger.debug(f"R1 filters: MAPQ={internal_config['read_1_filtering'].mapq_threshold}, NCIGAR={internal_config['read_1_filtering'].ncigar_value}, NM={internal_config['read_1_filtering'].nm_threshold}")
-    logger.debug(f"R2 filters: MAPQ={internal_config['read_2_filtering'].mapq_threshold}, NCIGAR={internal_config['read_2_filtering'].ncigar_value}, NM={internal_config['read_2_filtering'].nm_threshold}")
-    logger.debug(f"Pair filters: no_sa={internal_config['read_1_filtering'].no_sa}, no_xa={internal_config['read_1_filtering'].no_xa}, proper_pair={internal_config['require_proper_pair']}, xs_as_ratio_cutoff={internal_config['xs_as_ratio_cutoff']}")
+    logger.debug(
+        f"R1 filters: MAPQ={internal_config['read_1_filtering'].mapq_threshold}, NCIGAR={internal_config['read_1_filtering'].ncigar_value}, NM={internal_config['read_1_filtering'].nm_threshold}"
+    )
+    logger.debug(
+        f"R2 filters: MAPQ={internal_config['read_2_filtering'].mapq_threshold}, NCIGAR={internal_config['read_2_filtering'].ncigar_value}, NM={internal_config['read_2_filtering'].nm_threshold}"
+    )
+    logger.debug(
+        f"Pair filters: no_sa={internal_config['read_1_filtering'].no_sa}, no_xa={internal_config['read_1_filtering'].no_xa}, proper_pair={internal_config['require_proper_pair']}, xs_as_ratio_cutoff={internal_config['xs_as_ratio_cutoff']}"
+    )
 
     return internal_config
 
 
 def strip_read_prefix(column: str) -> str:
     """Strip a leading R1_/R2_ prefix from a column name, if present."""
-    if column.startswith("R1_") or column.startswith("R2_"):
+    if column.startswith(("R1_", "R2_")):
         return column[3:]
     return column
 
@@ -141,7 +153,9 @@ def coerce_column_dtypes(chunk: pd.DataFrame) -> pd.DataFrame:
         if field in ALWAYS_INT_FIELDS:
             chunk[column] = chunk[column].astype("int64")
         elif field in NULLABLE_NUMERIC_FIELDS:
-            chunk[column] = pd.to_numeric(chunk[column], errors="coerce").astype("float64")
+            chunk[column] = pd.to_numeric(chunk[column], errors="coerce").astype(
+                "float64"
+            )
     return chunk
 
 
@@ -165,32 +179,32 @@ def build_filter_mask(
 
     # Apply R1 filters
     if r1_filters.mapq_threshold is not None:
-        filter_mask &= (chunk["R1_MAPQ"] >= r1_filters.mapq_threshold)
+        filter_mask &= chunk["R1_MAPQ"] >= r1_filters.mapq_threshold
 
     if r1_filters.ncigar_value is not None:
-        filter_mask &= (chunk["R1_NCIGAR"] <= r1_filters.ncigar_value)
+        filter_mask &= chunk["R1_NCIGAR"] <= r1_filters.ncigar_value
 
     if r1_filters.nm_threshold is not None:
-        filter_mask &= (chunk["R1_NM"] <= r1_filters.nm_threshold)
+        filter_mask &= chunk["R1_NM"] <= r1_filters.nm_threshold
 
     if r1_filters.no_sa:
-        filter_mask &= (chunk["R1_SA"].isna() | (chunk["R1_SA"] == "N/A"))
+        filter_mask &= chunk["R1_SA"].isna() | (chunk["R1_SA"] == "N/A")
 
     if r1_filters.no_xa:
         filter_mask &= xa_absent(chunk, "R1")
 
     # Apply R2 filters
     if r2_filters.mapq_threshold is not None:
-        filter_mask &= (chunk["R2_MAPQ"] >= r2_filters.mapq_threshold)
+        filter_mask &= chunk["R2_MAPQ"] >= r2_filters.mapq_threshold
 
     if r2_filters.ncigar_value is not None:
-        filter_mask &= (chunk["R2_NCIGAR"] <= r2_filters.ncigar_value)
+        filter_mask &= chunk["R2_NCIGAR"] <= r2_filters.ncigar_value
 
     if r2_filters.nm_threshold is not None:
-        filter_mask &= (chunk["R2_NM"] <= r2_filters.nm_threshold)
+        filter_mask &= chunk["R2_NM"] <= r2_filters.nm_threshold
 
     if r2_filters.no_sa:
-        filter_mask &= (chunk["R2_SA"].isna() | (chunk["R2_SA"] == "N/A"))
+        filter_mask &= chunk["R2_SA"].isna() | (chunk["R2_SA"] == "N/A")
 
     if r2_filters.no_xa:
         filter_mask &= xa_absent(chunk, "R2")
@@ -208,7 +222,7 @@ def build_filter_mask(
 
     # Apply proper pair filter
     if require_proper_pair:
-        filter_mask &= (chunk["Is_Proper_Pair"].str.capitalize() == "Yes")
+        filter_mask &= chunk["Is_Proper_Pair"].str.capitalize() == "Yes"
 
     return filter_mask
 
@@ -253,8 +267,11 @@ def process_chunk(
 
     # Log progress
     if chunk_num == 1 or chunk_num % 10 == 0:
-        retention_rate = (chunk_filtered_rows / chunk_rows_before * 100
-                          if chunk_rows_before > 0 else 0)
+        retention_rate = (
+            chunk_filtered_rows / chunk_rows_before * 100
+            if chunk_rows_before > 0
+            else 0
+        )
         logger.info(
             f"Chunk {chunk_num}: {chunk_filtered_rows:,}/{chunk_rows_before:,} "
             f"rows retained ({retention_rate:.1f}%)"

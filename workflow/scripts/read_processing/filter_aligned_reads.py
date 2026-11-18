@@ -53,6 +53,7 @@ Author:   Yusheng Yang (guidance) + Claude (implementation)
 Date:     2026-07-09
 Version:  1.0.0
 """
+
 # =============================================================================
 # IMPORTS
 # =============================================================================
@@ -86,12 +87,14 @@ from read_processing.filtering import (
 # =============================================================================
 DEFAULT_CHUNK_SIZE = 50000
 
+
 # =============================================================================
 # CONFIGURATION & DATACLASSES
 # =============================================================================
 @dataclass(kw_only=True, slots=True, frozen=True)
 class InputOutputConfig:
     """Complete filtering configuration: paths, chunk size, and loaded thresholds."""
+
     input_file: Path
     output_file: Path
     chunk_size: int
@@ -107,17 +110,9 @@ class InputOutputConfig:
             output_dir.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(kw_only=True, slots=True, frozen=True)
-class AnalysisResult:
-    """Statistics from a filtering run."""
-    total_rows: int
-    filtered_rows: int
-    removed_rows: int
-    retention_rate: float
-    chunks_processed: int
-
-
 setup_logger()
+
+
 # =============================================================================
 # CORE LOGIC (FUNCTIONS / CLASSES)
 # =============================================================================
@@ -146,7 +141,9 @@ def filter_read_pairs(config: InputOutputConfig) -> AnalysisResult:
             total_rows += len(chunk_df)
 
             if chunk_count % 10 == 0:
-                logger.info(f"Processing chunk {chunk_count}, total rows: {total_rows:,}")
+                logger.info(
+                    f"Processing chunk {chunk_count}, total rows: {total_rows:,}"
+                )
 
             # Process chunk
             filtered_chunk, first_chunk = process_chunk(
@@ -162,11 +159,15 @@ def filter_read_pairs(config: InputOutputConfig) -> AnalysisResult:
 
             # Write filtered chunk as its own row group
             if writer is None:
-                output_schema = pa.Schema.from_pandas(filtered_chunk, preserve_index=False)
+                output_schema = pa.Schema.from_pandas(
+                    filtered_chunk, preserve_index=False
+                )
                 writer = pq.ParquetWriter(config.output_file, output_schema)
                 logger.info(f"Created output file: {config.output_file}")
 
-            table = pa.Table.from_pandas(filtered_chunk, schema=output_schema, preserve_index=False)
+            table = pa.Table.from_pandas(
+                filtered_chunk, schema=output_schema, preserve_index=False
+            )
             writer.write_table(table)
     finally:
         if writer is not None:
@@ -197,16 +198,8 @@ def filter_read_pairs(config: InputOutputConfig) -> AnalysisResult:
     logger.success(f"Overall retention rate: {stats.retention_rate:.2f}%")
     logger.info(f"Output written to: {config.output_file}")
 
-    # Display sample of filtered data
-    if filtered_rows > 0:
-        try:
-            sample_df = pq.ParquetFile(config.output_file).read_row_group(0).to_pandas().head(5)
-            logger.debug("Sample of filtered data (first 5 rows):")
-            logger.debug(f"Shape: {sample_df.shape}")
-        except Exception as e:
-            logger.warning(f"Could not read sample of filtered data: {e}")
-
     return stats
+
 
 # =============================================================================
 # MAIN EXECUTION
@@ -220,12 +213,14 @@ def parse_args() -> argparse.Namespace:
 
     # Required arguments
     parser.add_argument(
-        "-i", "--input",
+        "-i",
+        "--input",
         required=True,
         help="Input Parquet file with read pair data",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         required=True,
         help="Output Parquet file for filtered data",
     )
@@ -237,7 +232,8 @@ def parse_args() -> argparse.Namespace:
 
     # Chunking configuration
     parser.add_argument(
-        "-c", "--chunk-size",
+        "-c",
+        "--chunk-size",
         type=int,
         default=DEFAULT_CHUNK_SIZE,
         help="Number of rows to process per chunk",
@@ -245,7 +241,8 @@ def parse_args() -> argparse.Namespace:
 
     # Logging configuration
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable DEBUG level logging",
     )
@@ -276,8 +273,8 @@ def main() -> int:
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
         return 1
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+    except (OSError, pa.ArrowException) as e:
+        logger.exception(f"Unexpected error: {e}")
         return 1
 
     return 0
@@ -285,6 +282,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-
