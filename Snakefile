@@ -13,12 +13,12 @@ min_version("9.0")
 # ---------------------------------------------------------------------------
 # Select the active project (edit this line to switch experiments).
 # Each project lives under projects/{project}/ with its own config/ and outputs.
-project = "LD_DIT_HAP"
+project = "Spore2YES6_1328"
+# project = "LD_DIT_HAP"
 # project = "HD_DIT_HAP"
 # project = "HD_diploid"
 # project = "LD_haploid"
 # project = "Spikein"
-# project = "Spore2YES6_1328"
 config_file = f"projects/{project}/config/config.yaml"
 configfile: config_file
 validate(config, "workflow/schemas/config.schema.yaml")
@@ -46,6 +46,12 @@ assert project_name == project, (
     f"the project_name in its config.yaml."
 )
 snakemake_wrapper_version = config["snakemake_wrapper_version"]
+
+# --report writes its zip but never creates the parent directory (nothing in
+# the DAG does either, since the report is generated after all jobs finish).
+Path(f"projects/{project_name}/reports/snakemake_report").mkdir(
+    parents=True, exist_ok=True
+)
 
 # ---------------------------------------------------------------------------
 # Sample sheet
