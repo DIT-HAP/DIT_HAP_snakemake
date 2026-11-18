@@ -216,7 +216,7 @@ def main() -> int:
         )
         DeletionLibrary_essentiality = dict(
             zip(Hayles_viability_df["Updated_Systematic_ID"],
-                Hayles_viability_df["Gene dispensability. This study"].str.strip())
+                Hayles_viability_df["Gene_dispensability"].str.strip())
         )
 
         # --- Identify gene categories ---
